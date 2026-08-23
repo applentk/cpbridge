@@ -38,8 +38,8 @@
     </div>
 
     {#if error}
-      <div class="p-3 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm flex items-center space-x-2">
-        <AlertCircle class="w-4 h-4 shrink-0 text-white" />
+      <div class="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm flex items-center space-x-2">
+        <AlertCircle class="w-4 h-4 shrink-0 text-red-400" />
         <span>{error}</span>
       </div>
     {/if}

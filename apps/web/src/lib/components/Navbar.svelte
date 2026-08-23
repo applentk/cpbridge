@@ -1,6 +1,6 @@
 <script lang="ts">
   import { auth } from '$lib/stores/auth';
-  import { Trophy, Code2, Layers, Cpu, LogOut, LogIn, UserPlus, Puzzle } from 'lucide-svelte';
+  import { Trophy, Code2, Layers, Cpu, LogOut, LogIn, UserPlus, Puzzle, ShieldCheck, LayoutDashboard } from 'lucide-svelte';
 </script>
 
 <nav class="border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-50">
@@ -14,23 +14,42 @@
         <span class="text-white">CP<span class="text-zinc-400">Hub</span></span>
       </a>
 
+      <!-- Navigation Links -->
       <div class="hidden md:flex items-center space-x-1">
-        <a href="/problems" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
-          <Code2 class="w-4 h-4 text-zinc-400" />
-          <span>Problems</span>
-        </a>
-        <a href="/problem-sets" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
-          <Layers class="w-4 h-4 text-zinc-400" />
-          <span>Problem Sets</span>
-        </a>
-        <a href="/contests" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
-          <Trophy class="w-4 h-4 text-zinc-400" />
-          <span>Virtual Contests</span>
-        </a>
-        <a href="/submissions" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
-          <Cpu class="w-4 h-4 text-zinc-400" />
-          <span>Submissions</span>
-        </a>
+        {#if $auth.user?.role === 'ADMIN'}
+          <!-- Admin View Top Links -->
+          <a href="/admin" class="px-3 py-1.5 rounded-md text-sm font-medium text-amber-400 hover:text-amber-300 hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
+            <LayoutDashboard class="w-4 h-4 text-amber-400" />
+            <span>Admin Dashboard</span>
+          </a>
+          <a href="/admin/problems" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
+            <Code2 class="w-4 h-4 text-zinc-400" />
+            <span>Problems</span>
+          </a>
+          <a href="/admin/problem-sets" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
+            <Layers class="w-4 h-4 text-zinc-400" />
+            <span>Problem Sets</span>
+          </a>
+          <a href="/admin/contests" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
+            <Trophy class="w-4 h-4 text-zinc-400" />
+            <span>Contests</span>
+          </a>
+          <a href="/contests" class="px-3 py-1.5 rounded-md text-xs font-medium text-zinc-400 hover:text-zinc-200 border border-zinc-800 rounded-lg hover:bg-zinc-800 transition">
+            <span>View User Site</span>
+          </a>
+        {:else}
+          <!-- Regular USER / Guest Navigation -->
+          <a href="/contests" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
+            <Trophy class="w-4 h-4 text-zinc-400" />
+            <span>Contests</span>
+          </a>
+          {#if $auth.user}
+            <a href="/submissions" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
+              <Cpu class="w-4 h-4 text-zinc-400" />
+              <span>Submissions</span>
+            </a>
+          {/if}
+        {/if}
       </div>
     </div>
 
@@ -48,11 +67,18 @@
             <div class="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-600 flex items-center justify-center text-xs text-white font-semibold uppercase">
               {$auth.user.username.slice(0, 2)}
             </div>
-            <span>{$auth.user.username}</span>
+            <div class="flex items-center space-x-1.5">
+              <span>{$auth.user.username}</span>
+              {#if $auth.user.role === 'ADMIN'}
+                <span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                  ADMIN
+                </span>
+              {/if}
+            </div>
           </a>
           <button
             on:click={() => auth.logout()}
-            class="p-1.5 text-zinc-400 hover:text-white rounded-md hover:bg-zinc-800 transition"
+            class="p-1.5 text-zinc-400 hover:text-red-400 rounded-md hover:bg-red-500/10 transition"
             title="Log Out"
           >
             <LogOut class="w-4 h-4" />

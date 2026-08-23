@@ -66,12 +66,12 @@
             {@const pScore = participant.problemScores[prob.problemId]}
             <td class="py-3 px-4 text-center">
               {#if pScore && pScore.solved}
-                <div class="p-1.5 rounded-lg bg-zinc-100 border border-white text-zinc-950 font-mono text-xs font-bold">
+                <div class="p-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-xs font-bold">
                   <div>+{pScore.attempts > 1 ? pScore.attempts - 1 : ''}</div>
-                  <div class="text-[10px] text-zinc-600 font-normal">{pScore.firstSolvedAtMinutes}m</div>
+                  <div class="text-[10px] text-emerald-400/80 font-normal">{pScore.firstSolvedAtMinutes}m</div>
                 </div>
               {:else if pScore && pScore.attempts > 0}
-                <div class="p-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-zinc-400 font-mono text-xs font-bold">
+                <div class="p-1.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 font-mono text-xs font-bold">
                   -{pScore.attempts}
                 </div>
               {:else}

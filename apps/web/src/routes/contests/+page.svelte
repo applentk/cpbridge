@@ -3,7 +3,7 @@
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
   import type { Contest } from '@cp-hub/contracts';
-  import { Trophy, Plus, Clock, Users, ArrowRight } from 'lucide-svelte';
+  import { Trophy, Clock, Users, ArrowRight, ShieldCheck, Plus } from 'lucide-svelte';
 
   let contests: Contest[] = [];
   let loading = true;
@@ -33,17 +33,17 @@
 <div class="space-y-6">
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
     <div>
-      <h1 class="text-3xl font-bold text-white">Virtual Contests</h1>
-      <p class="text-sm text-zinc-400">Compete with friends or practice solo with server-timed virtual contests.</p>
+      <h1 class="text-3xl font-bold text-white">Contests</h1>
+      <p class="text-sm text-zinc-400">Participate in server-timed competitive programming contests and test your problem solving skills.</p>
     </div>
 
-    {#if $auth.user}
+    {#if $auth.user?.role === 'ADMIN'}
       <a
-        href="/contests/new"
+        href="/admin/contests/new"
         class="px-4 py-2.5 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center space-x-2 shrink-0 self-start sm:self-auto"
       >
         <Plus class="w-4 h-4" />
-        <span>Create Virtual Contest</span>
+        <span>Create Contest</span>
       </a>
     {/if}
   </div>
@@ -71,14 +71,14 @@
     </div>
   {:else if filteredContests.length === 0}
     <div class="p-12 rounded-2xl border border-zinc-800 bg-zinc-900/20 text-center space-y-4">
-      <p class="text-zinc-400 text-base">No contests found.</p>
-      {#if $auth.user}
+      <p class="text-zinc-400 text-base">No contests currently available.</p>
+      {#if $auth.user?.role === 'ADMIN'}
         <a
-          href="/contests/new"
+          href="/admin/contests/new"
           class="px-4 py-2 rounded-xl text-sm font-bold bg-white hover:bg-zinc-200 text-black transition inline-flex items-center space-x-1.5"
         >
           <Plus class="w-4 h-4" />
-          <span>Host a Contest</span>
+          <span>Create a Contest</span>
         </a>
       {/if}
     </div>
@@ -92,7 +92,7 @@
           <div class="space-y-3">
             <div class="flex items-center justify-between">
               <span class="text-xs px-2.5 py-0.5 rounded-full font-bold {
-                c.state === 'ACTIVE' ? 'bg-white text-black border border-white' :
+                c.state === 'ACTIVE' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
                 c.state === 'UPCOMING' ? 'bg-zinc-800 text-zinc-300 border border-zinc-700' :
                 'bg-zinc-950 text-zinc-500 border border-zinc-800'
               }">
@@ -122,7 +122,7 @@
           <div class="flex items-center justify-between pt-3 border-t border-zinc-800 text-xs">
             <span class="text-zinc-500">by {c.ownerUsername}</span>
             <span class="text-zinc-300 font-semibold flex items-center space-x-1 group-hover:text-white group-hover:translate-x-0.5 transition">
-              <span>Enter Contest</span>
+              <span>View Contest</span>
               <ArrowRight class="w-3.5 h-3.5" />
             </span>
           </div>

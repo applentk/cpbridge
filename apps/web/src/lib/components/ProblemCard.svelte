@@ -17,7 +17,10 @@
       <a href={`/problems/${problem.id}`} class="font-semibold text-white hover:text-zinc-300 transition text-base">
         {problem.title}
       </a>
-      <span class="text-xs px-2 py-0.5 rounded-full font-mono font-semibold bg-zinc-800 text-zinc-300 border border-zinc-700">
+      <span class="text-xs px-2 py-0.5 rounded-full font-mono font-semibold {
+        problem.platform === 'CODEFORCES' ? 'bg-red-500/15 text-red-300 border border-red-500/30' :
+        'bg-zinc-800 text-zinc-300 border border-zinc-700'
+      }">
         {problem.platform}
       </span>
       {#if problem.difficulty}

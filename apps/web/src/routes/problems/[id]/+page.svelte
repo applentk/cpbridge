@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
-  import { pingExtension, submitViaExtension } from '$lib/extension/bridge';
+  import { pingExtension, submitViaExtension, pollStatusViaExtension } from '$lib/extension/bridge';
   import { renderMathInHtml } from '$lib/utils/math';
   import type { Problem, LanguageId, Submission, ProblemStatement } from '@cp-hub/contracts';
   import MonacoEditor from '$lib/components/MonacoEditor.svelte';
@@ -43,6 +43,7 @@
   let submitStatus = '';
   let activeSubmission: Submission | null = null;
   let recentSubmissions: Submission[] = [];
+  let pollInterval: any = null;
 
   let uploadSuccessMessage = '';
   let fileInputElement: HTMLInputElement;
@@ -128,6 +129,15 @@
     try {
       problem = await api.get<Problem>(`/problems/${problemId}`);
       await Promise.all([loadStatement(), loadSubmissions()]);
+      // If there's an ongoing judging submission, start polling
+      if (recentSubmissions.length > 0) {
+        const latest = recentSubmissions[0];
+        if (latest.status === 'JUDGING' || latest.status === 'PENDING' || latest.status === 'DISPATCHING') {
+          activeSubmission = latest;
+          submitStatus = `Judging in progress... Status: ${latest.status}`;
+          startSubmissionPolling(latest.id);
+        }
+      }
     } catch (err: any) {
       error = err.message || 'Failed to load problem';
     } finally {
@@ -163,6 +173,62 @@
     }, 2000);
   }
 
+  function stopSubmissionPolling() {
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
+  }
+
+  function startSubmissionPolling(submissionId: string) {
+    stopSubmissionPolling();
+    let attempts = 0;
+    const maxAttempts = 60; // poll up to ~2.5 minutes
+
+    pollInterval = setInterval(async () => {
+      attempts++;
+      if (attempts > maxAttempts) {
+        stopSubmissionPolling();
+        return;
+      }
+
+      try {
+        // 1. Sync via Backend Platform Adapter
+        const updated = await api.post<Submission>(`/submissions/${submissionId}/sync`);
+        if (updated && updated.status !== 'JUDGING' && updated.status !== 'PENDING' && updated.status !== 'DISPATCHING') {
+          activeSubmission = updated;
+          submitStatus = `Verdict: ${updated.status}`;
+          stopSubmissionPolling();
+          await loadSubmissions();
+          return;
+        }
+
+        // 2. Also check via Chrome Extension Bridge if available
+        if (problem && updated && updated.externalSubmissionId) {
+          const extRes = await pollStatusViaExtension(
+            problem.platform,
+            updated.externalSubmissionId,
+            problem.externalId,
+            problem.url
+          );
+          if (extRes && extRes.status && extRes.status !== 'JUDGING' && extRes.status !== 'PENDING') {
+            await api.post(`/submissions/${submissionId}/result`, {
+              status: extRes.status,
+              metadata: { syncedViaExtension: true }
+            });
+            activeSubmission = { ...updated, status: extRes.status as any };
+            submitStatus = `Verdict: ${extRes.status}`;
+            stopSubmissionPolling();
+            await loadSubmissions();
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('Polling status error:', err);
+      }
+    }, 2500);
+  }
+
   async function handleSubmit() {
     if (!$auth.user) {
       alert('Please log in to submit a solution');
@@ -172,6 +238,7 @@
 
     submitting = true;
     submitStatus = 'Creating submission...';
+    stopSubmissionPolling();
 
     try {
       const sub = await api.post<Submission>('/submissions', {
@@ -193,11 +260,13 @@
       );
 
       if (extRes.type === 'SUBMISSION_CREATED') {
-        submitStatus = 'Submitted! Status: JUDGING';
+        submitStatus = 'Submitted! Status: JUDGING (Polling verdict...)';
         await api.post(`/submissions/${sub.id}/dispatched`, {
           externalSubmissionId: extRes.externalSubmissionId
         });
         activeSubmission.status = 'JUDGING';
+        activeSubmission.externalSubmissionId = extRes.externalSubmissionId;
+        startSubmissionPolling(sub.id);
       } else {
         submitStatus = `Extension notice: ${extRes.error || 'Fallback to manual verification'}`;
       }
@@ -213,11 +282,13 @@
   async function handleMockVerdict(status: 'ACCEPTED' | 'WRONG_ANSWER' | 'TIME_LIMIT') {
     if (!activeSubmission) return;
     try {
+      stopSubmissionPolling();
       await api.post(`/submissions/${activeSubmission.id}/result`, {
         status,
         metadata: { manualRecord: true }
       });
       activeSubmission.status = status;
+      submitStatus = `Verdict: ${status}`;
       await loadSubmissions();
     } catch (err) {
       console.error(err);
@@ -227,12 +298,16 @@
   onMount(() => {
     loadProblem();
   });
+
+  onDestroy(() => {
+    stopSubmissionPolling();
+  });
 </script>
 
 {#if loading}
   <div class="h-96 rounded-2xl bg-zinc-900/40 border border-zinc-800 animate-pulse"></div>
 {:else if error || !problem}
-  <div class="p-8 rounded-2xl border border-zinc-700 bg-zinc-900 text-zinc-200 space-y-2">
+  <div class="p-8 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300 space-y-2">
     <h2 class="text-xl font-bold">Error loading problem</h2>
     <p class="text-sm">{error || 'Problem not found.'}</p>
   </div>
@@ -243,7 +318,10 @@
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div class="space-y-1.5">
           <div class="flex items-center space-x-2.5">
-            <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold font-mono bg-zinc-800 text-zinc-300 border border-zinc-700">
+            <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold font-mono {
+              problem.platform === 'CODEFORCES' ? 'bg-red-500/15 text-red-300 border border-red-500/30' :
+              'bg-zinc-800 text-zinc-300 border border-zinc-700'
+            }">
               {problem.platform}
             </span>
             <span class="text-xs font-mono text-zinc-400">{problem.externalId}</span>
@@ -377,51 +455,51 @@
             <!-- Sample Cases -->
             {#if statement && statement.sampleCases && statement.sampleCases.length > 0}
               <div class="space-y-4 pt-4 border-t border-zinc-800">
-                <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
-                  <Terminal class="w-4 h-4 text-white" />
+                <h3 class="text-base font-bold text-white uppercase tracking-wider flex items-center space-x-2">
+                  <Terminal class="w-5 h-5 text-white" />
                   <span>Sample Test Cases</span>
                 </h3>
 
                 {#each statement.sampleCases as sc, idx}
-                  <div class="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/80 space-y-3">
-                    <div class="text-xs font-bold text-zinc-400 uppercase">Example {idx + 1}</div>
-                    <div class="space-y-1">
-                      <div class="flex items-center justify-between text-xs font-mono text-zinc-400">
+                  <div class="p-4 rounded-xl border border-zinc-800 bg-zinc-950/80 space-y-3">
+                    <div class="text-sm font-bold text-zinc-300 uppercase">Example {idx + 1}</div>
+                    <div class="space-y-1.5">
+                      <div class="flex items-center justify-between text-sm font-mono text-zinc-300">
                         <span>Input:</span>
                         <button
                           on:click={() => copyToClipboard(sc.input, `in_split_${idx}`)}
-                          class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
+                          class="px-2 py-0.5 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
                         >
                           {#if copiedCaseIndex === `in_split_${idx}`}
-                            <Check class="w-3.5 h-3.5 text-white" />
-                            <span class="text-[10px] text-white">Copied!</span>
+                            <Check class="w-4 h-4 text-emerald-400" />
+                            <span class="text-xs text-emerald-400">Copied!</span>
                           {:else}
-                            <Copy class="w-3.5 h-3.5" />
-                            <span class="text-[10px]">Copy</span>
+                            <Copy class="w-4 h-4" />
+                            <span class="text-xs">Copy</span>
                           {/if}
                         </button>
                       </div>
-                      <pre class="p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-200 overflow-x-auto select-all">{sc.input}</pre>
+                      <pre class="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm md:text-base font-mono text-zinc-200 overflow-x-auto select-all leading-relaxed">{sc.input}</pre>
                     </div>
 
                     {#if sc.output}
-                      <div class="space-y-1">
-                        <div class="flex items-center justify-between text-xs font-mono text-zinc-400">
+                      <div class="space-y-1.5">
+                        <div class="flex items-center justify-between text-sm font-mono text-zinc-300">
                           <span>Output:</span>
                           <button
                             on:click={() => copyToClipboard(sc.output, `out_split_${idx}`)}
-                            class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
+                            class="px-2 py-0.5 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
                           >
                             {#if copiedCaseIndex === `out_split_${idx}`}
-                              <Check class="w-3.5 h-3.5 text-white" />
-                              <span class="text-[10px] text-white">Copied!</span>
+                              <Check class="w-4 h-4 text-emerald-400" />
+                              <span class="text-xs text-emerald-400">Copied!</span>
                             {:else}
-                              <Copy class="w-3.5 h-3.5" />
-                              <span class="text-[10px]">Copy</span>
+                              <Copy class="w-4 h-4" />
+                              <span class="text-xs">Copy</span>
                             {/if}
                           </button>
                         </div>
-                        <pre class="p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-200 overflow-x-auto select-all">{sc.output}</pre>
+                        <pre class="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm md:text-base font-mono text-zinc-200 overflow-x-auto select-all leading-relaxed">{sc.output}</pre>
                       </div>
                     {/if}
                   </div>
@@ -475,8 +553,8 @@
           </div>
 
           {#if uploadSuccessMessage}
-            <div class="px-3 py-2 rounded-xl bg-zinc-100 border border-white text-black text-xs font-semibold flex items-center space-x-2">
-              <CheckCircle2 class="w-3.5 h-3.5 shrink-0 text-black" />
+            <div class="px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center space-x-2">
+              <CheckCircle2 class="w-3.5 h-3.5 shrink-0 text-emerald-400" />
               <span>{uploadSuccessMessage}</span>
             </div>
           {/if}
@@ -493,8 +571,8 @@
                 <span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Verdict</span>
                 {#if activeSubmission}
                   <span class="text-xs font-bold font-mono px-2 py-0.5 rounded-lg {
-                    activeSubmission.status === 'ACCEPTED' ? 'bg-white text-black border border-white' :
-                    activeSubmission.status === 'WRONG_ANSWER' ? 'bg-zinc-900 text-zinc-300 border border-zinc-600' :
+                    activeSubmission.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+                    activeSubmission.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
                     'bg-zinc-800 text-zinc-200 border border-zinc-700'
                   }">
                     {activeSubmission.status}
@@ -527,55 +605,55 @@
               <!-- Sample Test Cases -->
               {#if statement && statement.sampleCases && statement.sampleCases.length > 0}
                 <div class="space-y-4 pt-6 border-t border-zinc-800">
-                  <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
-                    <Terminal class="w-4 h-4 text-white" />
+                  <h3 class="text-base font-bold text-white uppercase tracking-wider flex items-center space-x-2">
+                    <Terminal class="w-5 h-5 text-white" />
                     <span>Sample Test Cases</span>
                   </h3>
 
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {#each statement.sampleCases as sc, idx}
-                      <div class="p-4 rounded-xl border border-zinc-800 bg-zinc-950/80 space-y-3">
-                        <div class="text-xs font-bold text-zinc-400 uppercase">Example {idx + 1}</div>
+                      <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-950/80 space-y-4">
+                        <div class="text-sm font-bold text-zinc-300 uppercase">Example {idx + 1}</div>
 
                         <!-- Input -->
-                        <div class="space-y-1">
-                          <div class="flex items-center justify-between text-xs font-mono text-zinc-400">
+                        <div class="space-y-1.5">
+                          <div class="flex items-center justify-between text-sm font-mono text-zinc-300">
                             <span>Input:</span>
                             <button
                               on:click={() => copyToClipboard(sc.input, `in_tab_${idx}`)}
-                              class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
+                              class="px-2 py-0.5 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
                             >
                               {#if copiedCaseIndex === `in_tab_${idx}`}
-                                <Check class="w-3.5 h-3.5 text-white" />
-                                <span class="text-[10px] text-white">Copied!</span>
+                                <Check class="w-4 h-4 text-emerald-400" />
+                                <span class="text-xs text-emerald-400">Copied!</span>
                               {:else}
-                                <Copy class="w-3.5 h-3.5" />
-                                <span class="text-[10px]">Copy</span>
+                                <Copy class="w-4 h-4" />
+                                <span class="text-xs">Copy</span>
                               {/if}
                             </button>
                           </div>
-                          <pre class="p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-200 overflow-x-auto select-all">{sc.input}</pre>
+                          <pre class="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm md:text-base font-mono text-zinc-200 overflow-x-auto select-all leading-relaxed">{sc.input}</pre>
                         </div>
 
                         <!-- Output -->
                         {#if sc.output}
-                          <div class="space-y-1">
-                            <div class="flex items-center justify-between text-xs font-mono text-zinc-400">
+                          <div class="space-y-1.5">
+                            <div class="flex items-center justify-between text-sm font-mono text-zinc-300">
                               <span>Output:</span>
                               <button
                                 on:click={() => copyToClipboard(sc.output, `out_tab_${idx}`)}
-                                class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
+                                class="px-2 py-0.5 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
                               >
                                 {#if copiedCaseIndex === `out_tab_${idx}`}
-                                  <Check class="w-3.5 h-3.5 text-white" />
-                                  <span class="text-[10px] text-white">Copied!</span>
+                                  <Check class="w-4 h-4 text-emerald-400" />
+                                  <span class="text-xs text-emerald-400">Copied!</span>
                                 {:else}
-                                  <Copy class="w-3.5 h-3.5" />
-                                  <span class="text-[10px]">Copy</span>
+                                  <Copy class="w-4 h-4" />
+                                  <span class="text-xs">Copy</span>
                                 {/if}
                               </button>
                             </div>
-                            <pre class="p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-200 overflow-x-auto select-all">{sc.output}</pre>
+                            <pre class="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm md:text-base font-mono text-zinc-200 overflow-x-auto select-all leading-relaxed">{sc.output}</pre>
                           </div>
                         {/if}
                       </div>
@@ -658,8 +736,8 @@
 
             <!-- Upload Feedback Notification -->
             {#if uploadSuccessMessage}
-              <div class="px-4 py-2.5 rounded-xl bg-zinc-100 border border-white text-black text-xs font-semibold flex items-center space-x-2">
-                <CheckCircle2 class="w-4 h-4 shrink-0 text-black" />
+              <div class="px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center space-x-2">
+                <CheckCircle2 class="w-4 h-4 shrink-0 text-emerald-400" />
                 <span class="font-medium">{uploadSuccessMessage}</span>
               </div>
             {/if}
@@ -676,8 +754,8 @@
                   <span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Submission Verdict</span>
                   {#if activeSubmission}
                     <span class="text-xs font-bold font-mono px-3 py-1 rounded-lg {
-                      activeSubmission.status === 'ACCEPTED' ? 'bg-white text-black border border-white' :
-                      activeSubmission.status === 'WRONG_ANSWER' ? 'bg-zinc-900 text-zinc-300 border border-zinc-600' :
+                      activeSubmission.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+                      activeSubmission.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
                       'bg-zinc-800 text-zinc-200 border border-zinc-700'
                     }">
                       {activeSubmission.status}
@@ -692,13 +770,13 @@
                     <span class="text-xs text-zinc-500">Record dev mock verdict:</span>
                     <button
                       on:click={() => handleMockVerdict('ACCEPTED')}
-                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-zinc-100 hover:bg-white text-black border border-zinc-300 transition"
+                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition"
                     >
                       Mark AC
                     </button>
                     <button
                       on:click={() => handleMockVerdict('WRONG_ANSWER')}
-                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-600 transition"
+                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition"
                     >
                       Mark WA
                     </button>
@@ -723,8 +801,8 @@
                       <div class="text-zinc-500">{new Date(sub.submittedAt).toLocaleString()}</div>
                     </div>
                     <span class="font-bold font-mono px-3 py-1.5 rounded-lg {
-                      sub.status === 'ACCEPTED' ? 'bg-white text-black border border-white' :
-                      sub.status === 'WRONG_ANSWER' ? 'bg-zinc-900 text-zinc-300 border border-zinc-600' :
+                      sub.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+                      sub.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
                       'bg-zinc-800 text-zinc-400 border border-zinc-700'
                     }">
                       {sub.status}

@@ -8,7 +8,7 @@
   <div class="text-center max-w-3xl mx-auto space-y-6">
     <div class="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-semibold">
       <Sparkles class="w-3.5 h-3.5 text-white" />
-      <span>One Account. Codeforces + AtCoder + LeetCode.</span>
+      <span>One Account. Codeforces + AtCoder.</span>
     </div>
 
     <h1 class="text-5xl sm:text-6xl font-extrabold tracking-tight text-white leading-tight">
@@ -19,13 +19,13 @@
     </h1>
 
     <p class="text-lg text-zinc-400 max-w-2xl mx-auto">
-      Browse and import problems from multiple platforms, organize reusable problem sets, host ICPC-style virtual contests, and write code in an integrated Monaco editor without leaking credentials.
+      Browse and import problems from multiple platforms, organize reusable problem sets, host ICPC-style contests, and write code in an integrated Monaco editor without leaking credentials.
     </p>
 
     <div class="flex items-center justify-center space-x-4 pt-2">
       {#if $auth.user}
-        <a href="/dashboard" class="px-6 py-3 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-lg shadow-white/5 transition flex items-center space-x-2">
-          <span>Go to Dashboard</span>
+        <a href="/contests" class="px-6 py-3 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-lg shadow-white/5 transition flex items-center space-x-2">
+          <span>Explore Contests</span>
           <ArrowRight class="w-4 h-4" />
         </a>
       {:else}
@@ -33,17 +33,17 @@
           <span>Get Started Free</span>
           <ArrowRight class="w-4 h-4" />
         </a>
-        <a href="/problems" class="px-6 py-3 rounded-xl font-semibold border border-zinc-800 bg-zinc-900/80 hover:bg-zinc-800 text-zinc-200 hover:text-white transition">
-          Browse Problems
+        <a href="/contests" class="px-6 py-3 rounded-xl font-semibold border border-zinc-800 bg-zinc-900/80 hover:bg-zinc-800 text-zinc-200 hover:text-white transition">
+          View Contests
         </a>
       {/if}
     </div>
   </div>
 
   <!-- Platform Cards -->
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
     <div class="p-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 transition space-y-4">
-      <div class="w-12 h-12 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-white font-bold text-lg">
+      <div class="w-12 h-12 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 font-bold text-lg">
         CF
       </div>
       <h3 class="text-xl font-bold text-white">Codeforces</h3>
@@ -59,16 +59,6 @@
       <h3 class="text-xl font-bold text-white">AtCoder</h3>
       <p class="text-sm text-zinc-400">
         Full support for AtCoder Beginner, Regular, and Grand Contests tasks with official URL import and judging feedback.
-      </p>
-    </div>
-
-    <div class="p-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 transition space-y-4">
-      <div class="w-12 h-12 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-white font-bold text-lg">
-        LC
-      </div>
-      <h3 class="text-xl font-bold text-white">LeetCode</h3>
-      <p class="text-sm text-zinc-400">
-        Seamless GraphQL problem schema importing and automated submission dispatching for interview practice.
       </p>
     </div>
   </div>
@@ -87,7 +77,7 @@
         </div>
         <div class="space-y-1">
           <h4 class="font-semibold text-white">Reusable Problem Sets</h4>
-          <p class="text-sm text-zinc-400">Curate training sets across different platforms, reorder problems, and share sets with teammates.</p>
+          <p class="text-sm text-zinc-400">Curate training sets across different platforms, reorder problems, and snapshot them into contests.</p>
         </div>
       </div>
 
@@ -96,7 +86,7 @@
           <Trophy class="w-6 h-6" />
         </div>
         <div class="space-y-1">
-          <h4 class="font-semibold text-white">Virtual Contests & ICPC Scoring</h4>
+          <h4 class="font-semibold text-white">Contests & ICPC Scoring</h4>
           <p class="text-sm text-zinc-400">Snapshot problem sets into live contests with server-enforced countdowns, problem reveals, and penalty calculations.</p>
         </div>
       </div>

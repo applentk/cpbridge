@@ -47,7 +47,7 @@
 </script>
 
 <div class="flex items-center space-x-3 px-4 py-2 rounded-xl border backdrop-blur-md shadow-sm {
-  state === 'ACTIVE' ? 'border-zinc-500 text-white bg-zinc-900/90 shadow-sm' :
+  state === 'ACTIVE' ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10 shadow-sm' :
   state === 'UPCOMING' ? 'border-zinc-700 text-zinc-200 bg-zinc-900/80' :
   'border-zinc-800 text-zinc-500 bg-zinc-950'
 }">
@@ -58,9 +58,9 @@
       <div class="text-lg font-mono font-bold tracking-tight text-white">{remainingText}</div>
     </div>
   {:else if state === 'ACTIVE'}
-    <Play class="w-5 h-5 text-white" />
+    <Play class="w-5 h-5 text-emerald-400 animate-pulse" />
     <div>
-      <div class="text-xs uppercase font-bold tracking-wider text-zinc-300">Time Remaining</div>
+      <div class="text-xs uppercase font-bold tracking-wider text-emerald-400/90">Time Remaining</div>
       <div class="text-lg font-mono font-bold tracking-tight text-white">{remainingText}</div>
     </div>
   {:else}

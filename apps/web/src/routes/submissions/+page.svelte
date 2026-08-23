@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
   import type { Submission } from '@cp-hub/contracts';
@@ -8,9 +8,10 @@
   let submissions: Submission[] = [];
   let loading = true;
   let filterUser = '';
+  let interval: any = null;
 
-  async function loadSubmissions() {
-    loading = true;
+  async function loadSubmissions(silent = false) {
+    if (!silent) loading = true;
     try {
       let path = '/submissions?limit=50';
       if (filterUser) path += `&userId=${filterUser}`;
@@ -18,12 +19,23 @@
     } catch (err) {
       console.error(err);
     } finally {
-      loading = false;
+      if (!silent) loading = false;
     }
   }
 
   onMount(() => {
     loadSubmissions();
+    // Poll every 3 seconds to auto-update judging submissions
+    interval = setInterval(() => {
+      const hasPending = submissions.some(s => s.status === 'JUDGING' || s.status === 'PENDING' || s.status === 'DISPATCHING');
+      if (hasPending) {
+        loadSubmissions(true);
+      }
+    }, 3000);
+  });
+
+  onDestroy(() => {
+    if (interval) clearInterval(interval);
   });
 </script>
 
@@ -52,7 +64,7 @@
         </button>
       {/if}
       <button
-        on:click={loadSubmissions}
+        on:click={() => loadSubmissions()}
         class="p-2.5 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
         title="Refresh"
       >
@@ -99,7 +111,9 @@
               </td>
 
               <td class="py-3 px-4">
-                <span class="px-2 py-0.5 rounded text-[11px] font-bold text-zinc-300">
+                <span class="px-2 py-0.5 rounded text-[11px] font-bold font-mono {
+                  s.platform === 'CODEFORCES' ? 'text-red-400' : 'text-zinc-300'
+                }">
                   {s.platform}
                 </span>
               </td>
@@ -110,8 +124,8 @@
 
               <td class="py-3 px-4">
                 <span class="px-2.5 py-1 rounded-md font-bold {
-                  s.status === 'ACCEPTED' ? 'bg-white text-black border border-white' :
-                  s.status === 'WRONG_ANSWER' ? 'bg-zinc-900 text-zinc-300 border border-zinc-600' :
+                  s.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+                  s.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
                   s.status === 'JUDGING' || s.status === 'PENDING' ? 'bg-zinc-800 text-zinc-200 border border-zinc-700 font-medium' :
                   'bg-zinc-950 text-zinc-400 border border-zinc-800'
                 }">

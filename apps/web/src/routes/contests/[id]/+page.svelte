@@ -6,7 +6,7 @@
   import type { Contest, ContestProblem } from '@cp-hub/contracts';
   import ContestTimer from '$lib/components/ContestTimer.svelte';
   import ProblemCard from '$lib/components/ProblemCard.svelte';
-  import { Trophy, Users, Shield, ArrowRight, Lock, Play, AlertCircle, RefreshCw } from 'lucide-svelte';
+  import { Trophy, Users, Shield, ArrowRight, Lock, Play, AlertCircle, RefreshCw, Edit3 } from 'lucide-svelte';
 
   let contestId = $page.params.id;
   let contest: Contest | null = null;
@@ -53,7 +53,7 @@
 {#if loading}
   <div class="h-96 rounded-2xl bg-zinc-900/40 border border-zinc-800 animate-pulse"></div>
 {:else if error || !contest}
-  <div class="p-8 rounded-2xl border border-zinc-700 bg-zinc-900 text-zinc-200">
+  <div class="p-8 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300">
     <h2 class="text-xl font-bold">Error</h2>
     <p class="text-sm">{error || 'Contest not found.'}</p>
   </div>
@@ -65,7 +65,7 @@
         <div class="space-y-2">
           <div class="flex items-center space-x-2.5">
             <span class="text-xs px-2.5 py-0.5 rounded-full font-bold {
-              contest.state === 'ACTIVE' ? 'bg-white text-black border border-white' :
+              contest.state === 'ACTIVE' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
               contest.state === 'UPCOMING' ? 'bg-zinc-800 text-zinc-300 border border-zinc-700' :
               'bg-zinc-950 text-zinc-500 border border-zinc-800'
             }">
@@ -77,6 +77,14 @@
             </span>
 
             <span class="text-xs text-zinc-500">by {contest.ownerUsername}</span>
+
+            {#if $auth.user?.role === 'ADMIN'}
+              <span class="text-xs px-2 py-0.5 rounded font-mono font-bold {
+                contest.publicationStatus === 'PUBLISHED' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+              }">
+                {contest.publicationStatus}
+              </span>
+            {/if}
           </div>
 
           <h1 class="text-3xl sm:text-4xl font-extrabold text-white">{contest.name}</h1>
@@ -94,6 +102,16 @@
             <Trophy class="w-4 h-4" />
             <span>Scoreboard</span>
           </a>
+
+          {#if $auth.user?.role === 'ADMIN'}
+            <a
+              href={`/admin/contests/${contest.id}/edit`}
+              class="px-4 py-3 rounded-xl font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition flex items-center justify-center space-x-1.5 text-sm"
+            >
+              <Edit3 class="w-4 h-4" />
+              <span>Edit Contest</span>
+            </a>
+          {/if}
         </div>
       </div>
 
@@ -109,12 +127,12 @@
         {#if $auth.user && !contest.isParticipant && contest.state !== 'FINISHED'}
           <button
             on:click={handleJoin}
-            class="px-3.5 py-1.5 rounded-lg font-bold bg-white hover:bg-zinc-200 text-black transition text-xs shadow-sm"
+            class="px-3.5 py-1.5 rounded-lg font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition text-xs shadow-sm"
           >
             Join Contest
           </button>
         {:else if contest.isParticipant}
-          <span class="text-white font-medium">✓ You are participating</span>
+          <span class="text-emerald-400 font-medium">✓ You are participating</span>
         {/if}
       </div>
     </div>
@@ -124,7 +142,9 @@
       <div class="flex items-center justify-between">
         <h2 class="text-xl font-bold text-white flex items-center space-x-2">
           <span>Contest Problems</span>
-          <span class="text-xs font-mono text-zinc-500">({problems.length})</span>
+          {#if contest.state !== 'UPCOMING' || $auth.user?.role === 'ADMIN'}
+            <span class="text-xs font-mono text-zinc-500">({problems.length})</span>
+          {/if}
         </h2>
 
         <button
@@ -136,23 +156,20 @@
         </button>
       </div>
 
-      {#if contest.state === 'UPCOMING'}
-        <!-- Pre-contest problem lock screen -->
+      {#if contest.state === 'UPCOMING' && $auth.user?.role !== 'ADMIN'}
+        <!-- Pre-contest problem lock screen for normal users -->
         <div class="p-12 rounded-2xl border border-zinc-800 bg-zinc-900/50 text-center space-y-3">
           <div class="w-12 h-12 rounded-full bg-zinc-800 border border-zinc-700 text-white flex items-center justify-center mx-auto">
             <Lock class="w-6 h-6" />
           </div>
-          <h3 class="text-lg font-bold text-white">Problems are Hidden</h3>
+          <h3 class="text-lg font-bold text-white">Problems are Locked</h3>
           <p class="text-xs text-zinc-400 max-w-md mx-auto">
-            Problem statements and titles will automatically unlock when the countdown timer reaches zero.
+            Problem statements and titles will automatically unlock when the contest starts.
           </p>
-          <div class="flex justify-center space-x-2 pt-2">
-            {#each problems as p}
-              <div class="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center font-bold text-zinc-400 text-sm">
-                {p.label}
-              </div>
-            {/each}
-          </div>
+        </div>
+      {:else if problems.length === 0}
+        <div class="p-8 rounded-2xl border border-zinc-800 bg-zinc-900/20 text-center text-sm text-zinc-500">
+          No problems have been added to this contest yet.
         </div>
       {:else}
         <!-- Unlocked problems list -->

@@ -42,7 +42,7 @@
 {#if loading}
   <div class="h-96 rounded-2xl bg-zinc-900/40 border border-zinc-800 animate-pulse"></div>
 {:else if error || !contest || !standings}
-  <div class="p-8 rounded-2xl border border-zinc-700 bg-zinc-900 text-zinc-200">
+  <div class="p-8 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300">
     <h2 class="text-xl font-bold">Error</h2>
     <p class="text-sm">{error || 'Standings not available.'}</p>
   </div>
