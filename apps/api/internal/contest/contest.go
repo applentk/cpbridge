@@ -37,6 +37,11 @@ const (
 	PublicationPublished = "PUBLISHED"
 )
 
+const (
+	VisibilityPublic  = "PUBLIC"
+	VisibilityPrivate = "PRIVATE"
+)
+
 type ContestProblem struct {
 	ContestID string           `json:"contestId"`
 	ProblemID string           `json:"problemId"`
@@ -233,11 +238,21 @@ func (s *Service) GetByID(ctx context.Context, contestID string, requestingUserI
 		return nil, err
 	}
 
-	if !isAdmin && c.PublicationStatus == PublicationDraft && c.OwnerID != requestingUserID {
-		return nil, errors.New("contest not found")
+	if !isAdmin {
+		if c.PublicationStatus == PublicationDraft && c.OwnerID != requestingUserID {
+			return nil, errors.New("contest not found")
+		}
+		if c.Visibility == VisibilityPrivate && c.OwnerID != requestingUserID && !c.IsParticipant {
+			return nil, errors.New("contest is private")
+		}
 	}
 
-	c.State = CalculateState(s.timeClock(), c.StartAt, c.EndAt)
+	now := s.timeClock()
+	var dbNow time.Time
+	if err := s.db.QueryRowContext(ctx, "SELECT NOW()").Scan(&dbNow); err == nil && !dbNow.IsZero() {
+		now = dbNow.UTC()
+	}
+	c.State = CalculateState(now, c.StartAt, c.EndAt)
 
 	// Fetch contest problems
 	problems, err := s.GetProblems(ctx, contestID, requestingUserID, isAdmin)
@@ -250,21 +265,35 @@ func (s *Service) GetByID(ctx context.Context, contestID string, requestingUserI
 
 func (s *Service) GetProblems(ctx context.Context, contestID string, requestingUserID string, isAdmin bool) ([]ContestProblem, error) {
 	var startAt, endAt time.Time
-	var pubStatus string
-	var ownerID string
-	err := s.db.QueryRowContext(ctx, `SELECT start_at, end_at, publication_status, owner_id FROM contests WHERE id = $1`, contestID).Scan(&startAt, &endAt, &pubStatus, &ownerID)
+	var pubStatus, visibility, ownerID string
+	var isParticipant bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT start_at, end_at, publication_status, visibility, owner_id,
+		       EXISTS(SELECT 1 FROM contest_participants cp WHERE cp.contest_id = $1 AND cp.user_id = $2) as is_participant
+		FROM contests WHERE id = $1
+	`, contestID, requestingUserID).Scan(&startAt, &endAt, &pubStatus, &visibility, &ownerID, &isParticipant)
 	if err != nil {
 		return nil, errors.New("contest not found")
 	}
 
-	if !isAdmin && pubStatus == PublicationDraft && ownerID != requestingUserID {
-		return nil, errors.New("contest not found")
+	if !isAdmin {
+		if pubStatus == PublicationDraft && ownerID != requestingUserID {
+			return nil, errors.New("contest not found")
+		}
+		if visibility == VisibilityPrivate && ownerID != requestingUserID && !isParticipant {
+			return nil, errors.New("contest is private")
+		}
 	}
 
-	state := CalculateState(s.timeClock(), startAt, endAt)
+	now := s.timeClock()
+	var dbNow time.Time
+	if err := s.db.QueryRowContext(ctx, "SELECT NOW()").Scan(&dbNow); err == nil && !dbNow.IsZero() {
+		now = dbNow.UTC()
+	}
+	state := CalculateState(now, startAt, endAt)
 
-	// If contest has not started and user is NOT admin, return CONTEST_NOT_STARTED error
-	if state == Upcoming && !isAdmin {
+	// If contest has not started and user is NOT admin/owner, return CONTEST_NOT_STARTED error
+	if state == Upcoming && !isAdmin && ownerID != requestingUserID {
 		return nil, errors.New("CONTEST_NOT_STARTED")
 	}
 

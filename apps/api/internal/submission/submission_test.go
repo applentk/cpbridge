@@ -3,6 +3,7 @@ package submission_test
 import (
 	"testing"
 
+	"github.com/cp-hub/api/internal/submission"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -40,4 +41,12 @@ func TestICPCPenaltyCalculation(t *testing.T) {
 			assert.Equal(t, tt.expectedPenalty, penalty)
 		})
 	}
+}
+
+func TestSubmissionStatuses(t *testing.T) {
+	assert.Equal(t, submission.Status("PENDING"), submission.Pending)
+	assert.Equal(t, submission.Status("JUDGING"), submission.Judging)
+	assert.Equal(t, submission.Status("ACCEPTED"), submission.Accepted)
+	assert.Equal(t, submission.Status("WRONG_ANSWER"), submission.WrongAnswer)
+	assert.Equal(t, submission.Status("FAILED"), submission.Failed)
 }

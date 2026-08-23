@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cp-hub/api/internal/auth"
 	"github.com/cp-hub/api/internal/idgen"
 	"github.com/cp-hub/api/internal/platform"
 	"github.com/go-chi/chi/v5"
@@ -213,10 +214,31 @@ func (s *Service) GetByID(ctx context.Context, id string) (*Problem, error) {
 	return &p, nil
 }
 
-func (s *Service) GetStatement(ctx context.Context, id string) (*platform.ProblemStatement, error) {
+func (s *Service) GetStatement(ctx context.Context, id, requestingUserID string, isAdmin bool) (*platform.ProblemStatement, error) {
 	prob, err := s.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check if this problem is part of an upcoming contest and must be kept secret
+	if !isAdmin {
+		var upcomingSecretCount int
+		err := s.db.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM contest_problems cp
+			JOIN contests c ON cp.contest_id = c.id
+			WHERE cp.problem_id = $1 
+			  AND c.start_at > NOW() 
+			  AND c.owner_id != $2
+			  AND NOT EXISTS (
+			      SELECT 1 FROM contest_problems cp2 
+			      JOIN contests c2 ON cp2.contest_id = c2.id 
+			      WHERE cp2.problem_id = $1 AND c2.start_at <= NOW()
+			  )
+		`, id, requestingUserID).Scan(&upcomingSecretCount)
+		if err == nil && upcomingSecretCount > 0 && (prob.Platform == platform.Type("CUSTOM") || prob.Platform == "") {
+			return nil, errors.New("problem statement is hidden until contest begins")
+		}
 	}
 
 	// If problem has pre-stored statement in metadata, return it directly!
@@ -423,7 +445,6 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-
 // CleanBoilerplate removes redundant header metadata, footers, copyright, and server info from statement text/HTML
 func CleanBoilerplate(text string) string {
 	// 1. Remove Codeforces header div
@@ -569,20 +590,34 @@ func cleanSample(s string) string {
 
 type Handler struct {
 	service *Service
+	authSvc *auth.Service
 }
 
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service *Service, authSvc *auth.Service) *Handler {
+	return &Handler{service: service, authSvc: authSvc}
 }
 
 func (h *Handler) Routes() chi.Router {
 	r := chi.NewRouter()
-	r.Get("/", h.List)
-	r.Post("/", h.Create)
-	r.Get("/{id}", h.Get)
-	r.Get("/{id}/statement", h.GetStatement)
-	r.Post("/import", h.Import)
-	r.Post("/extract-text", h.ExtractText)
+
+	r.Group(func(pub chi.Router) {
+		if h.authSvc != nil {
+			pub.Use(h.authSvc.AuthMiddleware(false))
+		}
+		pub.Get("/", h.List)
+		pub.Get("/{id}", h.Get)
+		pub.Get("/{id}/statement", h.GetStatement)
+	})
+
+	r.Group(func(pr chi.Router) {
+		if h.authSvc != nil {
+			pr.Use(h.authSvc.AuthMiddleware(true))
+		}
+		pr.Post("/", h.Create)
+		pr.Post("/import", h.Import)
+		pr.Post("/extract-text", h.ExtractText)
+	})
+
 	return r
 }
 
@@ -591,9 +626,10 @@ type importReq struct {
 }
 
 func (h *Handler) Import(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB limit
 	var req importReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"invalid request body or exceeds size limit"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -611,9 +647,10 @@ func (h *Handler) Import(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB limit
 	var req CreateCustomReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"invalid request body or exceeds size limit"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -635,9 +672,10 @@ type extractReq struct {
 }
 
 func (h *Handler) ExtractText(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20) // 2MB limit
 	var req extractReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"invalid request body or exceeds size limit"}`, http.StatusBadRequest)
 		return
 	}
 
@@ -667,9 +705,16 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetStatement(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	st, err := h.service.GetStatement(r.Context(), id)
+	var uid string
+	var isAdmin bool
+	if claims := auth.GetUserFromContext(r.Context()); claims != nil {
+		uid = claims.UserID
+		isAdmin = claims.Role == auth.RoleAdmin
+	}
+
+	st, err := h.service.GetStatement(r.Context(), id, uid, isAdmin)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"failed to fetch statement: %s"}`, err.Error()), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"failed to fetch statement: %s"}`, err.Error()), http.StatusBadRequest)
 		return
 	}
 

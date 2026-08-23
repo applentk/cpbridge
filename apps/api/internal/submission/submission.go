@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"sort"
@@ -17,7 +18,9 @@ import (
 	"github.com/cp-hub/api/internal/idgen"
 	"github.com/cp-hub/api/internal/platform"
 	"github.com/cp-hub/api/internal/problem"
+	"github.com/cp-hub/api/internal/queue"
 	"github.com/go-chi/chi/v5"
+	"github.com/hibiken/asynq"
 )
 
 type Status string
@@ -90,6 +93,7 @@ type Service struct {
 	contestSvc   *contest.Service
 	probSvc      *problem.Service
 	platRegistry *platform.Registry
+	asynqClient  *asynq.Client
 	timeClock    func() time.Time
 }
 
@@ -111,7 +115,11 @@ func (s *Service) SetPlatformRegistry(reg *platform.Registry) {
 	s.platRegistry = reg
 }
 
-func (s *Service) Create(ctx context.Context, userID, problemID string, contestID *string, language, sourceCode string) (*Submission, error) {
+func (s *Service) SetAsynqClient(client *asynq.Client) {
+	s.asynqClient = client
+}
+
+func (s *Service) Create(ctx context.Context, userID string, isAdmin bool, problemID string, contestID *string, language, sourceCode string) (*Submission, error) {
 	prob, err := s.probSvc.GetByID(ctx, problemID)
 	if err != nil {
 		return nil, fmt.Errorf("problem not found: %w", err)
@@ -121,9 +129,9 @@ func (s *Service) Create(ctx context.Context, userID, problemID string, contestI
 
 	// Validate contest window if contestId is present
 	if contestID != nil && *contestID != "" {
-		c, err := s.contestSvc.GetByID(ctx, *contestID, userID, true)
+		c, err := s.contestSvc.GetByID(ctx, *contestID, userID, isAdmin)
 		if err != nil {
-			return nil, fmt.Errorf("contest not found: %w", err)
+			return nil, fmt.Errorf("contest not accessible: %w", err)
 		}
 
 		if now.Before(c.StartAt) {
@@ -134,7 +142,11 @@ func (s *Service) Create(ctx context.Context, userID, problemID string, contestI
 		}
 
 		// Ensure user joined contest
-		_ = s.contestSvc.Join(ctx, *contestID, userID)
+		if err := s.contestSvc.Join(ctx, *contestID, userID); err != nil {
+			if !c.IsParticipant && c.OwnerID != userID && !isAdmin {
+				return nil, fmt.Errorf("failed to join contest: %w", err)
+			}
+		}
 	}
 
 	sub := &Submission{
@@ -159,11 +171,64 @@ func (s *Service) Create(ctx context.Context, userID, problemID string, contestI
 		return nil, fmt.Errorf("failed to create submission: %w", err)
 	}
 
+	log.Printf("[Submission:Created] %s created by user %s for problem %s (%s, lang: %s)",
+		sub.ID, sub.UserID, sub.ProblemID, sub.Platform, sub.Language)
+
 	return sub, nil
 }
 
 func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submission, error) {
-	if sub == nil || sub.ExternalSubmissionID == nil || *sub.ExternalSubmissionID == "" || s.platRegistry == nil {
+	if sub == nil {
+		return sub, nil
+	}
+
+	now := s.timeClock()
+
+	// 1. If submission has a mock external ID (from legacy bugs), mark as FAILED immediately
+	if sub.ExternalSubmissionID != nil && (strings.HasPrefix(*sub.ExternalSubmissionID, "cf_") || strings.HasPrefix(*sub.ExternalSubmissionID, "ac_")) {
+		metadata := sub.Metadata
+		if metadata == nil {
+			metadata = make(map[string]interface{})
+		}
+		metadata["error"] = "Submission was not created on the external platform (invalid mock ID)"
+		metaJSON, _ := json.Marshal(metadata)
+		_, updateErr := s.db.ExecContext(ctx, `
+			UPDATE submissions
+			SET status = $1, judged_at = $2, metadata = $3
+			WHERE id = $4
+		`, Failed, now, metaJSON, sub.ID)
+		if updateErr == nil {
+			sub.Status = Failed
+			sub.JudgedAt = &now
+			sub.Metadata = metadata
+		}
+		return sub, nil
+	}
+
+	// 2. If submission is PENDING or DISPATCHING without an external ID for >2 minutes, mark as FAILED
+	if (sub.Status == Pending || sub.Status == Dispatching) && (sub.ExternalSubmissionID == nil || *sub.ExternalSubmissionID == "") {
+		if now.Sub(sub.SubmittedAt) > 2*time.Minute {
+			metadata := sub.Metadata
+			if metadata == nil {
+				metadata = make(map[string]interface{})
+			}
+			metadata["error"] = "Submission dispatch timed out; no external submission was created"
+			metaJSON, _ := json.Marshal(metadata)
+			_, updateErr := s.db.ExecContext(ctx, `
+				UPDATE submissions
+				SET status = $1, judged_at = $2, metadata = $3
+				WHERE id = $4
+			`, Failed, now, metaJSON, sub.ID)
+			if updateErr == nil {
+				sub.Status = Failed
+				sub.JudgedAt = &now
+				sub.Metadata = metadata
+			}
+		}
+		return sub, nil
+	}
+
+	if sub.ExternalSubmissionID == nil || *sub.ExternalSubmissionID == "" || s.platRegistry == nil {
 		return sub, nil
 	}
 
@@ -205,7 +270,6 @@ func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submi
 			metadata[k] = v
 		}
 
-		now := s.timeClock()
 		metaJSON, _ := json.Marshal(metadata)
 		_, updateErr := s.db.ExecContext(ctx, `
 			UPDATE submissions
@@ -217,12 +281,30 @@ func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submi
 			sub.JudgedAt = &now
 			sub.Metadata = metadata
 		}
+	} else if (sub.Status == Judging || statusObj.Status == "JUDGING") && now.Sub(sub.SubmittedAt) > 15*time.Minute {
+		// Stale judging submission timeout (>15 min)
+		metadata := sub.Metadata
+		if metadata == nil {
+			metadata = make(map[string]interface{})
+		}
+		metadata["error"] = "Judging timed out on external platform"
+		metaJSON, _ := json.Marshal(metadata)
+		_, updateErr := s.db.ExecContext(ctx, `
+			UPDATE submissions
+			SET status = $1, judged_at = $2, metadata = $3
+			WHERE id = $4
+		`, Failed, now, metaJSON, sub.ID)
+		if updateErr == nil {
+			sub.Status = Failed
+			sub.JudgedAt = &now
+			sub.Metadata = metadata
+		}
 	}
 
 	return sub, nil
 }
 
-func (s *Service) SyncStatus(ctx context.Context, id string) (*Submission, error) {
+func (s *Service) SyncStatus(ctx context.Context, id, requestingUserID string, isAdmin bool) (*Submission, error) {
 	query := `
 		SELECT s.id, s.user_id, u.username, s.problem_id, p.title, s.contest_id, s.platform, s.language,
 		       s.source_code, s.status, s.external_submission_id, s.submitted_at, s.judged_at, s.metadata
@@ -244,6 +326,10 @@ func (s *Service) SyncStatus(ctx context.Context, id string) (*Submission, error
 			return nil, errors.New("submission not found")
 		}
 		return nil, err
+	}
+
+	if !isAdmin && sub.UserID != requestingUserID {
+		return nil, errors.New("unauthorized to sync submission")
 	}
 
 	_ = json.Unmarshal(metaJSON, &sub.Metadata)
@@ -255,7 +341,7 @@ func (s *Service) SyncStatus(ctx context.Context, id string) (*Submission, error
 	return &sub, nil
 }
 
-func (s *Service) GetByID(ctx context.Context, id, requestingUserID string) (*Submission, error) {
+func (s *Service) GetByID(ctx context.Context, id, requestingUserID string, isAdmin bool) (*Submission, error) {
 	query := `
 		SELECT s.id, s.user_id, u.username, s.problem_id, p.title, s.contest_id, s.platform, s.language,
 		       s.source_code, s.status, s.external_submission_id, s.submitted_at, s.judged_at, s.metadata
@@ -279,9 +365,13 @@ func (s *Service) GetByID(ctx context.Context, id, requestingUserID string) (*Su
 		return nil, err
 	}
 
+	if !isAdmin && sub.UserID != requestingUserID {
+		return nil, errors.New("unauthorized to view this submission")
+	}
+
 	_ = json.Unmarshal(metaJSON, &sub.Metadata)
 
-	if (sub.Status == Judging || sub.Status == Pending || sub.Status == Dispatching) && sub.ExternalSubmissionID != nil && *sub.ExternalSubmissionID != "" && s.platRegistry != nil {
+	if sub.Status == Judging || sub.Status == Pending || sub.Status == Dispatching {
 		if synced, err := s.syncStatusDirect(ctx, &sub); err == nil && synced != nil {
 			return synced, nil
 		}
@@ -358,6 +448,14 @@ func (s *Service) List(ctx context.Context, userID, contestID, problemID string,
 		subs = append(subs, sub)
 	}
 
+	for i := range subs {
+		if subs[i].Status == Judging || subs[i].Status == Pending || subs[i].Status == Dispatching {
+			if synced, err := s.syncStatusDirect(ctx, &subs[i]); err == nil && synced != nil {
+				subs[i] = *synced
+			}
+		}
+	}
+
 	if subs == nil {
 		subs = []Submission{}
 	}
@@ -365,13 +463,17 @@ func (s *Service) List(ctx context.Context, userID, contestID, problemID string,
 	return subs, nil
 }
 
-func (s *Service) UpdateDispatched(ctx context.Context, id, userID, externalSubmissionID string) error {
-	sub, err := s.GetByID(ctx, id, userID)
+func (s *Service) UpdateDispatched(ctx context.Context, id, userID string, isAdmin bool, externalSubmissionID string) error {
+	sub, err := s.GetByID(ctx, id, userID, isAdmin)
 	if err != nil {
 		return err
 	}
-	if sub.UserID != userID {
+	if sub.UserID != userID && !isAdmin {
 		return errors.New("unauthorized to update submission")
+	}
+
+	if strings.HasPrefix(externalSubmissionID, "cf_") || strings.HasPrefix(externalSubmissionID, "ac_") {
+		return errors.New("invalid external submission ID")
 	}
 
 	query := `
@@ -380,16 +482,41 @@ func (s *Service) UpdateDispatched(ctx context.Context, id, userID, externalSubm
 		WHERE id = $3
 	`
 	_, err = s.db.ExecContext(ctx, query, Judging, externalSubmissionID, id)
-	return err
-}
-
-func (s *Service) UpdateResult(ctx context.Context, id, userID string, status Status, metadata map[string]interface{}) error {
-	sub, err := s.GetByID(ctx, id, userID)
 	if err != nil {
 		return err
 	}
-	if sub.UserID != userID {
+
+	log.Printf("[Submission:Dispatched] %s marked as JUDGING with external ID %s", sub.ID, externalSubmissionID)
+
+	// Enqueue Asynq worker task for asynchronous status polling
+	if s.asynqClient != nil {
+		task, taskErr := queue.NewPollVerdictTask(sub.ID, externalSubmissionID, string(sub.Platform), sub.ProblemID)
+		if taskErr == nil {
+			info, enqErr := s.asynqClient.EnqueueContext(ctx, task)
+			if enqErr == nil && info != nil {
+				log.Printf("[Queue:Enqueue] Successfully queued poll task (TaskID: %s, Queue: %s) for submission %s",
+					info.ID, info.Queue, sub.ID)
+			} else if enqErr != nil {
+				log.Printf("[Queue:Error] Failed to enqueue task for submission %s: %v", sub.ID, enqErr)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (s *Service) UpdateResult(ctx context.Context, id, userID string, isAdmin bool, status Status, metadata map[string]interface{}) error {
+	sub, err := s.GetByID(ctx, id, userID, isAdmin)
+	if err != nil {
+		return err
+	}
+	if sub.UserID != userID && !isAdmin {
 		return errors.New("unauthorized to update submission")
+	}
+
+	// Regular users are only allowed to mark client-dispatch failures (FAILED)
+	if !isAdmin && status != Failed {
+		return errors.New("only admins or platform workers can finalize verdicts")
 	}
 
 	metaJSON, err := json.Marshal(metadata)
@@ -404,17 +531,20 @@ func (s *Service) UpdateResult(ctx context.Context, id, userID string, status St
 		WHERE id = $4
 	`
 	_, err = s.db.ExecContext(ctx, query, status, now, metaJSON, id)
+	if err == nil {
+		log.Printf("[Submission:ResultUpdated] %s updated to status %s by user %s (isAdmin: %v)", id, status, userID, isAdmin)
+	}
 	return err
 }
 
-func (s *Service) CalculateStandings(ctx context.Context, contestID string, requestingUserID string) (*StandingsResponse, error) {
-	c, err := s.contestSvc.GetByID(ctx, contestID, requestingUserID, true)
+func (s *Service) CalculateStandings(ctx context.Context, contestID string, requestingUserID string, isAdmin bool) (*StandingsResponse, error) {
+	c, err := s.contestSvc.GetByID(ctx, contestID, requestingUserID, isAdmin)
 	if err != nil {
 		return nil, err
 	}
 
 	// Fetch contest problems
-	problems, err := s.contestSvc.GetProblems(ctx, contestID, requestingUserID, true)
+	problems, err := s.contestSvc.GetProblems(ctx, contestID, requestingUserID, isAdmin)
 	if err != nil {
 		return nil, err
 	}
@@ -569,20 +699,14 @@ func NewHandler(service *Service, authSvc *auth.Service) *Handler {
 func (h *Handler) Routes() chi.Router {
 	r := chi.NewRouter()
 
-	r.Group(func(pr chi.Router) {
-		pr.Use(h.authSvc.AuthMiddleware(false))
-		pr.Get("/", h.List)
-		pr.Get("/{id}", h.Get)
-		pr.Get("/{id}/sync", h.Sync)
-		pr.Post("/{id}/sync", h.Sync)
-	})
-
-	r.Group(func(pr chi.Router) {
-		pr.Use(h.authSvc.AuthMiddleware(true))
-		pr.Post("/", h.Create)
-		pr.Post("/{id}/dispatched", h.UpdateDispatched)
-		pr.Post("/{id}/result", h.UpdateResult)
-	})
+	r.Use(h.authSvc.AuthMiddleware(true))
+	r.Get("/", h.List)
+	r.Post("/", h.Create)
+	r.Get("/{id}", h.Get)
+	r.Get("/{id}/sync", h.Sync)
+	r.Post("/{id}/sync", h.Sync)
+	r.Post("/{id}/dispatched", h.UpdateDispatched)
+	r.Post("/{id}/result", h.UpdateResult)
 
 	return r
 }
@@ -596,13 +720,18 @@ type createSubReq struct {
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	claims := auth.GetUserFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
 	var req createSubReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
 	}
 
-	sub, err := h.service.Create(r.Context(), claims.UserID, req.ProblemID, req.ContestID, req.Language, req.SourceCode)
+	isAdmin := claims.Role == auth.RoleAdmin
+	sub, err := h.service.Create(r.Context(), claims.UserID, isAdmin, req.ProblemID, req.ContestID, req.Language, req.SourceCode)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -616,13 +745,15 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	var uid string
-	if claims := auth.GetUserFromContext(r.Context()); claims != nil {
-		uid = claims.UserID
+	claims := auth.GetUserFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
 	}
+	id := chi.URLParam(r, "id")
+	isAdmin := claims.Role == auth.RoleAdmin
 
-	sub, err := h.service.GetByID(r.Context(), id, uid)
+	sub, err := h.service.GetByID(r.Context(), id, claims.UserID, isAdmin)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotFound)
 		return
@@ -633,8 +764,15 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Sync(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetUserFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
 	id := chi.URLParam(r, "id")
-	sub, err := h.service.SyncStatus(r.Context(), id)
+	isAdmin := claims.Role == auth.RoleAdmin
+
+	sub, err := h.service.SyncStatus(r.Context(), id, claims.UserID, isAdmin)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotFound)
 		return
@@ -645,8 +783,19 @@ func (h *Handler) Sync(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetUserFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+	isAdmin := claims.Role == auth.RoleAdmin
+
 	q := r.URL.Query()
 	uid := q.Get("userId")
+	if !isAdmin {
+		// Non-admin users are restricted to viewing only their own submissions
+		uid = claims.UserID
+	}
 	cid := q.Get("contestId")
 	pid := q.Get("problemId")
 
@@ -666,7 +815,12 @@ type dispatchedReq struct {
 
 func (h *Handler) UpdateDispatched(w http.ResponseWriter, r *http.Request) {
 	claims := auth.GetUserFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
 	id := chi.URLParam(r, "id")
+	isAdmin := claims.Role == auth.RoleAdmin
 
 	var req dispatchedReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -674,7 +828,7 @@ func (h *Handler) UpdateDispatched(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.service.UpdateDispatched(r.Context(), id, claims.UserID, req.ExternalSubmissionID)
+	err := h.service.UpdateDispatched(r.Context(), id, claims.UserID, isAdmin, req.ExternalSubmissionID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -693,7 +847,12 @@ type resultReq struct {
 
 func (h *Handler) UpdateResult(w http.ResponseWriter, r *http.Request) {
 	claims := auth.GetUserFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
 	id := chi.URLParam(r, "id")
+	isAdmin := claims.Role == auth.RoleAdmin
 
 	var req resultReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -701,7 +860,7 @@ func (h *Handler) UpdateResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.service.UpdateResult(r.Context(), id, claims.UserID, req.Status, req.Metadata)
+	err := h.service.UpdateResult(r.Context(), id, claims.UserID, isAdmin, req.Status, req.Metadata)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)

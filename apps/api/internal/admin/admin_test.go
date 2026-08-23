@@ -24,14 +24,71 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func setupTestApp(t *testing.T) (*chi.Mux, *auth.Service, *contest.Service, *problem.Service, *auth.User, string, *auth.User, string) {
+type testApp struct {
+	router      *chi.Mux
+	authSvc     *auth.Service
+	contestSvc  *contest.Service
+	problemSvc  *problem.Service
+	adminUser   *auth.User
+	adminToken  string
+	normalUser  *auth.User
+	userToken   string
+	testProblem string
+}
+
+func setupTestApp(t *testing.T) *testApp {
 	database, err := db.Connect()
 	if err != nil {
+		t.Skipf("Skipping database integration tests: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+	if err := database.Ping(); err != nil {
 		t.Skipf("Skipping database integration tests: %v", err)
 	}
 
 	err = db.EnsureSchema(database)
 	require.NoError(t, err)
+
+	suffix := time.Now().UnixNano()
+	adminEmail := fmt.Sprintf("admin_%d@test.com", suffix)
+	userEmail := fmt.Sprintf("user_%d@test.com", suffix)
+	testProblemID := fmt.Sprintf("cf_test_%d", suffix)
+
+	// Keep integration tests isolated from the developer database. Cleanup is
+	// registered before any test data is created so it also runs on failures.
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		tx, err := database.BeginTx(ctx, nil)
+		if err != nil {
+			t.Errorf("begin test database cleanup: %v", err)
+			return
+		}
+		defer tx.Rollback()
+
+		// Delete dependents first because contests reference both users and
+		// problems. The user delete then cascades any remaining owned data.
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM contests
+			WHERE owner_id IN (SELECT id FROM users WHERE email IN ($1, $2))
+		`, adminEmail, userEmail); err != nil {
+			t.Errorf("delete test contests: %v", err)
+			return
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM problems WHERE external_id = $1`, testProblemID); err != nil {
+			t.Errorf("delete test problem: %v", err)
+			return
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM users WHERE email IN ($1, $2)`, adminEmail, userEmail); err != nil {
+			t.Errorf("delete test users: %v", err)
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			t.Errorf("commit test database cleanup: %v", err)
+		}
+	})
 
 	platRegistry := platform.NewRegistry()
 	platRegistry.Register(codeforces.New())
@@ -43,7 +100,7 @@ func setupTestApp(t *testing.T) (*chi.Mux, *auth.Service, *contest.Service, *pro
 	contestSvc := contest.NewService(database, setSvc)
 
 	authHandler := auth.NewHandler(authSvc)
-	probHandler := problem.NewHandler(probSvc)
+	probHandler := problem.NewHandler(probSvc, authSvc)
 	contestHandler := contest.NewHandler(contestSvc, authSvc)
 	adminHandler := admin.NewHandler(database, authSvc, probSvc, setSvc, contestSvc)
 
@@ -60,29 +117,40 @@ func setupTestApp(t *testing.T) (*chi.Mux, *auth.Service, *contest.Service, *pro
 		})
 	})
 
-	// Create random unique test users
-	suffix := time.Now().UnixNano()
-	adminUser, adminToken, err := authSvc.Register(context.Background(), fmt.Sprintf("admin_%d@test.com", suffix), fmt.Sprintf("adm_%d", suffix), "password123")
+	adminUser, adminToken, err := authSvc.Register(context.Background(), adminEmail, fmt.Sprintf("adm_%d", suffix), "password123")
 	require.NoError(t, err)
 	// Promote adminUser to ADMIN role
 	_, err = database.Exec("UPDATE users SET role = 'ADMIN' WHERE id = $1", adminUser.ID)
 	require.NoError(t, err)
 	adminUser.Role = auth.RoleAdmin
 
-	normalUser, userToken, err := authSvc.Register(context.Background(), fmt.Sprintf("user_%d@test.com", suffix), fmt.Sprintf("usr_%d", suffix), "password123")
+	normalUser, userToken, err := authSvc.Register(context.Background(), userEmail, fmt.Sprintf("usr_%d", suffix), "password123")
 	require.NoError(t, err)
 
-	return r, authSvc, contestSvc, probSvc, adminUser, adminToken, normalUser, userToken
+	return &testApp{
+		router:      r,
+		authSvc:     authSvc,
+		contestSvc:  contestSvc,
+		problemSvc:  probSvc,
+		adminUser:   adminUser,
+		adminToken:  adminToken,
+		normalUser:  normalUser,
+		userToken:   userToken,
+		testProblem: testProblemID,
+	}
 }
 
 func TestAuthorizationMatrix(t *testing.T) {
-	app, _, _, probSvc, _, adminToken, _, userToken := setupTestApp(t)
+	fixture := setupTestApp(t)
+	app := fixture.router
+	adminToken := fixture.adminToken
+	userToken := fixture.userToken
 
 	// Create a problem to test
-	p, err := probSvc.CreateCustom(context.Background(), problem.CreateCustomReq{
+	p, err := fixture.problemSvc.CreateCustom(context.Background(), problem.CreateCustomReq{
 		Title:       "Test Problem A",
 		Platform:    platform.Codeforces,
-		ExternalID:  fmt.Sprintf("cf_test_%d", time.Now().UnixNano()),
+		ExternalID:  fixture.testProblem,
 		Statement:   "Solve this",
 		TimeLimit:   "1.0s",
 		MemoryLimit: "256MB",
@@ -198,19 +266,19 @@ func TestAuthorizationMatrix(t *testing.T) {
 }
 
 func TestLastActiveAdminProtection(t *testing.T) {
-	_, authSvc, _, _, adminUser, _, _, _ := setupTestApp(t)
+	fixture := setupTestApp(t)
 
 	// Ensure there is only 1 admin for this test by checking count
 	// Attempting to demote or disable adminUser
 	// First let's ensure other test admins are USER
 	// Demoting the last admin:
-	_, err := authSvc.UpdateUserRole(context.Background(), adminUser.ID, "USER")
+	_, err := fixture.authSvc.UpdateUserRole(context.Background(), fixture.adminUser.ID, "USER")
 	if err != nil {
 		assert.Equal(t, "LAST_ADMIN", err.Error())
 	}
 
 	// Disabling the last admin:
-	_, err = authSvc.UpdateUserStatus(context.Background(), adminUser.ID, false)
+	_, err = fixture.authSvc.UpdateUserStatus(context.Background(), fixture.adminUser.ID, false)
 	if err != nil {
 		assert.Equal(t, "LAST_ADMIN", err.Error())
 	}

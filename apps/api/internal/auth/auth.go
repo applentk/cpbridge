@@ -52,14 +52,32 @@ type Service struct {
 
 func NewService(db *sql.DB) *Service {
 	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "cp-hub-super-secret-key-change-in-production-2026"
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = os.Getenv("NODE_ENV")
 	}
+	isProd := env == "production" || env == "prod"
+
+	if isProd {
+		if secret == "" {
+			log.Fatal("FATAL: JWT_SECRET environment variable is required in production")
+		}
+		if len(secret) < 32 {
+			log.Fatal("FATAL: JWT_SECRET must be at least 32 characters long in production")
+		}
+	} else if secret == "" {
+		secret = "cp-hub-super-secret-key-change-in-production-2026-min-32-bytes"
+	}
+
 	s := &Service{
 		db:        db,
 		jwtSecret: []byte(secret),
 	}
 	return s
+}
+
+func (s *Service) SetJWTSecret(secret string) {
+	s.jwtSecret = []byte(secret)
 }
 
 func (s *Service) BootstrapInitialAdmin(ctx context.Context) error {
