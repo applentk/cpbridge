@@ -142,6 +142,9 @@ func (s *Service) CreateCustom(ctx context.Context, req CreateCustomReq) (*Probl
 		req.SampleCases = []platform.SampleCase{}
 	}
 
+	// Clean statement of any remaining boilerplate
+	req.Statement = CleanBoilerplate(req.Statement)
+
 	meta := map[string]interface{}{
 		"statement":   req.Statement,
 		"timeLimit":   req.TimeLimit,
@@ -216,7 +219,7 @@ func (s *Service) GetStatement(ctx context.Context, id string) (*platform.Proble
 		return nil, err
 	}
 
-	// If problem has pre-stored or user-pasted statement in metadata, return it directly!
+	// If problem has pre-stored statement in metadata, return it directly!
 	if stmtVal, ok := prob.Metadata["statement"].(string); ok && strings.TrimSpace(stmtVal) != "" {
 		var timeLimit, memoryLimit string
 		if tl, ok := prob.Metadata["timeLimit"].(string); ok {
@@ -247,7 +250,7 @@ func (s *Service) GetStatement(ctx context.Context, id string) (*platform.Proble
 		}
 
 		return &platform.ProblemStatement{
-			HTML:        stmtVal,
+			HTML:        CleanBoilerplate(stmtVal),
 			TimeLimit:   timeLimit,
 			MemoryLimit: memoryLimit,
 			SampleCases: sampleCases,
@@ -348,6 +351,37 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Problem, int, error) {
 	return problems, total, nil
 }
 
+// CleanBoilerplate removes redundant header metadata, footers, copyright, and server info from statement text/HTML
+func CleanBoilerplate(text string) string {
+	// 1. Remove Codeforces header div
+	reCfHeader := regexp.MustCompile(`(?is)<div class="header">.*?</div>\s*</div>`)
+	text = reCfHeader.ReplaceAllString(text, "")
+
+	// 2. Remove Codeforces duplicate sample-tests div (since handled by sample card component)
+	reCfSamples := regexp.MustCompile(`(?is)<div class="sample-tests?">.*?</div>\s*</div>`)
+	text = reCfSamples.ReplaceAllString(text, "")
+
+	// 3. Remove Codeforces plain text header block (e.g. "time limit per test\n2 seconds\nmemory limit...")
+	reTextHeader := regexp.MustCompile(`(?is)^[A-Z0-9\.\s\-]+\n(?:time limit(?:\s+per test)?\n[^\n]+\n)?(?:memory limit(?:\s+per test)?\n[^\n]+\n)?(?:input\n[^\n]+\n)?(?:output\n[^\n]+\n)?`)
+	text = reTextHeader.ReplaceAllString(text, "")
+
+	// 4. Remove Codeforces & AtCoder copyright footers, server time, mobile version links
+	reCfFooter := regexp.MustCompile(`(?is)(?:\[?Codeforces\]?|\(c\)\s*Copyright).*?(?:Mike Mirzayanov|Server time:|Desktop version|Privacy Policy|Supported by).*`)
+	text = reCfFooter.ReplaceAllString(text, "")
+
+	reServerTime := regexp.MustCompile(`(?is)Server time:.*`)
+	text = reServerTime.ReplaceAllString(text, "")
+
+	reAtCoderFooter := regexp.MustCompile(`(?is)(?:Copyright\s*\d+-\d+\s*AtCoder Inc\.|AtCoder is a trademark).*`)
+	text = reAtCoderFooter.ReplaceAllString(text, "")
+
+	// 5. Remove Japanese section in AtCoder if present
+	reLangJa := regexp.MustCompile(`(?is)<span class="lang-ja">.*?</span>`)
+	text = reLangJa.ReplaceAllString(text, "")
+
+	return strings.TrimSpace(text)
+}
+
 // ExtractFromRawContent parses copied text or HTML from Codeforces, AtCoder, LeetCode, or generic problem sources
 func ExtractFromRawContent(raw string) (title, statement, timeLimit, memoryLimit string, sampleCases []platform.SampleCase) {
 	raw = strings.TrimSpace(raw)
@@ -375,9 +409,14 @@ func ExtractFromRawContent(raw string) (title, statement, timeLimit, memoryLimit
 			title = strings.TrimSpace(m[1])
 		}
 	}
+	if title == "" {
+		plainTitleRegex := regexp.MustCompile(`(?m)^([A-Z][0-9]?\.\s+[^\n]+)`)
+		if m := plainTitleRegex.FindStringSubmatch(raw); len(m) > 1 {
+			title = strings.TrimSpace(m[1])
+		}
+	}
 
 	// 4. Sample cases extraction
-	// Codeforces pattern
 	cfInputRegex := regexp.MustCompile(`(?is)<div class="input">\s*<div class="title">Input</div>\s*<pre>(.*?)</pre>\s*</div>`)
 	cfOutputRegex := regexp.MustCompile(`(?is)<div class="output">\s*<div class="title">Output</div>\s*<pre>(.*?)</pre>\s*</div>`)
 	cfInputs := cfInputRegex.FindAllStringSubmatch(raw, -1)
@@ -436,10 +475,11 @@ func ExtractFromRawContent(raw string) (title, statement, timeLimit, memoryLimit
 		if m := taskRegex.FindStringSubmatch(raw); len(m) > 1 {
 			statement = m[1]
 		} else {
-			// If not extracted, format raw text / HTML into clean paragraphs
 			statement = raw
 		}
 	}
+
+	statement = CleanBoilerplate(statement)
 
 	return title, statement, timeLimit, memoryLimit, sampleCases
 }

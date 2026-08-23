@@ -33,6 +33,37 @@ function renderKatexSafe(latex: string, displayMode: boolean): string {
 }
 
 /**
+ * Strips redundant Codeforces/AtCoder header divs, duplicate sample testcase tables,
+ * copyright footers, server time, mobile version links, and terms.
+ */
+export function cleanBoilerplate(html: string): string {
+  if (!html) return '';
+
+  let cleaned = html;
+
+  // 1. Codeforces header div with title, time limit, memory limit, input/output
+  cleaned = cleaned.replace(/<div class="header">.*?<\/div>\s*<\/div>/gis, '');
+
+  // 2. Codeforces duplicate sample tests div (since rendered as interactive cards)
+  cleaned = cleaned.replace(/<div class="sample-tests?">.*?<\/div>\s*<\/div>/gis, '');
+
+  // 3. Plain text headers (e.g. C. Rabbits\ntime limit per test\n2 seconds\n...)
+  cleaned = cleaned.replace(/^[A-Z0-9\.\s\-]+\n(?:time limit(?:\s+per test)?\n[^\n]+\n)?(?:memory limit(?:\s+per test)?\n[^\n]+\n)?(?:input\n[^\n]+\n)?(?:output\n[^\n]+\n)?/gis, '');
+
+  // 4. Codeforces footer (copyright, server time, mobile version, terms)
+  cleaned = cleaned.replace(/(?:\[?Codeforces\]?|\(c\)\s*Copyright).*?(?:Mike Mirzayanov|Server time:|Desktop version|Privacy Policy|Supported by).*/gis, '');
+  cleaned = cleaned.replace(/Server time:.*$/gims, '');
+  cleaned = cleaned.replace(/Desktop version, switch to.*$/gims, '');
+  cleaned = cleaned.replace(/\[?Privacy Policy\]?\s*\|?\s*\[?Terms and Conditions\]?.*/gis, '');
+
+  // 5. AtCoder footer & Japanese section
+  cleaned = cleaned.replace(/(?:Copyright\s*\d+-\d+\s*AtCoder Inc\.|AtCoder is a trademark).*/gis, '');
+  cleaned = cleaned.replace(/<span class="lang-ja">.*?<\/span>/gis, '');
+
+  return cleaned.trim();
+}
+
+/**
  * Parses and renders LaTeX formulas from:
  * 1. AtCoder (<var>...</var>, \(...\), \[...\])
  * 2. Codeforces ($$$...$$$, $$...$$, .tex-span)
@@ -41,11 +72,10 @@ function renderKatexSafe(latex: string, displayMode: boolean): string {
 export function renderMathInHtml(html: string): string {
   if (!html) return '';
 
-  let output = html;
+  let output = cleanBoilerplate(html);
 
   // 1. AtCoder <var>...</var> math and variable tags
   output = output.replace(/<var\b[^>]*>(.*?)<\/var>/gis, (_, math) => {
-    // Strip inner tags if any (e.g. <i>N</i>)
     const cleanMath = math.replace(/<[^>]+>/g, '').trim();
     return renderKatexSafe(cleanMath, false);
   });
@@ -69,10 +99,9 @@ export function renderMathInHtml(html: string): string {
     return renderKatexSafe(math, false);
   });
 
-  // 5. Single dollar math: $...$ (when not empty or simple price)
+  // 5. Single dollar math: $...$
   output = output.replace(/(^|[^\$])\$([^\$\n\r]+?)\$(?!\$)/g, (match, prefix, math) => {
     const trimmed = math.trim();
-    // Avoid single numbers like "$100" or empty
     if (/^[0-9]+(\.[0-9]+)?$/.test(trimmed) || !trimmed) {
       return match;
     }

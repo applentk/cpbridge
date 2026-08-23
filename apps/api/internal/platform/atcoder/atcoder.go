@@ -19,10 +19,14 @@ var (
 	taskStatementRegex  = regexp.MustCompile(`(?s)<div id="task-statement">(.*?)</div>\s*<span class="center-block`)
 	taskStatementRegex2 = regexp.MustCompile(`(?s)<div id="task-statement">(.*)`)
 	langEnRegex         = regexp.MustCompile(`(?s)<span class="lang-en">(.*?)</span>\s*</span>`)
+	langJaRegex         = regexp.MustCompile(`(?is)<span class="lang-ja">.*?</span>`)
 	timeLimitRegex      = regexp.MustCompile(`Time Limit:\s*([0-9\.]+\s*sec)`)
 	memoryLimitRegex    = regexp.MustCompile(`Memory Limit:\s*([0-9\.]+\s*MB)`)
 	sampleInputRegex    = regexp.MustCompile(`(?s)<h3>\s*Sample Input\s*\d*\s*</h3>\s*<pre>(.*?)</pre>`)
 	sampleOutputRegex   = regexp.MustCompile(`(?s)<h3>\s*Sample Output\s*\d*\s*</h3>\s*<pre>(.*?)</pre>`)
+
+	// Cleaners for footer and duplicate sample blocks in statement html
+	sampleSectionRegex = regexp.MustCompile(`(?is)<hr\s*/?>\s*<div class="part">\s*<section>\s*<h3>\s*Sample (?:Input|Output).*`)
 )
 
 type Adapter struct {
@@ -147,6 +151,12 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 
 	if sampleCases == nil {
 		sampleCases = []platform.SampleCase{}
+	}
+
+	// Clean statement HTML
+	if statementHTML != "" {
+		statementHTML = langJaRegex.ReplaceAllString(statementHTML, "")
+		statementHTML = sampleSectionRegex.ReplaceAllString(statementHTML, "")
 	}
 
 	if statementHTML == "" {

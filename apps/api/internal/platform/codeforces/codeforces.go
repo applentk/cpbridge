@@ -21,6 +21,8 @@ var (
 
 	statementRegex   = regexp.MustCompile(`(?s)<div class="problem-statement">(.*?)</div>\s*<!--\s*end problem statement`)
 	statementRegex2  = regexp.MustCompile(`(?s)<div class="problem-statement">(.*)`)
+	headerDivRegex   = regexp.MustCompile(`(?is)<div class="header">.*?</div>\s*</div>`)
+	sampleDivRegex   = regexp.MustCompile(`(?is)<div class="sample-tests?">.*?</div>\s*</div>`)
 	timeLimitRegex   = regexp.MustCompile(`(?s)<div class="time-limit"[^>]*>.*?<div class="property-title">time limit per test</div>(.*?)</div>`)
 	memoryLimitRegex = regexp.MustCompile(`(?s)<div class="memory-limit"[^>]*>.*?<div class="property-title">memory limit per test</div>(.*?)</div>`)
 	sampleInputRegex = regexp.MustCompile(`(?s)<div class="input"><div class="title">Input</div><pre>(.*?)</pre></div>`)
@@ -185,6 +187,12 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 
 	if sampleCases == nil {
 		sampleCases = []platform.SampleCase{}
+	}
+
+	// Strip redundant header div and duplicate sample tests from statementHTML
+	if statementHTML != "" {
+		statementHTML = headerDivRegex.ReplaceAllString(statementHTML, "")
+		statementHTML = sampleDivRegex.ReplaceAllString(statementHTML, "")
 	}
 
 	if statementHTML == "" {
