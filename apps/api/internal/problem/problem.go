@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,19 @@ type Filter struct {
 	Tag           string
 	Limit         int
 	Offset        int
+}
+
+type CreateCustomReq struct {
+	Platform    platform.Type         `json:"platform"`
+	ExternalID  string                `json:"externalId"`
+	Title       string                `json:"title"`
+	URL         string                `json:"url"`
+	Difficulty  *int                  `json:"difficulty"`
+	Tags        []string              `json:"tags"`
+	Statement   string                `json:"statement"`
+	TimeLimit   string                `json:"timeLimit"`
+	MemoryLimit string                `json:"memoryLimit"`
+	SampleCases []platform.SampleCase `json:"sampleCases"`
 }
 
 type Service struct {
@@ -104,6 +118,72 @@ func (s *Service) ImportByUrl(ctx context.Context, rawURL string) (*Problem, err
 	return &p, nil
 }
 
+func (s *Service) CreateCustom(ctx context.Context, req CreateCustomReq) (*Problem, error) {
+	req.Title = strings.TrimSpace(req.Title)
+	req.ExternalID = strings.TrimSpace(req.ExternalID)
+	req.URL = strings.TrimSpace(req.URL)
+
+	if req.Title == "" {
+		return nil, errors.New("problem title is required")
+	}
+	if req.ExternalID == "" {
+		req.ExternalID = fmt.Sprintf("custom_%d", time.Now().UnixNano()%1000000)
+	}
+	if req.Platform == "" {
+		req.Platform = platform.Codeforces
+	}
+	if req.URL == "" {
+		req.URL = fmt.Sprintf("https://cphub.dev/problems/%s", req.ExternalID)
+	}
+	if req.Tags == nil {
+		req.Tags = []string{"custom"}
+	}
+	if req.SampleCases == nil {
+		req.SampleCases = []platform.SampleCase{}
+	}
+
+	meta := map[string]interface{}{
+		"statement":   req.Statement,
+		"timeLimit":   req.TimeLimit,
+		"memoryLimit": req.MemoryLimit,
+		"sampleCases": req.SampleCases,
+	}
+
+	tagsJSON, _ := json.Marshal(req.Tags)
+	metaJSON, _ := json.Marshal(meta)
+
+	id := idgen.New(idgen.PrefixProblem)
+	now := time.Now().UTC()
+
+	query := `
+		INSERT INTO problems (id, platform, external_id, title, url, difficulty, tags, metadata, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (platform, external_id) DO UPDATE SET
+			title = EXCLUDED.title,
+			url = EXCLUDED.url,
+			difficulty = EXCLUDED.difficulty,
+			tags = EXCLUDED.tags,
+			metadata = EXCLUDED.metadata,
+			updated_at = EXCLUDED.updated_at
+		RETURNING id, platform, external_id, title, url, difficulty, tags, metadata, created_at, updated_at
+	`
+
+	var p Problem
+	var scannedTags []byte
+	var scannedMeta []byte
+
+	row := s.db.QueryRowContext(ctx, query, id, req.Platform, req.ExternalID, req.Title, req.URL, req.Difficulty, tagsJSON, metaJSON, now, now)
+	err := row.Scan(&p.ID, &p.Platform, &p.ExternalID, &p.Title, &p.URL, &p.Difficulty, &scannedTags, &scannedMeta, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save custom problem: %w", err)
+	}
+
+	_ = json.Unmarshal(scannedTags, &p.Tags)
+	_ = json.Unmarshal(scannedMeta, &p.Metadata)
+
+	return &p, nil
+}
+
 func (s *Service) GetByID(ctx context.Context, id string) (*Problem, error) {
 	query := `
 		SELECT id, platform, external_id, title, url, difficulty, tags, metadata, created_at, updated_at
@@ -136,6 +216,45 @@ func (s *Service) GetStatement(ctx context.Context, id string) (*platform.Proble
 		return nil, err
 	}
 
+	// If problem has pre-stored or user-pasted statement in metadata, return it directly!
+	if stmtVal, ok := prob.Metadata["statement"].(string); ok && strings.TrimSpace(stmtVal) != "" {
+		var timeLimit, memoryLimit string
+		if tl, ok := prob.Metadata["timeLimit"].(string); ok {
+			timeLimit = tl
+		}
+		if ml, ok := prob.Metadata["memoryLimit"].(string); ok {
+			memoryLimit = ml
+		}
+
+		var sampleCases []platform.SampleCase
+		if scList, ok := prob.Metadata["sampleCases"].([]interface{}); ok {
+			for _, item := range scList {
+				if scMap, ok := item.(map[string]interface{}); ok {
+					in, _ := scMap["input"].(string)
+					out, _ := scMap["output"].(string)
+					exp, _ := scMap["explanation"].(string)
+					sampleCases = append(sampleCases, platform.SampleCase{
+						Input:       in,
+						Output:      out,
+						Explanation: exp,
+					})
+				}
+			}
+		}
+
+		if sampleCases == nil {
+			sampleCases = []platform.SampleCase{}
+		}
+
+		return &platform.ProblemStatement{
+			HTML:        stmtVal,
+			TimeLimit:   timeLimit,
+			MemoryLimit: memoryLimit,
+			SampleCases: sampleCases,
+		}, nil
+	}
+
+	// Live fetch via platform adapter
 	adapter, err := s.registry.Get(prob.Platform)
 	if err != nil {
 		return nil, err
@@ -229,6 +348,112 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Problem, int, error) {
 	return problems, total, nil
 }
 
+// ExtractFromRawContent parses copied text or HTML from Codeforces, AtCoder, LeetCode, or generic problem sources
+func ExtractFromRawContent(raw string) (title, statement, timeLimit, memoryLimit string, sampleCases []platform.SampleCase) {
+	raw = strings.TrimSpace(raw)
+
+	// 1. Time Limit extraction
+	tlRegex := regexp.MustCompile(`(?i)(?:time limit(?:\s+per test)?|Time Limit)[\s:]*([0-9\.]+\s*(?:s|sec|seconds|ms))`)
+	if m := tlRegex.FindStringSubmatch(raw); len(m) > 1 {
+		timeLimit = strings.TrimSpace(m[1])
+	}
+
+	// 2. Memory Limit extraction
+	mlRegex := regexp.MustCompile(`(?i)(?:memory limit(?:\s+per test)?|Memory Limit)[\s:]*([0-9\.]+\s*(?:MB|megabytes|KB))`)
+	if m := mlRegex.FindStringSubmatch(raw); len(m) > 1 {
+		memoryLimit = strings.TrimSpace(m[1])
+	}
+
+	// 3. Title extraction
+	titleRegex := regexp.MustCompile(`(?i)<title>(.*?)(?: - Codeforces| - AtCoder| - LeetCode)?</title>`)
+	if m := titleRegex.FindStringSubmatch(raw); len(m) > 1 {
+		title = strings.TrimSpace(m[1])
+	}
+	if title == "" {
+		h1Regex := regexp.MustCompile(`(?i)<div class="title">([^<]+)</div>`)
+		if m := h1Regex.FindStringSubmatch(raw); len(m) > 1 {
+			title = strings.TrimSpace(m[1])
+		}
+	}
+
+	// 4. Sample cases extraction
+	// Codeforces pattern
+	cfInputRegex := regexp.MustCompile(`(?is)<div class="input">\s*<div class="title">Input</div>\s*<pre>(.*?)</pre>\s*</div>`)
+	cfOutputRegex := regexp.MustCompile(`(?is)<div class="output">\s*<div class="title">Output</div>\s*<pre>(.*?)</pre>\s*</div>`)
+	cfInputs := cfInputRegex.FindAllStringSubmatch(raw, -1)
+	cfOutputs := cfOutputRegex.FindAllStringSubmatch(raw, -1)
+	if len(cfInputs) > 0 && len(cfOutputs) > 0 {
+		count := len(cfInputs)
+		if len(cfOutputs) < count {
+			count = len(cfOutputs)
+		}
+		for i := 0; i < count; i++ {
+			sampleCases = append(sampleCases, platform.SampleCase{
+				Input:  cleanSample(cfInputs[i][1]),
+				Output: cleanSample(cfOutputs[i][1]),
+			})
+		}
+	}
+
+	// AtCoder / Generic pattern: Sample Input / Output
+	if len(sampleCases) == 0 {
+		sampleBlockRegex := regexp.MustCompile(`(?is)<h3>\s*Sample Input\s*(\d*)\s*</h3>\s*<pre>(.*?)</pre>\s*<h3>\s*Sample Output\s*\1\s*</h3>\s*<pre>(.*?)</pre>`)
+		matches := sampleBlockRegex.FindAllStringSubmatch(raw, -1)
+		for _, m := range matches {
+			if len(m) >= 4 {
+				sampleCases = append(sampleCases, platform.SampleCase{
+					Input:  cleanSample(m[2]),
+					Output: cleanSample(m[3]),
+				})
+			}
+		}
+	}
+
+	// Markdown Example pattern: Example 1: Input: ... Output: ...
+	if len(sampleCases) == 0 {
+		exRegex := regexp.MustCompile(`(?is)(?:Example\s*\d*[:\s]*|Sample\s*\d*[:\s]*)Input[:\s]*(.*?)(?:Output|Expected)[:\s]*(.*?)(?:Explanation|$|Example\s*\d+)`)
+		matches := exRegex.FindAllStringSubmatch(raw, -1)
+		for _, m := range matches {
+			if len(m) >= 3 {
+				sampleCases = append(sampleCases, platform.SampleCase{
+					Input:  strings.TrimSpace(m[1]),
+					Output: strings.TrimSpace(m[2]),
+				})
+			}
+		}
+	}
+
+	if sampleCases == nil {
+		sampleCases = []platform.SampleCase{}
+	}
+
+	// 5. Statement Body extraction
+	stmtRegex := regexp.MustCompile(`(?is)<div class="problem-statement">(.*?)</div>\s*<!--\s*end problem statement`)
+	if m := stmtRegex.FindStringSubmatch(raw); len(m) > 1 {
+		statement = m[1]
+	} else {
+		taskRegex := regexp.MustCompile(`(?is)<div id="task-statement">(.*?)</div>\s*<span class="center-block`)
+		if m := taskRegex.FindStringSubmatch(raw); len(m) > 1 {
+			statement = m[1]
+		} else {
+			// If not extracted, format raw text / HTML into clean paragraphs
+			statement = raw
+		}
+	}
+
+	return title, statement, timeLimit, memoryLimit, sampleCases
+}
+
+func cleanSample(s string) string {
+	s = strings.ReplaceAll(s, "<br>", "\n")
+	s = strings.ReplaceAll(s, "<br/>", "\n")
+	s = strings.ReplaceAll(s, "<br />", "\n")
+	s = strings.ReplaceAll(s, `<div class="test-example-line">`, "")
+	s = strings.ReplaceAll(s, `</div>`, "\n")
+	tagRegex := regexp.MustCompile(`<[^>]*>`)
+	return strings.TrimSpace(tagRegex.ReplaceAllString(s, ""))
+}
+
 type Handler struct {
 	service *Service
 }
@@ -240,9 +465,11 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) Routes() chi.Router {
 	r := chi.NewRouter()
 	r.Get("/", h.List)
+	r.Post("/", h.Create)
 	r.Get("/{id}", h.Get)
 	r.Get("/{id}/statement", h.GetStatement)
 	r.Post("/import", h.Import)
+	r.Post("/extract-text", h.ExtractText)
 	return r
 }
 
@@ -268,6 +495,49 @@ func (h *Handler) Import(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(p)
+}
+
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
+	var req CreateCustomReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	p, err := h.service.CreateCustom(r.Context(), req)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(p)
+}
+
+type extractReq struct {
+	RawContent string `json:"rawContent"`
+}
+
+func (h *Handler) ExtractText(w http.ResponseWriter, r *http.Request) {
+	var req extractReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	title, stmt, tl, ml, sc := ExtractFromRawContent(req.RawContent)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"title":       title,
+		"statement":   stmt,
+		"timeLimit":   tl,
+		"memoryLimit": ml,
+		"sampleCases": sc,
+	})
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
