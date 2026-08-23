@@ -1,4 +1,4 @@
-export type PlatformType = 'CODEFORCES' | 'ATCODER' | 'LEETCODE';
+export type PlatformType = 'CODEFORCES' | 'ATCODER';
 
 export type LanguageId = 'cpp23' | 'python3' | 'java21' | 'go' | 'rust';
 

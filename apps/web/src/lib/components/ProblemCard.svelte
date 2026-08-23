@@ -19,7 +19,6 @@
       </a>
       <span class="text-xs px-2 py-0.5 rounded-full font-medium {
         problem.platform === 'CODEFORCES' ? 'bg-red-500/20 text-red-300 border border-red-500/30' :
-        problem.platform === 'LEETCODE' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
         'bg-blue-500/20 text-blue-300 border border-blue-500/30'
       }">
         {problem.platform}

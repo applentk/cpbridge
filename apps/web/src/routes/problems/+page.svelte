@@ -162,7 +162,7 @@
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
     <div>
       <h1 class="text-3xl font-bold text-white">Problem Library</h1>
-      <p class="text-sm text-zinc-400">Explore, import, or create problems with full statements from Codeforces, AtCoder, and LeetCode.</p>
+      <p class="text-sm text-zinc-400">Explore, import, or create problems with full statements from Codeforces and AtCoder.</p>
     </div>
 
     <button
@@ -200,7 +200,6 @@
         <option value="">All Platforms</option>
         <option value="CODEFORCES">Codeforces</option>
         <option value="ATCODER">AtCoder</option>
-        <option value="LEETCODE">LeetCode</option>
       </select>
     </div>
   </div>
@@ -293,7 +292,6 @@
               <div>Examples:</div>
               <div>• https://codeforces.com/problemset/problem/1900/A</div>
               <div>• https://atcoder.jp/contests/abc350/tasks/abc350_f</div>
-              <div>• https://leetcode.com/problems/two-sum/</div>
             </div>
             <div class="flex items-center justify-end space-x-3 pt-2">
               <button
@@ -330,7 +328,7 @@
               <textarea
                 bind:value={rawCopiedText}
                 rows="3"
-                placeholder="Paste raw text or HTML from Codeforces, AtCoder, or LeetCode here to auto-fill title, limits, and sample testcases..."
+                placeholder="Paste raw text or HTML from Codeforces or AtCoder here to auto-fill title, limits, and sample testcases..."
                 class="w-full px-3 py-2 rounded-lg bg-zinc-950/80 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-200 text-xs font-mono placeholder-zinc-600 transition"
               ></textarea>
 
@@ -369,7 +367,6 @@
                 >
                   <option value="CODEFORCES">Codeforces</option>
                   <option value="ATCODER">AtCoder</option>
-                  <option value="LEETCODE">LeetCode</option>
                 </select>
               </div>
 

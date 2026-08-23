@@ -101,7 +101,6 @@
               <td class="py-3 px-4">
                 <span class="px-2 py-0.5 rounded text-[11px] font-bold {
                   s.platform === 'CODEFORCES' ? 'text-red-400' :
-                  s.platform === 'LEETCODE' ? 'text-amber-400' :
                   'text-blue-400'
                 }">
                   {s.platform}

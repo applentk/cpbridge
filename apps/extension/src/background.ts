@@ -6,7 +6,6 @@ import type {
 } from '@cp-hub/contracts';
 import { checkCodeforcesSession, submitCodeforces } from './platforms/codeforces.js';
 import { checkAtCoderSession, submitAtCoder } from './platforms/atcoder.js';
-import { checkLeetCodeSession, submitLeetCode } from './platforms/leetcode.js';
 
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
   handleMessage(message)
@@ -24,10 +23,9 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendRes
 
 async function handleMessage(message: ExtensionMessage): Promise<any> {
   if (message.type === 'PING') {
-    const [cf, ac, lc] = await Promise.all([
+    const [cf, ac] = await Promise.all([
       checkCodeforcesSession(),
-      checkAtCoderSession(),
-      checkLeetCodeSession()
+      checkAtCoderSession()
     ]);
 
     const res: ExtensionPingResponse = {
@@ -35,8 +33,7 @@ async function handleMessage(message: ExtensionMessage): Promise<any> {
       version: '1.0.0',
       platforms: {
         CODEFORCES: cf,
-        ATCODER: ac,
-        LEETCODE: lc
+        ATCODER: ac
       }
     };
     return res;
@@ -55,9 +52,6 @@ async function handleMessage(message: ExtensionMessage): Promise<any> {
         const parts = message.problem.externalId.split('/');
         if (parts.length !== 2) throw new Error('Invalid AtCoder externalId');
         const res = await submitAtCoder(parts[0], parts[1], message.language, message.source);
-        externalSubmissionId = res.externalSubmissionId;
-      } else if (message.platform === 'LEETCODE') {
-        const res = await submitLeetCode(message.problem.externalId, message.language, message.source);
         externalSubmissionId = res.externalSubmissionId;
       } else {
         throw new Error('Unsupported platform');

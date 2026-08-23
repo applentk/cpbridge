@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 type Type string
@@ -12,7 +11,6 @@ type Type string
 const (
 	Codeforces Type = "CODEFORCES"
 	AtCoder    Type = "ATCODER"
-	LeetCode   Type = "LEETCODE"
 )
 
 type SampleCase struct {
@@ -39,10 +37,13 @@ type NormalizedProblem struct {
 }
 
 type SubmissionStatus struct {
-	ExternalSubmissionID string `json:"externalSubmissionId"`
-	Status               string `json:"status"` // ACCEPTED, WRONG_ANSWER, JUDGING, etc.
-	MemoryKB             *int   `json:"memoryKb,omitempty"`
-	TimeMS               *int   `json:"timeMs,omitempty"`
+	ExternalSubmissionID string                 `json:"externalSubmissionId"`
+	Status               string                 `json:"status"` // PENDING, JUDGING, ACCEPTED, WRONG_ANSWER, TIME_LIMIT, COMPILATION_ERROR, RUNTIME_ERROR, MEMORY_LIMIT
+	ExecutionTimeMs      *int                   `json:"executionTimeMs,omitempty"`
+	MemoryBytes          *int64                 `json:"memoryBytes,omitempty"`
+	FailedTestcase       *int                   `json:"failedTestcase,omitempty"`
+	CompilerOutput       string                 `json:"compilerOutput,omitempty"`
+	RawPayload           map[string]interface{} `json:"rawPayload,omitempty"`
 }
 
 type Platform interface {
@@ -68,19 +69,18 @@ func (r *Registry) Register(p Platform) {
 }
 
 func (r *Registry) Get(t Type) (Platform, error) {
-	p, ok := r.adapters[t]
-	if !ok {
+	adapter, exists := r.adapters[t]
+	if !exists {
 		return nil, fmt.Errorf("unsupported platform: %s", t)
 	}
-	return p, nil
+	return adapter, nil
 }
 
 func (r *Registry) ParseURL(rawURL string) (Type, string, Platform, error) {
-	rawURL = strings.TrimSpace(rawURL)
 	for pType, adapter := range r.adapters {
-		if extID, ok := adapter.MatchURL(rawURL); ok {
+		if extID, matched := adapter.MatchURL(rawURL); matched {
 			return pType, extID, adapter, nil
 		}
 	}
-	return "", "", nil, errors.New("unrecognized problem URL or unsupported platform")
+	return "", "", nil, errors.New("unrecognized problem url: must be a supported Codeforces or AtCoder problem link")
 }

@@ -11,7 +11,6 @@
   "host_permissions": [
     "https://codeforces.com/*",
     "https://atcoder.jp/*",
-    "https://leetcode.com/*",
     "http://localhost:3000/*",
     "http://localhost:8080/*",
     "https://*.cphub.dev/*"

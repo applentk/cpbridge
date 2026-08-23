@@ -399,7 +399,7 @@ func ExtractFromRawContent(raw string) (title, statement, timeLimit, memoryLimit
 	}
 
 	// 3. Title extraction
-	titleRegex := regexp.MustCompile(`(?i)<title>(.*?)(?: - Codeforces| - AtCoder| - LeetCode)?</title>`)
+	titleRegex := regexp.MustCompile(`(?i)<title>(.*?)(?: - Codeforces| - AtCoder)?</title>`)
 	if m := titleRegex.FindStringSubmatch(raw); len(m) > 1 {
 		title = strings.TrimSpace(m[1])
 	}

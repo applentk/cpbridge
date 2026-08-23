@@ -32,7 +32,7 @@
       <span>Platform Integrations</span>
     </h1>
     <p class="text-sm text-zinc-400">
-      Manage browser session connections for Codeforces, AtCoder, and LeetCode.
+      Manage browser session connections for Codeforces and AtCoder.
     </p>
   </div>
 
@@ -151,44 +151,6 @@
           class="px-4 py-2 rounded-xl text-xs font-semibold border border-zinc-800 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 transition flex items-center space-x-1.5"
         >
           <span>Open AtCoder</span>
-          <ExternalLink class="w-3.5 h-3.5" />
-        </a>
-      </div>
-    </div>
-
-    <!-- LeetCode Card -->
-    <div class="p-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-      <div class="flex items-start space-x-4">
-        <div class="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold text-lg shrink-0">
-          LC
-        </div>
-        <div class="space-y-1">
-          <div class="flex items-center space-x-2">
-            <h3 class="text-base font-bold text-white">LeetCode</h3>
-            {#if extInfo?.platforms?.LEETCODE?.loggedIn}
-              <span class="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30">
-                Connected ({extInfo.platforms.LEETCODE.username || 'Session Active'})
-              </span>
-            {:else}
-              <span class="text-[11px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
-                Not Connected
-              </span>
-            {/if}
-          </div>
-          <p class="text-xs text-zinc-400">
-            Submit solutions for algorithm interview practice questions.
-          </p>
-        </div>
-      </div>
-
-      <div class="flex items-center space-x-2 shrink-0">
-        <a
-          href="https://leetcode.com/accounts/login/"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="px-4 py-2 rounded-xl text-xs font-semibold border border-zinc-800 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 transition flex items-center space-x-1.5"
-        >
-          <span>Open LeetCode</span>
           <ExternalLink class="w-3.5 h-3.5" />
         </a>
       </div>

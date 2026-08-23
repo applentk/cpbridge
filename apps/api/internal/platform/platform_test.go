@@ -6,63 +6,54 @@ import (
 	"github.com/cp-hub/api/internal/platform"
 	"github.com/cp-hub/api/internal/platform/atcoder"
 	"github.com/cp-hub/api/internal/platform/codeforces"
-	"github.com/cp-hub/api/internal/platform/leetcode"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestURLParsing(t *testing.T) {
-	registry := platform.NewRegistry()
-	registry.Register(codeforces.New())
-	registry.Register(atcoder.New())
-	registry.Register(leetcode.New())
+func TestPlatformURLMatching(t *testing.T) {
+	reg := platform.NewRegistry()
+	reg.Register(codeforces.New())
+	reg.Register(atcoder.New())
 
 	tests := []struct {
-		url          string
-		expectedPlat platform.Type
-		expectedExt  string
-		shouldError  bool
+		url        string
+		expectType platform.Type
+		expectID   string
+		expectErr  bool
 	}{
 		{
-			url:          "https://codeforces.com/problemset/problem/1900/A",
-			expectedPlat: platform.Codeforces,
-			expectedExt:  "1900/A",
+			url:        "https://codeforces.com/problemset/problem/1900/A",
+			expectType: platform.Codeforces,
+			expectID:   "1900/A",
+			expectErr:  false,
 		},
 		{
-			url:          "https://codeforces.com/contest/1800/problem/E2",
-			expectedPlat: platform.Codeforces,
-			expectedExt:  "1800/E2",
+			url:        "https://codeforces.com/contest/1800/problem/B",
+			expectType: platform.Codeforces,
+			expectID:   "1800/B",
+			expectErr:  false,
 		},
 		{
-			url:          "https://atcoder.jp/contests/abc350/tasks/abc350_f",
-			expectedPlat: platform.AtCoder,
-			expectedExt:  "abc350/abc350_f",
+			url:        "https://atcoder.jp/contests/abc350/tasks/abc350_a",
+			expectType: platform.AtCoder,
+			expectID:   "abc350/abc350_a",
+			expectErr:  false,
 		},
 		{
-			url:          "https://leetcode.com/problems/two-sum/",
-			expectedPlat: platform.LeetCode,
-			expectedExt:  "two-sum",
-		},
-		{
-			url:          "https://leetcode.com/problems/longest-substring-without-repeating-characters/description/",
-			expectedPlat: platform.LeetCode,
-			expectedExt:  "longest-substring-without-repeating-characters",
-		},
-		{
-			url:         "https://unknownplatform.com/problem/123",
-			shouldError: true,
+			url:        "https://unknownplatform.org/problem/123",
+			expectType: "",
+			expectID:   "",
+			expectErr:  true,
 		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
-			pType, extID, _, err := registry.ParseURL(tt.url)
-			if tt.shouldError {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tt.expectedPlat, pType)
-				assert.Equal(t, tt.expectedExt, extID)
-			}
-		})
+		pType, extID, _, err := reg.ParseURL(tt.url)
+		if tt.expectErr {
+			assert.Error(t, err)
+		} else {
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectType, pType)
+			assert.Equal(t, tt.expectID, extID)
+		}
 	}
 }

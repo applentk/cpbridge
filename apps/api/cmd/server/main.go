@@ -14,7 +14,6 @@ import (
 	"github.com/cp-hub/api/internal/platform"
 	"github.com/cp-hub/api/internal/platform/atcoder"
 	"github.com/cp-hub/api/internal/platform/codeforces"
-	"github.com/cp-hub/api/internal/platform/leetcode"
 	"github.com/cp-hub/api/internal/problem"
 	"github.com/cp-hub/api/internal/problemset"
 	"github.com/cp-hub/api/internal/submission"
@@ -37,11 +36,10 @@ func main() {
 		log.Printf("Schema verification notice: %v", err)
 	}
 
-	// Platform Adapters
+	// Platform Adapters (Codeforces, AtCoder)
 	platRegistry := platform.NewRegistry()
 	platRegistry.Register(codeforces.New())
 	platRegistry.Register(atcoder.New())
-	platRegistry.Register(leetcode.New())
 
 	// Domain Services
 	authSvc := auth.NewService(database)
