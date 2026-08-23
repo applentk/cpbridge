@@ -2,10 +2,11 @@ import type {
   ExtensionMessage,
   ExtensionPingResponse,
   ExtensionSubmissionCreatedResponse,
-  ExtensionSubmissionFailedResponse
+  ExtensionSubmissionFailedResponse,
+  ExtensionStatusPollResponse
 } from '@cp-hub/contracts';
-import { checkCodeforcesSession, submitCodeforces } from './platforms/codeforces.js';
-import { checkAtCoderSession, submitAtCoder } from './platforms/atcoder.js';
+import { checkCodeforcesSession, submitCodeforces, pollCodeforcesStatus } from './platforms/codeforces.js';
+import { checkAtCoderSession, submitAtCoder, pollAtCoderStatus } from './platforms/atcoder.js';
 
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
   handleMessage(message)
@@ -72,6 +73,32 @@ async function handleMessage(message: ExtensionMessage): Promise<any> {
       };
       return errResp;
     }
+  }
+
+  if (message.type === 'POLL_STATUS') {
+    let resultStatus = 'JUDGING';
+    try {
+      if (message.platform === 'CODEFORCES') {
+        const parts = message.problem.externalId.split('/');
+        const contestId = parts[0] || '';
+        const res = await pollCodeforcesStatus(contestId, message.externalSubmissionId);
+        resultStatus = res.status;
+      } else if (message.platform === 'ATCODER') {
+        const parts = message.problem.externalId.split('/');
+        const contestId = parts[0] || '';
+        const res = await pollAtCoderStatus(contestId, message.externalSubmissionId);
+        resultStatus = res.status;
+      }
+    } catch (err) {
+      console.error('Error polling status in extension:', err);
+    }
+
+    const pollResp: ExtensionStatusPollResponse = {
+      type: 'POLL_STATUS_RESULT',
+      externalSubmissionId: message.externalSubmissionId,
+      status: resultStatus as any
+    };
+    return pollResp;
   }
 
   return { error: 'Unknown message type' };

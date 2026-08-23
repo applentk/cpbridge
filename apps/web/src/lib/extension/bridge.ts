@@ -91,3 +91,25 @@ export async function submitViaExtension(
     source,
   });
 }
+
+export async function pollStatusViaExtension(
+  platform: PlatformType,
+  externalSubmissionId: string,
+  externalId: string,
+  url: string
+): Promise<{ status: string } | null> {
+  try {
+    const res = await sendToExtension<any>({
+      type: 'POLL_STATUS',
+      platform,
+      externalSubmissionId,
+      problem: { externalId, url }
+    });
+    if (res && res.type === 'POLL_STATUS_RESULT') {
+      return { status: res.status };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

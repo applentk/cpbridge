@@ -66,3 +66,42 @@ export async function submitAtCoder(
 
   return { externalSubmissionId: `ac_${Date.now()}` };
 }
+
+export async function pollAtCoderStatus(
+  contestId: string,
+  externalSubmissionId: string
+): Promise<{ status: 'JUDGING' | 'ACCEPTED' | 'WRONG_ANSWER' | 'TIME_LIMIT' | 'MEMORY_LIMIT' | 'RUNTIME_ERROR' | 'COMPILE_ERROR' | 'FAILED' }> {
+  if (externalSubmissionId.startsWith('ac_')) {
+    return { status: 'JUDGING' };
+  }
+
+  try {
+    const res = await fetch(`https://atcoder.jp/contests/${contestId}/submissions/${externalSubmissionId}`, {
+      method: 'GET',
+      credentials: 'include'
+    });
+    if (res.ok) {
+      const html = await res.text();
+      if (html.includes('>AC</span>') || html.includes('label-success')) {
+        return { status: 'ACCEPTED' };
+      }
+      if (html.includes('>WA</span>')) {
+        return { status: 'WRONG_ANSWER' };
+      }
+      if (html.includes('>TLE</span>')) {
+        return { status: 'TIME_LIMIT' };
+      }
+      if (html.includes('>MLE</span>')) {
+        return { status: 'MEMORY_LIMIT' };
+      }
+      if (html.includes('>RE</span>')) {
+        return { status: 'RUNTIME_ERROR' };
+      }
+      if (html.includes('>CE</span>')) {
+        return { status: 'COMPILE_ERROR' };
+      }
+    }
+  } catch {}
+
+  return { status: 'JUDGING' };
+}

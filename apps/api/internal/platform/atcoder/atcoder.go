@@ -172,6 +172,75 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 }
 
 func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string) (*platform.SubmissionStatus, error) {
+	if strings.HasPrefix(externalSubmissionID, "ac_") {
+		return &platform.SubmissionStatus{
+			ExternalSubmissionID: externalSubmissionID,
+			Status:               "JUDGING",
+		}, nil
+	}
+
+	var contestID, subID string
+	if strings.Contains(externalSubmissionID, "/") {
+		parts := strings.Split(externalSubmissionID, "/")
+		contestID, subID = parts[0], parts[1]
+	} else {
+		subID = externalSubmissionID
+	}
+
+	if contestID != "" && subID != "" {
+		submissionURL := fmt.Sprintf("https://atcoder.jp/contests/%s/submissions/%s", contestID, subID)
+		req, err := http.NewRequestWithContext(ctx, "GET", submissionURL, nil)
+		if err == nil {
+			req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+			resp, err := a.client.Do(req)
+			if err == nil {
+				defer resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
+					if err == nil {
+						htmlStr := string(bodyBytes)
+						if strings.Contains(htmlStr, ">AC</span>") || strings.Contains(htmlStr, "label-success") {
+							return &platform.SubmissionStatus{
+								ExternalSubmissionID: externalSubmissionID,
+								Status:               "ACCEPTED",
+							}, nil
+						}
+						if strings.Contains(htmlStr, ">WA</span>") {
+							return &platform.SubmissionStatus{
+								ExternalSubmissionID: externalSubmissionID,
+								Status:               "WRONG_ANSWER",
+							}, nil
+						}
+						if strings.Contains(htmlStr, ">TLE</span>") {
+							return &platform.SubmissionStatus{
+								ExternalSubmissionID: externalSubmissionID,
+								Status:               "TIME_LIMIT",
+							}, nil
+						}
+						if strings.Contains(htmlStr, ">MLE</span>") {
+							return &platform.SubmissionStatus{
+								ExternalSubmissionID: externalSubmissionID,
+								Status:               "MEMORY_LIMIT",
+							}, nil
+						}
+						if strings.Contains(htmlStr, ">RE</span>") {
+							return &platform.SubmissionStatus{
+								ExternalSubmissionID: externalSubmissionID,
+								Status:               "RUNTIME_ERROR",
+							}, nil
+						}
+						if strings.Contains(htmlStr, ">CE</span>") {
+							return &platform.SubmissionStatus{
+								ExternalSubmissionID: externalSubmissionID,
+								Status:               "COMPILE_ERROR",
+							}, nil
+						}
+					}
+				}
+			}
+		}
+	}
+
 	return &platform.SubmissionStatus{
 		ExternalSubmissionID: externalSubmissionID,
 		Status:               "JUDGING",

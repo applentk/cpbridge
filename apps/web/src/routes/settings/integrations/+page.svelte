@@ -52,13 +52,13 @@
   <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/60 flex items-center justify-between">
     <div class="flex items-center space-x-3">
       {#if extInfo}
-        <div class="w-3 h-3 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50"></div>
+        <div class="w-3 h-3 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50 animate-pulse"></div>
         <div>
           <div class="text-sm font-bold text-white">Browser Extension Active</div>
           <div class="text-xs text-zinc-400">Version {extInfo.version} connected</div>
         </div>
       {:else}
-        <div class="w-3 h-3 rounded-full bg-amber-500 shadow-sm shadow-amber-500/50"></div>
+        <div class="w-3 h-3 rounded-full bg-zinc-600"></div>
         <div>
           <div class="text-sm font-bold text-white">Extension Not Detected</div>
           <div class="text-xs text-zinc-400">Install or enable the CP Hub Chrome Extension to automate submissions.</div>
@@ -69,7 +69,7 @@
     <button
       on:click={checkConnections}
       disabled={checking}
-      class="px-3.5 py-1.5 rounded-xl text-xs font-semibold border border-zinc-800 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 transition flex items-center space-x-1.5"
+      class="px-3.5 py-1.5 rounded-xl text-xs font-semibold border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-white transition flex items-center space-x-1.5"
     >
       <RefreshCw class="w-3.5 h-3.5 {checking ? 'animate-spin' : ''}" />
       <span>{checking ? 'Checking...' : 'Check Status'}</span>
@@ -90,11 +90,11 @@
           <div class="flex items-center space-x-2">
             <h3 class="text-base font-bold text-white">Codeforces</h3>
             {#if extInfo?.platforms?.CODEFORCES?.loggedIn}
-              <span class="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30">
+              <span class="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30">
                 Connected ({extInfo.platforms.CODEFORCES.username || 'Session Active'})
               </span>
             {:else}
-              <span class="text-[11px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+              <span class="text-[11px] px-2 py-0.5 rounded-full bg-zinc-950 text-zinc-500 border border-zinc-800">
                 Not Connected
               </span>
             {/if}
@@ -110,7 +110,7 @@
           href="https://codeforces.com/enter"
           target="_blank"
           rel="noopener noreferrer"
-          class="px-4 py-2 rounded-xl text-xs font-semibold border border-zinc-800 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 transition flex items-center space-x-1.5"
+          class="px-4 py-2 rounded-xl text-xs font-semibold border border-zinc-700 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 hover:text-white transition flex items-center space-x-1.5"
         >
           <span>Open Codeforces</span>
           <ExternalLink class="w-3.5 h-3.5" />
@@ -121,18 +121,18 @@
     <!-- AtCoder Card -->
     <div class="p-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div class="flex items-start space-x-4">
-        <div class="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 font-bold text-lg shrink-0">
+        <div class="w-12 h-12 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center text-white font-bold text-lg shrink-0">
           AC
         </div>
         <div class="space-y-1">
           <div class="flex items-center space-x-2">
             <h3 class="text-base font-bold text-white">AtCoder</h3>
             {#if extInfo?.platforms?.ATCODER?.loggedIn}
-              <span class="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30">
+              <span class="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30">
                 Connected ({extInfo.platforms.ATCODER.username || 'Session Active'})
               </span>
             {:else}
-              <span class="text-[11px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+              <span class="text-[11px] px-2 py-0.5 rounded-full bg-zinc-950 text-zinc-500 border border-zinc-800">
                 Not Connected
               </span>
             {/if}
