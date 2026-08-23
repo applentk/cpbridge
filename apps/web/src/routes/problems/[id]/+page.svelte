@@ -5,8 +5,9 @@
   import { auth } from '$lib/stores/auth';
   import { pingExtension, submitViaExtension, pollStatusViaExtension } from '$lib/extension/bridge';
   import { renderMathInHtml } from '$lib/utils/math';
-  import type { Problem, LanguageId, Submission, ProblemStatement } from '@cp-hub/contracts';
+  import type { Problem, LanguageId, Submission, ProblemStatement, Contest, ContestProblem } from '@cp-hub/contracts';
   import MonacoEditor from '$lib/components/MonacoEditor.svelte';
+  import ContestTimer from '$lib/components/ContestTimer.svelte';
   import {
     ExternalLink,
     Send,
@@ -21,10 +22,25 @@
     Terminal,
     Upload,
     FileCode,
-    Columns
+    Columns,
+    ArrowLeft,
+    Trophy,
+    ChevronLeft,
+    ChevronRight,
+    Layers,
+    Lock
   } from 'lucide-svelte';
 
-  let problemId = $page.params.id;
+  let problemId: string = $page.params.id || '';
+  let contestId: string | null = $page.url.searchParams.get('contestId');
+  let contest: Contest | null = null;
+  let contestProblems: ContestProblem[] = [];
+  let contestSolvedProblemIds: Set<string> = new Set();
+  let contestLoading = false;
+
+  let currentLoadedProblemId: string = '';
+  let currentLoadedContestId: string | null | undefined = undefined;
+
   let problem: Problem | null = null;
   let statement: ProblemStatement | null = null;
   let renderedHtml = '';
@@ -64,6 +80,23 @@
     rust: 'Rust'
   };
 
+  $: currentContestProblem = contestProblems.find(cp => cp.problemId === problemId);
+  $: currentProblemIndex = contestProblems.findIndex(cp => cp.problemId === problemId);
+  $: prevContestProblem = currentProblemIndex > 0 ? contestProblems[currentProblemIndex - 1] : null;
+  $: nextContestProblem = currentProblemIndex >= 0 && currentProblemIndex < contestProblems.length - 1 ? contestProblems[currentProblemIndex + 1] : null;
+
+  $: {
+    const nextPId = $page.params.id || '';
+    const nextCId = $page.url.searchParams.get('contestId');
+    if (nextPId && (nextPId !== currentLoadedProblemId || nextCId !== currentLoadedContestId)) {
+      currentLoadedProblemId = nextPId;
+      currentLoadedContestId = nextCId;
+      problemId = nextPId;
+      contestId = nextCId;
+      loadProblemAndContest();
+    }
+  }
+
   function detectLanguageFromFilename(filename: string): LanguageId | null {
     const ext = filename.split('.').pop()?.toLowerCase();
     switch (ext) {
@@ -80,6 +113,7 @@
       case 'python':
         return 'python3';
       case 'java':
+      case 'java21':
         return 'java21';
       case 'go':
         return 'go';
@@ -124,11 +158,35 @@
     sourceCode = starterTemplates[language] || '';
   }
 
-  async function loadProblem() {
+  async function loadProblemAndContest() {
     loading = true;
+    error = '';
+    stopSubmissionPolling();
+    activeSubmission = null;
+    submitStatus = '';
+
     try {
-      problem = await api.get<Problem>(`/problems/${problemId}`);
-      await Promise.all([loadStatement(), loadSubmissions()]);
+      const pId = problemId;
+      const cId = contestId;
+      if (!pId) return;
+
+      const promises: Promise<any>[] = [
+        api.get<Problem>(`/problems/${pId}`),
+        loadStatement(pId),
+        loadSubmissions(pId, cId)
+      ];
+
+      if (cId) {
+        promises.push(loadContestData(cId));
+      } else {
+        contest = null;
+        contestProblems = [];
+        contestSolvedProblemIds = new Set();
+      }
+
+      const [probData] = await Promise.all(promises);
+      problem = probData;
+
       // If there's an ongoing judging submission, start polling
       if (recentSubmissions.length > 0) {
         const latest = recentSubmissions[0];
@@ -145,24 +203,57 @@
     }
   }
 
-  async function loadStatement() {
+  async function loadContestData(cId: string) {
+    contestLoading = true;
+    try {
+      const [cRes, subsRes] = await Promise.all([
+        api.get<Contest>(`/contests/${cId}`),
+        api.get<Submission[]>(`/submissions?contestId=${cId}`).catch(() => [])
+      ]);
+      contest = cRes;
+      contestProblems = cRes.problems || [];
+
+      const solved = new Set<string>();
+      if (Array.isArray(subsRes)) {
+        for (const sub of subsRes) {
+          if (sub.status === 'ACCEPTED') {
+            solved.add(sub.problemId);
+          }
+        }
+      }
+      contestSolvedProblemIds = solved;
+    } catch (err) {
+      console.error('Failed to load contest context:', err);
+    } finally {
+      contestLoading = false;
+    }
+  }
+
+  async function loadStatement(pId: string) {
     statementLoading = true;
     try {
-      statement = await api.get<ProblemStatement>(`/problems/${problemId}/statement`);
+      statement = await api.get<ProblemStatement>(`/problems/${pId}/statement`);
       if (statement && statement.html) {
         renderedHtml = renderMathInHtml(statement.html);
+      } else {
+        renderedHtml = '';
       }
     } catch (err) {
       console.error('Failed to load statement:', err);
+      statement = null;
+      renderedHtml = '';
     } finally {
       statementLoading = false;
     }
   }
 
-  async function loadSubmissions() {
+  async function loadSubmissions(pId: string, cId: string | null) {
     try {
-      recentSubmissions = await api.get<Submission[]>(`/submissions?problemId=${problemId}`);
-    } catch {}
+      const query = cId ? `/submissions?problemId=${pId}&contestId=${cId}` : `/submissions?problemId=${pId}`;
+      recentSubmissions = await api.get<Submission[]>(query);
+    } catch {
+      recentSubmissions = [];
+    }
   }
 
   function copyToClipboard(text: string, id: string) {
@@ -199,7 +290,12 @@
           activeSubmission = updated;
           submitStatus = `Verdict: ${updated.status}`;
           stopSubmissionPolling();
-          await loadSubmissions();
+          if (updated.status === 'ACCEPTED' && problem) {
+            contestSolvedProblemIds = new Set([...contestSolvedProblemIds, problem.id]);
+          }
+          if (problem) {
+            await loadSubmissions(problem.id, contestId);
+          }
           return;
         }
 
@@ -219,7 +315,12 @@
             activeSubmission = { ...updated, status: extRes.status as any };
             submitStatus = `Verdict: ${extRes.status}`;
             stopSubmissionPolling();
-            await loadSubmissions();
+            if (extRes.status === 'ACCEPTED' && problem) {
+              contestSolvedProblemIds = new Set([...contestSolvedProblemIds, problem.id]);
+            }
+            if (problem) {
+              await loadSubmissions(problem.id, contestId);
+            }
             return;
           }
         }
@@ -243,12 +344,17 @@
     try {
       const sub = await api.post<Submission>('/submissions', {
         problemId: problem.id,
-        contestId: null,
+        contestId: contestId || null,
         language,
         sourceCode
       });
       activeSubmission = sub;
       submitStatus = 'Dispatching via extension...';
+
+      // Redirect to submissions tab
+      activeTab = 'submissions';
+      viewMode = 'tabbed';
+      await loadSubmissions(problem.id, contestId);
 
       const extRes = await submitViaExtension(
         sub.id,
@@ -271,7 +377,7 @@
         submitStatus = `Extension notice: ${extRes.error || 'Fallback to manual verification'}`;
       }
 
-      await loadSubmissions();
+      await loadSubmissions(problem.id, contestId);
     } catch (err: any) {
       submitStatus = `Submission recorded (${err.message})`;
     } finally {
@@ -289,15 +395,16 @@
       });
       activeSubmission.status = status;
       submitStatus = `Verdict: ${status}`;
-      await loadSubmissions();
+      if (status === 'ACCEPTED' && problem) {
+        contestSolvedProblemIds = new Set([...contestSolvedProblemIds, problem.id]);
+      }
+      if (problem) {
+        await loadSubmissions(problem.id, contestId);
+      }
     } catch (err) {
       console.error(err);
     }
   }
-
-  onMount(() => {
-    loadProblem();
-  });
 
   onDestroy(() => {
     stopSubmissionPolling();
@@ -313,29 +420,199 @@
   </div>
 {:else}
   <div class="space-y-4">
-    <!-- Header Navigation Card -->
-    <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 space-y-4 shadow-xl">
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div class="space-y-1.5">
-          <div class="flex items-center space-x-2.5">
-            <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold font-mono {
-              problem.platform === 'CODEFORCES' ? 'bg-red-500/15 text-red-300 border border-red-500/30' :
-              'bg-zinc-800 text-zinc-300 border border-zinc-700'
-            }">
-              {problem.platform}
-            </span>
-            <span class="text-xs font-mono text-zinc-400">{problem.externalId}</span>
-            {#if problem.difficulty}
-              <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-zinc-950 text-zinc-400 border border-zinc-800">
-                ★ {problem.difficulty}
+    <!-- Contest Banner & Problem Switcher (if problem is opened within contest) -->
+    {#if contest}
+      <div class="p-4 sm:p-5 rounded-2xl border border-zinc-800 bg-zinc-900/90 shadow-xl space-y-4 backdrop-blur-md">
+        <!-- Contest Title & Status Bar -->
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div class="space-y-1.5">
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              <a
+                href={`/contests/${contest.id}`}
+                class="font-semibold text-zinc-300 hover:text-white transition flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-800 border border-zinc-700/60"
+              >
+                <ArrowLeft class="w-3.5 h-3.5" />
+                <span>Contest Lobby</span>
+              </a>
+
+              <a
+                href={`/contests/${contest.id}/standings`}
+                class="font-semibold text-zinc-300 hover:text-white transition flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-800 border border-zinc-700/60"
+              >
+                <Trophy class="w-3.5 h-3.5" />
+                <span>Scoreboard</span>
+              </a>
+
+              <span class="px-2.5 py-0.5 rounded-full font-bold {
+                contest.state === 'ACTIVE' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+                contest.state === 'UPCOMING' ? 'bg-zinc-800 text-zinc-300 border border-zinc-700' :
+                'bg-zinc-950 text-zinc-500 border border-zinc-800'
+              }">
+                {contest.state}
               </span>
-            {/if}
+
+              <span class="px-2 py-0.5 rounded-md font-mono bg-zinc-800 text-zinc-300 border border-zinc-700">
+                {contest.scoringType} Scoring
+              </span>
+            </div>
+
+            <div class="flex items-center space-x-2">
+              <h2 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+                {contest.name}
+              </h2>
+            </div>
           </div>
 
-          <h1 class="text-2xl font-extrabold text-white leading-tight">
-            {problem.title}
-          </h1>
+          <!-- Timer & Quick Prev/Next Problem Navigation -->
+          <div class="flex items-center gap-3 shrink-0">
+            <ContestTimer startAt={contest.startAt} endAt={contest.endAt} state={contest.state} />
+
+            <!-- Prev / Next Problem Buttons -->
+            <div class="flex items-center bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
+              {#if prevContestProblem}
+                <a
+                  href={`/problems/${prevContestProblem.problemId}?contestId=${contest.id}`}
+                  class="px-3 py-1.5 rounded-lg font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition flex items-center space-x-1"
+                  title={`Previous: Problem ${prevContestProblem.label}`}
+                >
+                  <ChevronLeft class="w-4 h-4" />
+                  <span class="hidden sm:inline">Prev ({prevContestProblem.label})</span>
+                </a>
+              {:else}
+                <span class="px-3 py-1.5 rounded-lg text-zinc-600 cursor-not-allowed flex items-center space-x-1">
+                  <ChevronLeft class="w-4 h-4" />
+                  <span class="hidden sm:inline">Prev</span>
+                </span>
+              {/if}
+
+              {#if nextContestProblem}
+                <a
+                  href={`/problems/${nextContestProblem.problemId}?contestId=${contest.id}`}
+                  class="px-3 py-1.5 rounded-lg font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition flex items-center space-x-1"
+                  title={`Next: Problem ${nextContestProblem.label}`}
+                >
+                  <span class="hidden sm:inline">Next ({nextContestProblem.label})</span>
+                  <ChevronRight class="w-4 h-4" />
+                </a>
+              {:else}
+                <span class="px-3 py-1.5 rounded-lg text-zinc-600 cursor-not-allowed flex items-center space-x-1">
+                  <span class="hidden sm:inline">Next</span>
+                  <ChevronRight class="w-4 h-4" />
+                </span>
+              {/if}
+            </div>
+          </div>
         </div>
+
+        <!-- Contest Problem Switcher Bar (Tabs) -->
+        {#if contestProblems.length > 0}
+          <div class="pt-3 border-t border-zinc-800/80 space-y-2">
+            <div class="flex items-center justify-between text-xs text-zinc-400">
+              <div class="flex items-center space-x-1.5 font-semibold uppercase tracking-wider text-[11px] text-zinc-400">
+                <Layers class="w-3.5 h-3.5 text-zinc-400" />
+                <span>Contest Problems ({contestProblems.length})</span>
+              </div>
+              {#if contestSolvedProblemIds.size > 0}
+                <span class="text-emerald-400 font-medium text-xs">
+                  {contestSolvedProblemIds.size} of {contestProblems.length} Solved
+                </span>
+              {/if}
+            </div>
+
+            <div class="flex items-center gap-2 overflow-x-auto pb-1">
+              {#each contestProblems as cp}
+                {@const isActive = cp.problemId === problemId}
+                {@const isSolved = contestSolvedProblemIds.has(cp.problemId)}
+                <a
+                  href={`/problems/${cp.problemId}?contestId=${contest.id}`}
+                  class="shrink-0 flex items-center space-x-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition border {
+                    isActive
+                      ? 'bg-white text-black border-white shadow-md'
+                      : isSolved
+                      ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20 hover:text-white'
+                      : 'bg-zinc-950 text-zinc-300 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900 hover:text-white'
+                  }"
+                >
+                  <span class="w-5 h-5 rounded-md flex items-center justify-center font-bold text-xs {
+                    isActive
+                      ? 'bg-black text-white'
+                      : isSolved
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : 'bg-zinc-800 text-zinc-300'
+                  }">
+                    {cp.label}
+                  </span>
+
+                  <span class="max-w-[150px] sm:max-w-[200px] truncate">
+                    {cp.problem?.title || `Problem ${cp.label}`}
+                  </span>
+
+                  {#if isSolved}
+                    <CheckCircle2 class="w-3.5 h-3.5 shrink-0 {isActive ? 'text-emerald-700' : 'text-emerald-400'}" />
+                  {/if}
+                </a>
+              {/each}
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    {#if contest && contest.state === 'UPCOMING' && $auth.user?.role !== 'ADMIN'}
+      <div class="p-12 rounded-2xl border border-zinc-800 bg-zinc-900/50 text-center space-y-3">
+        <div class="w-12 h-12 rounded-full bg-zinc-800 border border-zinc-700 text-white flex items-center justify-center mx-auto">
+          <Lock class="w-6 h-6" />
+        </div>
+        <h3 class="text-lg font-bold text-white">Problem is Locked</h3>
+        <p class="text-xs text-zinc-400 max-w-md mx-auto">
+          Problem statements and submissions for this contest will automatically unlock when the contest starts.
+        </p>
+        <a
+          href={`/contests/${contest.id}`}
+          class="inline-block mt-4 px-4 py-2 rounded-xl text-xs font-semibold bg-white text-black hover:bg-zinc-200 transition"
+        >
+          Return to Contest Lobby
+        </a>
+      </div>
+    {:else}
+      <!-- Header Navigation Card -->
+      <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 space-y-4 shadow-xl">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div class="space-y-1.5">
+            <div class="flex items-center space-x-2.5">
+              {#if currentContestProblem}
+                <span class="text-xs px-2.5 py-0.5 rounded-full font-bold font-mono bg-white text-black shadow-sm">
+                  Problem {currentContestProblem.label}
+                </span>
+              {/if}
+              {#if !contest}
+                <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold font-mono {
+                  problem.platform === 'CODEFORCES' ? 'bg-red-500/15 text-red-300 border border-red-500/30' :
+                  'bg-zinc-800 text-zinc-300 border border-zinc-700'
+                }">
+                  {problem.platform}
+                </span>
+                <span class="text-xs font-mono text-zinc-400">{problem.externalId}</span>
+                {#if problem.difficulty}
+                  <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-zinc-950 text-zinc-400 border border-zinc-800">
+                    ★ {problem.difficulty}
+                  </span>
+                {/if}
+              {/if}
+              {#if currentContestProblem?.points}
+                <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  {currentContestProblem.points} pts
+                </span>
+              {/if}
+            </div>
+
+            <h1 class="text-2xl font-extrabold text-white leading-tight">
+              {#if currentContestProblem}
+                <span class="text-zinc-400 font-mono mr-1.5">{currentContestProblem.label}.</span>
+              {/if}
+              {problem.title}
+            </h1>
+          </div>
 
         <div class="flex items-center space-x-3 shrink-0">
           <!-- View Layout Toggle (Tabbed vs Split) -->
@@ -359,16 +636,18 @@
             </button>
           </div>
 
-          <a
-            href={problem.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-xs text-zinc-200 hover:text-white font-semibold transition flex items-center space-x-1.5"
-            title="Open official statement on source website"
-          >
-            <span>Source</span>
-            <ExternalLink class="w-3.5 h-3.5" />
-          </a>
+          {#if !contest}
+            <a
+              href={problem.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-xs text-zinc-200 hover:text-white font-semibold transition flex items-center space-x-1.5"
+              title="Open official statement on source website"
+            >
+              <span>Source</span>
+              <ExternalLink class="w-3.5 h-3.5" />
+            </a>
+          {/if}
         </div>
       </div>
 
@@ -509,7 +788,9 @@
           {:else}
             <div class="p-8 text-center text-zinc-400 text-sm">
               Statement not loaded.
-              <a href={problem.url} target="_blank" class="text-white underline ml-1">Open source statement</a>
+              {#if !contest}
+                <a href={problem.url} target="_blank" class="text-white underline ml-1">Open source statement</a>
+              {/if}
             </div>
           {/if}
         </div>
@@ -675,15 +956,17 @@
             {:else}
               <div class="p-12 text-center text-zinc-400 space-y-4">
                 <p>Statement could not be loaded automatically.</p>
-                <a
-                  href={problem.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="px-4 py-2 rounded-xl text-xs font-bold bg-white hover:bg-zinc-200 text-black inline-flex items-center space-x-1.5"
-                >
-                  <span>Open Source Statement</span>
-                  <ExternalLink class="w-3.5 h-3.5" />
-                </a>
+                {#if !contest}
+                  <a
+                    href={problem.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="px-4 py-2 rounded-xl text-xs font-bold bg-white hover:bg-zinc-200 text-black inline-flex items-center space-x-1.5"
+                  >
+                    <span>Open Source Statement</span>
+                    <ExternalLink class="w-3.5 h-3.5" />
+                  </a>
+                {/if}
               </div>
             {/if}
           </div>
@@ -789,7 +1072,64 @@
         {:else}
           <!-- 3. Submissions History Tab -->
           <div class="space-y-4 max-w-4xl mx-auto">
-            <h3 class="text-sm font-bold text-white uppercase tracking-wider">Your Submission History</h3>
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-bold text-white uppercase tracking-wider">Your Submission History</h3>
+              <div class="flex items-center space-x-2">
+                <button
+                  on:click={() => problem && loadSubmissions(problem.id, contestId)}
+                  class="px-3 py-1 text-xs rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition"
+                >
+                  Refresh
+                </button>
+                <button
+                  on:click={() => (activeTab = 'editor')}
+                  class="px-3 py-1 text-xs rounded-lg bg-white text-black font-semibold hover:bg-zinc-200 transition flex items-center space-x-1"
+                >
+                  <Code2 class="w-3.5 h-3.5" />
+                  <span>Editor</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Verdict & Dispatch Banner -->
+            {#if activeSubmission || submitStatus}
+              <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-950 space-y-3">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Submission Verdict</span>
+                  {#if activeSubmission}
+                    <span class="text-xs font-bold font-mono px-3 py-1 rounded-lg {
+                      activeSubmission.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+                      activeSubmission.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
+                      activeSubmission.status === 'JUDGING' || activeSubmission.status === 'PENDING' || activeSubmission.status === 'DISPATCHING' ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse' :
+                      'bg-zinc-800 text-zinc-200 border border-zinc-700'
+                    }">
+                      {activeSubmission.status}
+                    </span>
+                  {/if}
+                </div>
+
+                <p class="text-xs text-zinc-400 font-mono">{submitStatus}</p>
+
+                {#if activeSubmission && (activeSubmission.status === 'PENDING' || activeSubmission.status === 'JUDGING' || activeSubmission.status === 'DISPATCHING')}
+                  <div class="flex items-center space-x-2 pt-2 border-t border-zinc-800/80">
+                    <span class="text-xs text-zinc-500">Record dev mock verdict:</span>
+                    <button
+                      on:click={() => handleMockVerdict('ACCEPTED')}
+                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition"
+                    >
+                      Mark AC
+                    </button>
+                    <button
+                      on:click={() => handleMockVerdict('WRONG_ANSWER')}
+                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition"
+                    >
+                      Mark WA
+                    </button>
+                  </div>
+                {/if}
+              </div>
+            {/if}
+
             {#if recentSubmissions.length === 0}
               <p class="text-xs text-zinc-500 py-12 text-center">No submissions recorded yet for this problem.</p>
             {:else}
@@ -803,6 +1143,7 @@
                     <span class="font-bold font-mono px-3 py-1.5 rounded-lg {
                       sub.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
                       sub.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
+                      sub.status === 'JUDGING' || sub.status === 'PENDING' || sub.status === 'DISPATCHING' ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse' :
                       'bg-zinc-800 text-zinc-400 border border-zinc-700'
                     }">
                       {sub.status}
@@ -814,6 +1155,7 @@
           </div>
         {/if}
       </div>
+    {/if}
     {/if}
   </div>
 {/if}

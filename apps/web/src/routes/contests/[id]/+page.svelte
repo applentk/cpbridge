@@ -176,7 +176,7 @@
         <div class="space-y-3">
           {#each problems as cp}
             {#if cp.problem}
-              <ProblemCard problem={cp.problem} label={cp.label} />
+              <ProblemCard problem={cp.problem} label={cp.label} contestId={contest.id} />
             {/if}
           {/each}
         </div>

@@ -15,7 +15,7 @@
         <th class="py-3.5 px-4 w-28 text-center">{standings.scoringType === 'ICPC' ? 'Penalty' : 'Time'}</th>
         {#each standings.problems as prob}
           <th class="py-3.5 px-4 text-center min-w-[70px]">
-            <a href={`/problems/${prob.problemId}`} class="hover:text-white font-bold text-base transition">
+            <a href={`/problems/${prob.problemId}?contestId=${standings.contestId}`} class="hover:text-white font-bold text-base transition">
               {prob.label}
             </a>
           </th>
