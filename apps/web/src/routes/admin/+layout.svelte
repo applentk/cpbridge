@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth';
   import { LayoutDashboard, Code2, Layers, Trophy, Users, ExternalLink, ShieldCheck } from 'lucide-svelte';
 
   $: {
-    if (!$auth.loading && (!$auth.user || $auth.user.role !== 'ADMIN')) {
+    if (browser && !$auth.loading && (!$auth.user || $auth.user.role !== 'ADMIN')) {
       goto('/contests');
     }
   }

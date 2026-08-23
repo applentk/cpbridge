@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
@@ -86,14 +87,16 @@
   $: nextContestProblem = currentProblemIndex >= 0 && currentProblemIndex < contestProblems.length - 1 ? contestProblems[currentProblemIndex + 1] : null;
 
   $: {
-    const nextPId = $page.params.id || '';
-    const nextCId = $page.url.searchParams.get('contestId');
-    if (nextPId && (nextPId !== currentLoadedProblemId || nextCId !== currentLoadedContestId)) {
-      currentLoadedProblemId = nextPId;
-      currentLoadedContestId = nextCId;
-      problemId = nextPId;
-      contestId = nextCId;
-      loadProblemAndContest();
+    if (browser) {
+      const nextPId = $page.params.id || '';
+      const nextCId = $page.url.searchParams.get('contestId');
+      if (nextPId && (nextPId !== currentLoadedProblemId || nextCId !== currentLoadedContestId)) {
+        currentLoadedProblemId = nextPId;
+        currentLoadedContestId = nextCId;
+        problemId = nextPId;
+        contestId = nextCId;
+        loadProblemAndContest();
+      }
     }
   }
 
@@ -280,6 +283,14 @@
       attempts++;
       if (attempts > maxAttempts) {
         stopSubmissionPolling();
+        submitStatus = 'Judging timed out. Use the Sync button below or check the official site.';
+        try {
+          const synced = await api.post<Submission>(`/submissions/${submissionId}/sync`);
+          if (synced) {
+            activeSubmission = synced;
+            submitStatus = `Status: ${synced.status}`;
+          }
+        } catch {}
         return;
       }
 
@@ -300,7 +311,7 @@
         }
 
         // 2. Also check via Chrome Extension Bridge if available
-        if (problem && updated && updated.externalSubmissionId) {
+        if (problem && updated && updated.externalSubmissionId && !updated.externalSubmissionId.startsWith('cf_') && !updated.externalSubmissionId.startsWith('ac_')) {
           const extRes = await pollStatusViaExtension(
             problem.platform,
             updated.externalSubmissionId,
@@ -308,20 +319,20 @@
             problem.url
           );
           if (extRes && extRes.status && extRes.status !== 'JUDGING' && extRes.status !== 'PENDING') {
-            await api.post(`/submissions/${submissionId}/result`, {
-              status: extRes.status,
-              metadata: { syncedViaExtension: true }
-            });
-            activeSubmission = { ...updated, status: extRes.status as any };
-            submitStatus = `Verdict: ${extRes.status}`;
-            stopSubmissionPolling();
-            if (extRes.status === 'ACCEPTED' && problem) {
-              contestSolvedProblemIds = new Set([...contestSolvedProblemIds, problem.id]);
+            // Trigger server-side synchronization with platform adapter
+            const synced = await api.post<Submission>(`/submissions/${submissionId}/sync`);
+            if (synced) {
+              activeSubmission = synced;
+              submitStatus = `Verdict: ${synced.status}`;
+              stopSubmissionPolling();
+              if (synced.status === 'ACCEPTED' && problem) {
+                contestSolvedProblemIds = new Set([...contestSolvedProblemIds, problem.id]);
+              }
+              if (problem) {
+                await loadSubmissions(problem.id, contestId);
+              }
+              return;
             }
-            if (problem) {
-              await loadSubmissions(problem.id, contestId);
-            }
-            return;
           }
         }
       } catch (err) {
@@ -341,6 +352,7 @@
     submitStatus = 'Creating submission...';
     stopSubmissionPolling();
 
+    let createdSub: Submission | null = null;
     try {
       const sub = await api.post<Submission>('/submissions', {
         problemId: problem.id,
@@ -348,6 +360,7 @@
         language,
         sourceCode
       });
+      createdSub = sub;
       activeSubmission = sub;
       submitStatus = 'Dispatching via extension...';
 
@@ -365,7 +378,7 @@
         sourceCode
       );
 
-      if (extRes.type === 'SUBMISSION_CREATED') {
+      if (extRes.type === 'SUBMISSION_CREATED' && extRes.externalSubmissionId) {
         submitStatus = 'Submitted! Status: JUDGING (Polling verdict...)';
         await api.post(`/submissions/${sub.id}/dispatched`, {
           externalSubmissionId: extRes.externalSubmissionId
@@ -373,36 +386,57 @@
         activeSubmission.status = 'JUDGING';
         activeSubmission.externalSubmissionId = extRes.externalSubmissionId;
         startSubmissionPolling(sub.id);
+      } else if (extRes.type === 'SUBMISSION_FAILED') {
+        const errorMsg = extRes.message || extRes.error || 'Submission was not accepted on platform';
+        submitStatus = `Submission failed: ${errorMsg}`;
+        await api.post(`/submissions/${sub.id}/result`, {
+          status: 'FAILED',
+          metadata: { error: errorMsg }
+        });
+        activeSubmission.status = 'FAILED';
       } else {
-        submitStatus = `Extension notice: ${extRes.error || 'Fallback to manual verification'}`;
+        const errorMsg = 'Failed to obtain external submission ID';
+        submitStatus = `Submission failed: ${errorMsg}`;
+        await api.post(`/submissions/${sub.id}/result`, {
+          status: 'FAILED',
+          metadata: { error: errorMsg }
+        });
+        activeSubmission.status = 'FAILED';
       }
 
       await loadSubmissions(problem.id, contestId);
     } catch (err: any) {
-      submitStatus = `Submission recorded (${err.message})`;
+      submitStatus = `Submission error: ${err.message}`;
+      if (createdSub) {
+        try {
+          await api.post(`/submissions/${createdSub.id}/result`, {
+            status: 'FAILED',
+            metadata: { error: err.message }
+          });
+          if (activeSubmission) activeSubmission.status = 'FAILED';
+        } catch {}
+      }
     } finally {
       submitting = false;
     }
   }
 
-  async function handleMockVerdict(status: 'ACCEPTED' | 'WRONG_ANSWER' | 'TIME_LIMIT') {
-    if (!activeSubmission) return;
+  async function handleManualSync(subId: string) {
     try {
-      stopSubmissionPolling();
-      await api.post(`/submissions/${activeSubmission.id}/result`, {
-        status,
-        metadata: { manualRecord: true }
-      });
-      activeSubmission.status = status;
-      submitStatus = `Verdict: ${status}`;
-      if (status === 'ACCEPTED' && problem) {
-        contestSolvedProblemIds = new Set([...contestSolvedProblemIds, problem.id]);
+      submitStatus = 'Syncing status...';
+      const updated = await api.post<Submission>(`/submissions/${subId}/sync`);
+      if (updated) {
+        activeSubmission = updated;
+        submitStatus = `Status updated: ${updated.status}`;
+        if (updated.status === 'ACCEPTED' && problem) {
+          contestSolvedProblemIds = new Set([...contestSolvedProblemIds, problem.id]);
+        }
+        if (problem) {
+          await loadSubmissions(problem.id, contestId);
+        }
       }
-      if (problem) {
-        await loadSubmissions(problem.id, contestId);
-      }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      submitStatus = `Sync failed: ${err.message}`;
     }
   }
 
@@ -1047,24 +1081,6 @@
                 </div>
 
                 <p class="text-xs text-zinc-400 font-mono">{submitStatus}</p>
-
-                {#if activeSubmission && (activeSubmission.status === 'PENDING' || activeSubmission.status === 'JUDGING')}
-                  <div class="flex items-center space-x-2 pt-2 border-t border-zinc-800/80">
-                    <span class="text-xs text-zinc-500">Record dev mock verdict:</span>
-                    <button
-                      on:click={() => handleMockVerdict('ACCEPTED')}
-                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition"
-                    >
-                      Mark AC
-                    </button>
-                    <button
-                      on:click={() => handleMockVerdict('WRONG_ANSWER')}
-                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition"
-                    >
-                      Mark WA
-                    </button>
-                  </div>
-                {/if}
               </div>
             {/if}
           </div>
@@ -1111,19 +1127,13 @@
                 <p class="text-xs text-zinc-400 font-mono">{submitStatus}</p>
 
                 {#if activeSubmission && (activeSubmission.status === 'PENDING' || activeSubmission.status === 'JUDGING' || activeSubmission.status === 'DISPATCHING')}
-                  <div class="flex items-center space-x-2 pt-2 border-t border-zinc-800/80">
-                    <span class="text-xs text-zinc-500">Record dev mock verdict:</span>
+                  <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800/80">
                     <button
-                      on:click={() => handleMockVerdict('ACCEPTED')}
-                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition"
+                      on:click={() => handleManualSync(activeSubmission!.id)}
+                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 transition flex items-center space-x-1"
                     >
-                      Mark AC
-                    </button>
-                    <button
-                      on:click={() => handleMockVerdict('WRONG_ANSWER')}
-                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition"
-                    >
-                      Mark WA
+                      <Clock class="w-3 h-3" />
+                      <span>Sync Status</span>
                     </button>
                   </div>
                 {/if}
@@ -1139,15 +1149,29 @@
                     <div class="space-y-1">
                       <div class="font-mono font-semibold text-zinc-200">{sub.language}</div>
                       <div class="text-zinc-500">{new Date(sub.submittedAt).toLocaleString()}</div>
+                      {#if sub.metadata && sub.metadata.error}
+                        <div class="text-rose-400 text-[11px] font-sans">{sub.metadata.error}</div>
+                      {/if}
                     </div>
-                    <span class="font-bold font-mono px-3 py-1.5 rounded-lg {
-                      sub.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
-                      sub.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
-                      sub.status === 'JUDGING' || sub.status === 'PENDING' || sub.status === 'DISPATCHING' ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse' :
-                      'bg-zinc-800 text-zinc-400 border border-zinc-700'
-                    }">
-                      {sub.status}
-                    </span>
+                    <div class="flex items-center space-x-2">
+                      {#if sub.status === 'JUDGING' || sub.status === 'PENDING' || sub.status === 'DISPATCHING'}
+                        <button
+                          on:click={() => handleManualSync(sub.id)}
+                          class="px-2 py-1 rounded-lg text-[11px] font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition"
+                          title="Re-check status on source platform"
+                        >
+                          Sync
+                        </button>
+                      {/if}
+                      <span class="font-bold font-mono px-3 py-1.5 rounded-lg {
+                        sub.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+                        sub.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
+                        sub.status === 'JUDGING' || sub.status === 'PENDING' || sub.status === 'DISPATCHING' ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse' :
+                        'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                      }">
+                        {sub.status}
+                      </span>
+                    </div>
                   </div>
                 {/each}
               </div>

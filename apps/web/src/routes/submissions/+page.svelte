@@ -3,12 +3,13 @@
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
   import type { Submission } from '@cp-hub/contracts';
-  import { Cpu, RefreshCw, Filter, ExternalLink } from 'lucide-svelte';
+  import { Cpu, RefreshCw, Filter, ExternalLink, RotateCcw } from 'lucide-svelte';
 
   let submissions: Submission[] = [];
   let loading = true;
   let filterUser = '';
   let interval: any = null;
+  let syncingId: string | null = null;
 
   async function loadSubmissions(silent = false) {
     if (!silent) loading = true;
@@ -20,6 +21,18 @@
       console.error(err);
     } finally {
       if (!silent) loading = false;
+    }
+  }
+
+  async function syncSubmission(subId: string) {
+    syncingId = subId;
+    try {
+      await api.post(`/submissions/${subId}/sync`);
+      await loadSubmissions(true);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      syncingId = null;
     }
   }
 
@@ -95,6 +108,7 @@
             <th class="py-3.5 px-4">Verdict</th>
             <th class="py-3.5 px-4">External ID</th>
             <th class="py-3.5 px-4">Submitted At</th>
+            <th class="py-3.5 px-4 text-right">Action</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-zinc-800/60 font-mono text-xs">
@@ -123,14 +137,21 @@
               </td>
 
               <td class="py-3 px-4">
-                <span class="px-2.5 py-1 rounded-md font-bold {
-                  s.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
-                  s.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
-                  s.status === 'JUDGING' || s.status === 'PENDING' ? 'bg-zinc-800 text-zinc-200 border border-zinc-700 font-medium' :
-                  'bg-zinc-950 text-zinc-400 border border-zinc-800'
-                }">
-                  {s.status}
-                </span>
+                <div class="space-y-1">
+                  <span class="px-2.5 py-1 rounded-md font-bold inline-block {
+                    s.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+                    s.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
+                    s.status === 'JUDGING' || s.status === 'PENDING' || s.status === 'DISPATCHING' ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse' :
+                    'bg-zinc-950 text-zinc-400 border border-zinc-800'
+                  }">
+                    {s.status}
+                  </span>
+                  {#if s.metadata && s.metadata.error}
+                    <div class="text-[11px] font-sans text-rose-400 max-w-xs truncate" title={s.metadata.error}>
+                      {s.metadata.error}
+                    </div>
+                  {/if}
+                </div>
               </td>
 
               <td class="py-3 px-4 text-zinc-500">
@@ -139,6 +160,22 @@
 
               <td class="py-3 px-4 text-zinc-500">
                 {new Date(s.submittedAt).toLocaleString()}
+              </td>
+
+              <td class="py-3 px-4 text-right">
+                {#if s.status === 'JUDGING' || s.status === 'PENDING' || s.status === 'DISPATCHING'}
+                  <button
+                    on:click={() => syncSubmission(s.id)}
+                    disabled={syncingId === s.id}
+                    class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-200 border border-zinc-700 transition inline-flex items-center space-x-1"
+                    title="Re-check status on source platform"
+                  >
+                    <RotateCcw class="w-3 h-3 {syncingId === s.id ? 'animate-spin' : ''}" />
+                    <span>Sync</span>
+                  </button>
+                {:else}
+                  <span class="text-zinc-600">-</span>
+                {/if}
               </td>
             </tr>
           {/each}

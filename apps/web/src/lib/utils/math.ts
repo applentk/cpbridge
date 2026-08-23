@@ -1,4 +1,5 @@
 import katex from 'katex';
+import DOMPurify from 'dompurify';
 
 function decodeHtmlEntities(str: string): string {
   return str
@@ -30,6 +31,31 @@ function renderKatexSafe(latex: string, displayMode: boolean): string {
   } catch (err) {
     return `<span class="katex-error" title="${err}">${latex}</span>`;
   }
+}
+
+/**
+ * Sanitizes HTML content with a strict allowlist to prevent XSS while preserving KaTeX math and layout.
+ */
+export function sanitizeHtml(html: string): string {
+  if (!html) return '';
+  if (typeof window === 'undefined') {
+    return html;
+  }
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: [
+      'p', 'br', 'b', 'i', 'strong', 'em', 'u', 's', 'sub', 'sup', 'ul', 'ol', 'li',
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'code', 'table',
+      'thead', 'tbody', 'tr', 'th', 'td', 'div', 'span', 'img', 'a', 'section', 'article', 'hr',
+      'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'annotation', 'mspace', 'msup', 'msub',
+      'mfrac', 'msqrt', 'mroot', 'mtable', 'mtr', 'mtd', 'munder', 'mover', 'munderover'
+    ],
+    ALLOWED_ATTR: [
+      'href', 'src', 'alt', 'title', 'class', 'style', 'target', 'rel', 'id',
+      'aria-hidden', 'aria-label', 'role', 'tabindex', 'xmlns', 'display', 'width', 'height'
+    ],
+    ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+    ALLOW_DATA_ATTR: false
+  });
 }
 
 /**
@@ -108,5 +134,5 @@ export function renderMathInHtml(html: string): string {
     return prefix + renderKatexSafe(trimmed, false);
   });
 
-  return output;
+  return sanitizeHtml(output);
 }
