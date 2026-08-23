@@ -137,6 +137,9 @@ func (s *Service) GetByID(ctx context.Context, id string, requestingUserID strin
 		item.Problem = &p
 		items = append(items, item)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	if items == nil {
 		items = []ProblemSetItem{}
@@ -149,7 +152,7 @@ func (s *Service) GetByID(ctx context.Context, id string, requestingUserID strin
 
 func (s *Service) List(ctx context.Context, ownerIDFilter string, requestingUserID string) ([]ProblemSet, error) {
 	var query string
-	var args []interface{}
+	var args []any
 
 	if ownerIDFilter != "" {
 		if ownerIDFilter == requestingUserID {
@@ -201,6 +204,9 @@ func (s *Service) List(ctx context.Context, ownerIDFilter string, requestingUser
 			return nil, err
 		}
 		sets = append(sets, set)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	if sets == nil {

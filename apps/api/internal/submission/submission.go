@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"math"
 	"net/http"
 	"sort"
@@ -39,20 +40,20 @@ const (
 )
 
 type Submission struct {
-	ID                   string                 `json:"id"`
-	UserID               string                 `json:"userId"`
-	Username             string                 `json:"username,omitempty"`
-	ProblemID            string                 `json:"problemId"`
-	ProblemTitle         string                 `json:"problemTitle,omitempty"`
-	ContestID            *string                `json:"contestId,omitempty"`
-	Platform             platform.Type          `json:"platform"`
-	Language             string                 `json:"language"`
-	SourceCode           string                 `json:"sourceCode"`
-	Status               Status                 `json:"status"`
-	ExternalSubmissionID *string                `json:"externalSubmissionId,omitempty"`
-	SubmittedAt          time.Time              `json:"submittedAt"`
-	JudgedAt             *time.Time             `json:"judgedAt,omitempty"`
-	Metadata             map[string]interface{} `json:"metadata"`
+	ID                   string         `json:"id"`
+	UserID               string         `json:"userId"`
+	Username             string         `json:"username,omitempty"`
+	ProblemID            string         `json:"problemId"`
+	ProblemTitle         string         `json:"problemTitle,omitempty"`
+	ContestID            *string        `json:"contestId,omitempty"`
+	Platform             platform.Type  `json:"platform"`
+	Language             string         `json:"language"`
+	SourceCode           string         `json:"sourceCode"`
+	Status               Status         `json:"status"`
+	ExternalSubmissionID *string        `json:"externalSubmissionId,omitempty"`
+	SubmittedAt          time.Time      `json:"submittedAt"`
+	JudgedAt             *time.Time     `json:"judgedAt,omitempty"`
+	Metadata             map[string]any `json:"metadata"`
 }
 
 type ProblemScore struct {
@@ -159,7 +160,7 @@ func (s *Service) Create(ctx context.Context, userID string, isAdmin bool, probl
 		SourceCode:  sourceCode,
 		Status:      Pending,
 		SubmittedAt: now,
-		Metadata:    map[string]interface{}{},
+		Metadata:    map[string]any{},
 	}
 
 	query := `
@@ -188,7 +189,7 @@ func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submi
 	if sub.ExternalSubmissionID != nil && (strings.HasPrefix(*sub.ExternalSubmissionID, "cf_") || strings.HasPrefix(*sub.ExternalSubmissionID, "ac_")) {
 		metadata := sub.Metadata
 		if metadata == nil {
-			metadata = make(map[string]interface{})
+			metadata = make(map[string]any)
 		}
 		metadata["error"] = "Submission was not created on the external platform (invalid mock ID)"
 		metaJSON, _ := json.Marshal(metadata)
@@ -210,7 +211,7 @@ func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submi
 		if now.Sub(sub.SubmittedAt) > 2*time.Minute {
 			metadata := sub.Metadata
 			if metadata == nil {
-				metadata = make(map[string]interface{})
+				metadata = make(map[string]any)
 			}
 			metadata["error"] = "Submission dispatch timed out; no external submission was created"
 			metaJSON, _ := json.Marshal(metadata)
@@ -255,7 +256,7 @@ func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submi
 		newStatus := Status(statusObj.Status)
 		metadata := sub.Metadata
 		if metadata == nil {
-			metadata = make(map[string]interface{})
+			metadata = make(map[string]any)
 		}
 		if statusObj.ExecutionTimeMs != nil {
 			metadata["executionTimeMs"] = *statusObj.ExecutionTimeMs
@@ -266,9 +267,7 @@ func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submi
 		if statusObj.FailedTestcase != nil {
 			metadata["failedTestcase"] = *statusObj.FailedTestcase
 		}
-		for k, v := range statusObj.RawPayload {
-			metadata[k] = v
-		}
+		maps.Copy(metadata, statusObj.RawPayload)
 
 		metaJSON, _ := json.Marshal(metadata)
 		_, updateErr := s.db.ExecContext(ctx, `
@@ -285,7 +284,7 @@ func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submi
 		// Stale judging submission timeout (>15 min)
 		metadata := sub.Metadata
 		if metadata == nil {
-			metadata = make(map[string]interface{})
+			metadata = make(map[string]any)
 		}
 		metadata["error"] = "Judging timed out on external platform"
 		metaJSON, _ := json.Marshal(metadata)
@@ -389,7 +388,7 @@ func (s *Service) List(ctx context.Context, userID, contestID, problemID string,
 	}
 
 	var conditions []string
-	var args []interface{}
+	var args []any
 	idx := 1
 
 	if userID != "" {
@@ -446,6 +445,9 @@ func (s *Service) List(ctx context.Context, userID, contestID, problemID string,
 		}
 		_ = json.Unmarshal(metaJSON, &sub.Metadata)
 		subs = append(subs, sub)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	for i := range subs {
@@ -505,7 +507,7 @@ func (s *Service) UpdateDispatched(ctx context.Context, id, userID string, isAdm
 	return nil
 }
 
-func (s *Service) UpdateResult(ctx context.Context, id, userID string, isAdmin bool, status Status, metadata map[string]interface{}) error {
+func (s *Service) UpdateResult(ctx context.Context, id, userID string, isAdmin bool, status Status, metadata map[string]any) error {
 	sub, err := s.GetByID(ctx, id, userID, isAdmin)
 	if err != nil {
 		return err
@@ -596,6 +598,9 @@ func (s *Service) CalculateStandings(ctx context.Context, contestID string, requ
 			}
 		}
 	}
+	if err := partRows.Err(); err != nil {
+		return nil, err
+	}
 
 	// Fetch submissions during contest window only: contest.start_at <= submitted_at < contest.end_at
 	subQuery := `
@@ -636,10 +641,7 @@ func (s *Service) CalculateStandings(ctx context.Context, contestID string, requ
 
 		if status == Accepted {
 			pProbScore.Solved = true
-			elapsedMinutes := int(math.Floor(subTime.Sub(c.StartAt).Minutes()))
-			if elapsedMinutes < 0 {
-				elapsedMinutes = 0
-			}
+			elapsedMinutes := max(0, int(math.Floor(subTime.Sub(c.StartAt).Minutes())))
 			pProbScore.FirstSolvedAtMinutes = &elapsedMinutes
 
 			if c.ScoringType == contest.ICPC {
@@ -655,6 +657,9 @@ func (s *Service) CalculateStandings(ctx context.Context, contestID string, requ
 		}
 
 		pScore.ProblemScores[pid] = pProbScore
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	// Sort standings
@@ -841,8 +846,8 @@ func (h *Handler) UpdateDispatched(w http.ResponseWriter, r *http.Request) {
 }
 
 type resultReq struct {
-	Status   Status                 `json:"status"`
-	Metadata map[string]interface{} `json:"metadata"`
+	Status   Status         `json:"status"`
+	Metadata map[string]any `json:"metadata"`
 }
 
 func (h *Handler) UpdateResult(w http.ResponseWriter, r *http.Request) {

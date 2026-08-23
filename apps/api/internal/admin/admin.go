@@ -103,15 +103,16 @@ func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
 	activeContests := 0
 	upcomingContests := 0
 	for _, c := range contests {
-		if c.State == contest.Active {
+		switch c.State {
+		case contest.Active:
 			activeContests++
-		} else if c.State == contest.Upcoming {
+		case contest.Upcoming:
 			upcomingContests++
 		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"totalProblems":    totalProblems,
 		"totalProblemSets": totalSets,
 		"totalContests":    totalContests,
@@ -152,7 +153,7 @@ func (h *Handler) ListProblems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"problems": problems,
 		"total":    total,
 	})

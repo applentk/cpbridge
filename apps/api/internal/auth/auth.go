@@ -218,7 +218,7 @@ func (s *Service) GetUserByID(ctx context.Context, id string) (*User, error) {
 
 func (s *Service) ListUsers(ctx context.Context, search string) ([]User, error) {
 	var query string
-	var args []interface{}
+	var args []any
 	if search != "" {
 		query = `
 			SELECT id, email, username, role, is_active, created_at, updated_at
@@ -248,6 +248,9 @@ func (s *Service) ListUsers(ctx context.Context, search string) ([]User, error) 
 			return nil, err
 		}
 		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	if users == nil {
 		users = []User{}
@@ -330,7 +333,7 @@ func (s *Service) generateToken(user *User) (string, error) {
 }
 
 func (s *Service) ParseToken(tokenStr string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
@@ -350,8 +353,8 @@ func (s *Service) AuthMiddleware(required bool) func(http.Handler) http.Handler 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			var tokenStr string
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				tokenStr = strings.TrimPrefix(authHeader, "Bearer ")
+			if token, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+				tokenStr = token
 			}
 
 			if tokenStr == "" {
@@ -489,7 +492,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"user":  user,
 		"token": token,
 	})
@@ -517,7 +520,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"user":  user,
 		"token": token,
 	})
@@ -541,7 +544,7 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"user": user,
 	})
 }

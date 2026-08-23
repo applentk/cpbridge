@@ -49,6 +49,9 @@ func (s *Service) List(ctx context.Context, userID string) ([]PlatformIntegratio
 		}
 		integrations = append(integrations, pi)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	if integrations == nil {
 		integrations = []PlatformIntegration{}

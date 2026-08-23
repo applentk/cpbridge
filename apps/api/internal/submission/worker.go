@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"strings"
 	"time"
 
@@ -80,10 +81,10 @@ func (w *Worker) ProcessPollVerdict(ctx context.Context, t *asynq.Task) error {
 		return nil
 	}
 
-	var metadata map[string]interface{}
+	var metadata map[string]any
 	_ = json.Unmarshal(metaBytes, &metadata)
 	if metadata == nil {
-		metadata = make(map[string]interface{})
+		metadata = make(map[string]any)
 	}
 
 	externalID := p.ExternalSubmissionID
@@ -145,9 +146,7 @@ func (w *Worker) ProcessPollVerdict(ctx context.Context, t *asynq.Task) error {
 		if statusObj.FailedTestcase != nil {
 			metadata["failedTestcase"] = *statusObj.FailedTestcase
 		}
-		for k, v := range statusObj.RawPayload {
-			metadata[k] = v
-		}
+		maps.Copy(metadata, statusObj.RawPayload)
 
 		metaJSON, _ := json.Marshal(metadata)
 		_, updateErr := w.db.ExecContext(ctx, `

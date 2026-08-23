@@ -165,7 +165,7 @@ func TestAuthorizationMatrix(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 2. USER POST /api/admin/contests -> 403 Forbidden
-	reqBody, _ := json.Marshal(map[string]interface{}{
+	reqBody, _ := json.Marshal(map[string]any{
 		"name":        "Unauthorized Contest",
 		"startAt":     time.Now().Add(1 * time.Hour).Format(time.RFC3339),
 		"endAt":       time.Now().Add(3 * time.Hour).Format(time.RFC3339),
@@ -179,7 +179,7 @@ func TestAuthorizationMatrix(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 
 	// 3. USER POST /api/admin/problems/import -> 403 Forbidden
-	reqBody, _ = json.Marshal(map[string]interface{}{
+	reqBody, _ = json.Marshal(map[string]any{
 		"url": "https://codeforces.com/problemset/problem/1900/A",
 	})
 	req = httptest.NewRequest("POST", "/api/admin/problems/import", bytes.NewReader(reqBody))
@@ -190,7 +190,7 @@ func TestAuthorizationMatrix(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 
 	// 4. USER PATCH /api/admin/users/:id/role -> 403 Forbidden
-	reqBody, _ = json.Marshal(map[string]interface{}{
+	reqBody, _ = json.Marshal(map[string]any{
 		"role": "ADMIN",
 	})
 	req = httptest.NewRequest("PATCH", "/api/admin/users/dummy/role", bytes.NewReader(reqBody))
@@ -203,7 +203,7 @@ func TestAuthorizationMatrix(t *testing.T) {
 	// 5. ADMIN POST /api/admin/contests -> 201 Created (Draft Contest)
 	futureStart := time.Now().Add(2 * time.Hour)
 	futureEnd := futureStart.Add(2 * time.Hour)
-	reqBody, _ = json.Marshal(map[string]interface{}{
+	reqBody, _ = json.Marshal(map[string]any{
 		"name":              "Admin Draft Contest",
 		"description":       "Secret preview contest",
 		"startAt":           futureStart.Format(time.RFC3339),
@@ -240,7 +240,7 @@ func TestAuthorizationMatrix(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 8. Publish the contest
-	publishBody, _ := json.Marshal(map[string]interface{}{
+	publishBody, _ := json.Marshal(map[string]any{
 		"publicationStatus": "PUBLISHED",
 	})
 	req = httptest.NewRequest("PATCH", "/api/admin/contests/"+createdDraft.ID, bytes.NewReader(publishBody))

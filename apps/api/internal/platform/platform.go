@@ -27,23 +27,23 @@ type ProblemStatement struct {
 }
 
 type NormalizedProblem struct {
-	Platform   Type                   `json:"platform"`
-	ExternalID string                 `json:"externalId"`
-	Title      string                 `json:"title"`
-	URL        string                 `json:"url"`
-	Difficulty *int                   `json:"difficulty"`
-	Tags       []string               `json:"tags"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Platform   Type           `json:"platform"`
+	ExternalID string         `json:"externalId"`
+	Title      string         `json:"title"`
+	URL        string         `json:"url"`
+	Difficulty *int           `json:"difficulty"`
+	Tags       []string       `json:"tags"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 type SubmissionStatus struct {
-	ExternalSubmissionID string                 `json:"externalSubmissionId"`
-	Status               string                 `json:"status"` // PENDING, JUDGING, ACCEPTED, WRONG_ANSWER, TIME_LIMIT, COMPILATION_ERROR, RUNTIME_ERROR, MEMORY_LIMIT
-	ExecutionTimeMs      *int                   `json:"executionTimeMs,omitempty"`
-	MemoryBytes          *int64                 `json:"memoryBytes,omitempty"`
-	FailedTestcase       *int                   `json:"failedTestcase,omitempty"`
-	CompilerOutput       string                 `json:"compilerOutput,omitempty"`
-	RawPayload           map[string]interface{} `json:"rawPayload,omitempty"`
+	ExternalSubmissionID string         `json:"externalSubmissionId"`
+	Status               string         `json:"status"` // PENDING, JUDGING, ACCEPTED, WRONG_ANSWER, TIME_LIMIT, COMPILATION_ERROR, RUNTIME_ERROR, MEMORY_LIMIT
+	ExecutionTimeMs      *int           `json:"executionTimeMs,omitempty"`
+	MemoryBytes          *int64         `json:"memoryBytes,omitempty"`
+	FailedTestcase       *int           `json:"failedTestcase,omitempty"`
+	CompilerOutput       string         `json:"compilerOutput,omitempty"`
+	RawPayload           map[string]any `json:"rawPayload,omitempty"`
 }
 
 type Platform interface {

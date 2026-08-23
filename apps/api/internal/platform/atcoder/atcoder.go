@@ -87,7 +87,7 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 		URL:        officialURL,
 		Difficulty: nil,
 		Tags:       []string{"atcoder", contestID},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"contestId": contestID,
 			"taskId":    taskID,
 		},
@@ -147,12 +147,9 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 	var sampleCases []platform.SampleCase
 	inputs := sampleInputRegex.FindAllStringSubmatch(htmlStr, -1)
 	outputs := sampleOutputRegex.FindAllStringSubmatch(htmlStr, -1)
-	minLen := len(inputs)
-	if len(outputs) < minLen {
-		minLen = len(outputs)
-	}
+	minLen := min(len(inputs), len(outputs))
 
-	for i := 0; i < minLen; i++ {
+	for i := range minLen {
 		sampleCases = append(sampleCases, platform.SampleCase{
 			Input:  strings.TrimSpace(inputs[i][1]),
 			Output: strings.TrimSpace(outputs[i][1]),
@@ -186,7 +183,7 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 		return &platform.SubmissionStatus{
 			ExternalSubmissionID: externalSubmissionID,
 			Status:               "FAILED",
-			RawPayload: map[string]interface{}{
+			RawPayload: map[string]any{
 				"error": "Submission was never created on AtCoder (invalid or mock ID)",
 			},
 		}, nil
@@ -213,7 +210,7 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 					return &platform.SubmissionStatus{
 						ExternalSubmissionID: externalSubmissionID,
 						Status:               "FAILED",
-						RawPayload: map[string]interface{}{
+						RawPayload: map[string]any{
 							"error": "Submission not found on AtCoder (404 Not Found)",
 						},
 					}, nil

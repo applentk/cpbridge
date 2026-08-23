@@ -330,6 +330,9 @@ func (s *Service) GetProblems(ctx context.Context, contestID string, requestingU
 		cp.Problem = &p
 		list = append(list, cp)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	if list == nil {
 		list = []ContestProblem{}
@@ -340,7 +343,7 @@ func (s *Service) GetProblems(ctx context.Context, contestID string, requestingU
 
 func (s *Service) List(ctx context.Context, requestingUserID string, isAdmin bool) ([]Contest, error) {
 	var query string
-	var args []interface{}
+	var args []any
 
 	if isAdmin {
 		query = `
@@ -384,6 +387,9 @@ func (s *Service) List(ctx context.Context, requestingUserID string, isAdmin boo
 		}
 		c.State = CalculateState(now, c.StartAt, c.EndAt)
 		contests = append(contests, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	if contests == nil {

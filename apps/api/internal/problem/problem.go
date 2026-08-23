@@ -19,16 +19,16 @@ import (
 )
 
 type Problem struct {
-	ID         string                 `json:"id"`
-	Platform   platform.Type          `json:"platform"`
-	ExternalID string                 `json:"externalId"`
-	Title      string                 `json:"title"`
-	URL        string                 `json:"url"`
-	Difficulty *int                   `json:"difficulty"`
-	Tags       []string               `json:"tags"`
-	Metadata   map[string]interface{} `json:"metadata"`
-	CreatedAt  time.Time              `json:"createdAt"`
-	UpdatedAt  time.Time              `json:"updatedAt"`
+	ID         string         `json:"id"`
+	Platform   platform.Type  `json:"platform"`
+	ExternalID string         `json:"externalId"`
+	Title      string         `json:"title"`
+	URL        string         `json:"url"`
+	Difficulty *int           `json:"difficulty"`
+	Tags       []string       `json:"tags"`
+	Metadata   map[string]any `json:"metadata"`
+	CreatedAt  time.Time      `json:"createdAt"`
+	UpdatedAt  time.Time      `json:"updatedAt"`
 }
 
 type Filter struct {
@@ -146,7 +146,7 @@ func (s *Service) CreateCustom(ctx context.Context, req CreateCustomReq) (*Probl
 	// Clean statement of any remaining boilerplate
 	req.Statement = CleanBoilerplate(req.Statement)
 
-	meta := map[string]interface{}{
+	meta := map[string]any{
 		"statement":   req.Statement,
 		"timeLimit":   req.TimeLimit,
 		"memoryLimit": req.MemoryLimit,
@@ -252,9 +252,9 @@ func (s *Service) GetStatement(ctx context.Context, id, requestingUserID string,
 		}
 
 		var sampleCases []platform.SampleCase
-		if scList, ok := prob.Metadata["sampleCases"].([]interface{}); ok {
+		if scList, ok := prob.Metadata["sampleCases"].([]any); ok {
 			for _, item := range scList {
-				if scMap, ok := item.(map[string]interface{}); ok {
+				if scMap, ok := item.(map[string]any); ok {
 					in, _ := scMap["input"].(string)
 					out, _ := scMap["output"].(string)
 					exp, _ := scMap["explanation"].(string)
@@ -297,7 +297,7 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Problem, int, error) {
 	}
 
 	var conditions []string
-	var args []interface{}
+	var args []any
 	idx := 1
 
 	if f.Platform != nil && *f.Platform != "" {
@@ -365,6 +365,9 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Problem, int, error) {
 		_ = json.Unmarshal(scannedMeta, &p.Metadata)
 		problems = append(problems, p)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
 
 	if problems == nil {
 		problems = []Problem{}
@@ -374,11 +377,11 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Problem, int, error) {
 }
 
 type UpdateProblemReq struct {
-	Title      *string                `json:"title"`
-	URL        *string                `json:"url"`
-	Difficulty *int                   `json:"difficulty"`
-	Tags       []string               `json:"tags"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Title      *string        `json:"title"`
+	URL        *string        `json:"url"`
+	Difficulty *int           `json:"difficulty"`
+	Tags       []string       `json:"tags"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 func (s *Service) Update(ctx context.Context, id string, req UpdateProblemReq) (*Problem, error) {
@@ -516,11 +519,8 @@ func ExtractFromRawContent(raw string) (title, statement, timeLimit, memoryLimit
 	cfInputs := cfInputRegex.FindAllStringSubmatch(raw, -1)
 	cfOutputs := cfOutputRegex.FindAllStringSubmatch(raw, -1)
 	if len(cfInputs) > 0 && len(cfOutputs) > 0 {
-		count := len(cfInputs)
-		if len(cfOutputs) < count {
-			count = len(cfOutputs)
-		}
-		for i := 0; i < count; i++ {
+		count := min(len(cfInputs), len(cfOutputs))
+		for i := range count {
 			sampleCases = append(sampleCases, platform.SampleCase{
 				Input:  cleanSample(cfInputs[i][1]),
 				Output: cleanSample(cfOutputs[i][1]),
@@ -682,7 +682,7 @@ func (h *Handler) ExtractText(w http.ResponseWriter, r *http.Request) {
 	title, stmt, tl, ml, sc := ExtractFromRawContent(req.RawContent)
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"title":       title,
 		"statement":   stmt,
 		"timeLimit":   tl,
@@ -751,7 +751,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"problems": problems,
 		"total":    total,
 	})

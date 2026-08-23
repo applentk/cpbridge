@@ -94,7 +94,7 @@ func main() {
 					log.Printf("[Worker:Exhausted] Task %s exhausted all %d retries: %v", task.Type(), maxRetry, err)
 					var p queue.PollVerdictPayload
 					if unmarshalErr := json.Unmarshal(task.Payload(), &p); unmarshalErr == nil && p.SubmissionID != "" {
-						meta := map[string]interface{}{
+						meta := map[string]any{
 							"error": "Judging polling timed out: exceeded maximum retries on platform",
 						}
 						metaJSON, _ := json.Marshal(meta)
@@ -136,7 +136,6 @@ func main() {
 
 	// Global Middlewares
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 

@@ -103,7 +103,7 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 							URL:        officialURL,
 							Difficulty: p.Rating,
 							Tags:       p.Tags,
-							Metadata: map[string]interface{}{
+							Metadata: map[string]any{
 								"contestId": p.ContestID,
 								"index":     p.Index,
 							},
@@ -124,7 +124,7 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 			URL:        officialURL,
 			Difficulty: nil,
 			Tags:       []string{"codeforces"},
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"contestId": contestIDStr,
 				"index":     index,
 			},
@@ -140,7 +140,7 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 		URL:        officialURL,
 		Difficulty: nil,
 		Tags:       []string{"codeforces"},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"contestId": contestIDNum,
 			"index":     index,
 		},
@@ -235,12 +235,9 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 	var sampleCases []platform.SampleCase
 	inputs := sampleInputRegex.FindAllStringSubmatch(htmlStr, -1)
 	outputs := sampleOutputRegex.FindAllStringSubmatch(htmlStr, -1)
-	minLen := len(inputs)
-	if len(outputs) < minLen {
-		minLen = len(outputs)
-	}
+	minLen := min(len(inputs), len(outputs))
 
-	for i := 0; i < minLen; i++ {
+	for i := range minLen {
 		inText := cleanSampleCode(inputs[i][1])
 		outText := cleanSampleCode(outputs[i][1])
 		sampleCases = append(sampleCases, platform.SampleCase{
@@ -291,7 +288,7 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 		return &platform.SubmissionStatus{
 			ExternalSubmissionID: externalSubmissionID,
 			Status:               "FAILED",
-			RawPayload: map[string]interface{}{
+			RawPayload: map[string]any{
 				"error": "Submission was never created on Codeforces (invalid or mock ID)",
 			},
 		}, nil
@@ -331,7 +328,7 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 								ExecutionTimeMs:      &timeMs,
 								MemoryBytes:          &memBytes,
 								FailedTestcase:       &testcase,
-								RawPayload: map[string]interface{}{
+								RawPayload: map[string]any{
 									"cfSubmissionId":  sub.ID,
 									"verdict":         sub.Verdict,
 									"passedTestCount": sub.PassedTestCount,
@@ -367,7 +364,7 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 				return &platform.SubmissionStatus{
 					ExternalSubmissionID: externalSubmissionID,
 					Status:               "FAILED",
-					RawPayload: map[string]interface{}{
+					RawPayload: map[string]any{
 						"error": "Submission not found on Codeforces (404 Not Found)",
 					},
 				}, nil

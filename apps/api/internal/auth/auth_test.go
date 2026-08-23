@@ -15,7 +15,6 @@ func TestTokenParsing(t *testing.T) {
 		ID:       "usr_123456",
 		Username: "testuser",
 		Role:     auth.RoleAdmin,
-		IsActive: true,
 	}
 
 	claims := auth.Claims{
@@ -32,7 +31,7 @@ func TestTokenParsing(t *testing.T) {
 	tokenStr, err := token.SignedString(secret)
 	assert.NoError(t, err)
 
-	parsedToken, err := jwt.ParseWithClaims(tokenStr, &auth.Claims{}, func(token *jwt.Token) (interface{}, error) {
+	parsedToken, err := jwt.ParseWithClaims(tokenStr, &auth.Claims{}, func(token *jwt.Token) (any, error) {
 		return secret, nil
 	})
 	assert.NoError(t, err)
