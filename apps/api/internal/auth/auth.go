@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -21,11 +22,18 @@ type contextKey string
 
 const UserContextKey contextKey = "user"
 
+const (
+	RoleAdmin = "ADMIN"
+	RoleUser  = "USER"
+)
+
 type User struct {
 	ID           string    `json:"id"`
 	Email        string    `json:"email"`
 	Username     string    `json:"username"`
 	PasswordHash string    `json:"-"`
+	Role         string    `json:"role"`
+	IsActive     bool      `json:"isActive"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
@@ -33,6 +41,7 @@ type User struct {
 type Claims struct {
 	UserID   string `json:"userId"`
 	Username string `json:"username"`
+	Role     string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -46,10 +55,35 @@ func NewService(db *sql.DB) *Service {
 	if secret == "" {
 		secret = "cp-hub-super-secret-key-change-in-production-2026"
 	}
-	return &Service{
+	s := &Service{
 		db:        db,
 		jwtSecret: []byte(secret),
 	}
+	return s
+}
+
+func (s *Service) BootstrapInitialAdmin(ctx context.Context) error {
+	initialEmail := strings.TrimSpace(strings.ToLower(os.Getenv("INITIAL_ADMIN_EMAIL")))
+	if initialEmail == "" {
+		return nil
+	}
+
+	var adminCount int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = $1 AND is_active = true", RoleAdmin).Scan(&adminCount)
+	if err != nil {
+		return err
+	}
+
+	if adminCount == 0 {
+		res, err := s.db.ExecContext(ctx, "UPDATE users SET role = $1, is_active = true WHERE LOWER(email) = LOWER($2)", RoleAdmin, initialEmail)
+		if err != nil {
+			return err
+		}
+		if rows, _ := res.RowsAffected(); rows > 0 {
+			log.Printf("Promoted initial admin email %s to ADMIN role", initialEmail)
+		}
+	}
+	return nil
 }
 
 func (s *Service) Register(ctx context.Context, email, username, password string) (*User, string, error) {
@@ -71,20 +105,32 @@ func (s *Service) Register(ctx context.Context, email, username, password string
 		return nil, "", fmt.Errorf("failed to hash password: %w", err)
 	}
 
+	role := RoleUser
+	initialEmail := strings.TrimSpace(strings.ToLower(os.Getenv("INITIAL_ADMIN_EMAIL")))
+	if initialEmail != "" && email == initialEmail {
+		var adminCount int
+		_ = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = $1 AND is_active = true", RoleAdmin).Scan(&adminCount)
+		if adminCount == 0 {
+			role = RoleAdmin
+		}
+	}
+
 	user := &User{
 		ID:           idgen.New(idgen.PrefixUser),
 		Email:        email,
 		Username:     username,
 		PasswordHash: string(hash),
+		Role:         role,
+		IsActive:     true,
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}
 
 	query := `
-		INSERT INTO users (id, email, username, password_hash, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO users (id, email, username, password_hash, role, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
-	_, err = s.db.ExecContext(ctx, query, user.ID, user.Email, user.Username, user.PasswordHash, user.CreatedAt, user.UpdatedAt)
+	_, err = s.db.ExecContext(ctx, query, user.ID, user.Email, user.Username, user.PasswordHash, user.Role, user.IsActive, user.CreatedAt, user.UpdatedAt)
 	if err != nil {
 		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
 			return nil, "", errors.New("email or username already in use")
@@ -107,7 +153,7 @@ func (s *Service) Login(ctx context.Context, emailOrUsername, password string) (
 	}
 
 	query := `
-		SELECT id, email, username, password_hash, created_at, updated_at
+		SELECT id, email, username, password_hash, role, is_active, created_at, updated_at
 		FROM users
 		WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($1)
 		LIMIT 1
@@ -115,12 +161,16 @@ func (s *Service) Login(ctx context.Context, emailOrUsername, password string) (
 	row := s.db.QueryRowContext(ctx, query, emailOrUsername)
 
 	var user User
-	err := row.Scan(&user.ID, &user.Email, &user.Username, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt)
+	err := row.Scan(&user.ID, &user.Email, &user.Username, &user.PasswordHash, &user.Role, &user.IsActive, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, "", errors.New("invalid email/username or password")
 		}
 		return nil, "", fmt.Errorf("failed to query user: %w", err)
+	}
+
+	if !user.IsActive {
+		return nil, "", errors.New("ACCOUNT_DISABLED")
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
@@ -136,19 +186,121 @@ func (s *Service) Login(ctx context.Context, emailOrUsername, password string) (
 }
 
 func (s *Service) GetUserByID(ctx context.Context, id string) (*User, error) {
-	query := `SELECT id, email, username, created_at, updated_at FROM users WHERE id = $1`
+	query := `SELECT id, email, username, role, is_active, created_at, updated_at FROM users WHERE id = $1`
 	row := s.db.QueryRowContext(ctx, query, id)
 	var user User
-	if err := row.Scan(&user.ID, &user.Email, &user.Username, &user.CreatedAt, &user.UpdatedAt); err != nil {
+	if err := row.Scan(&user.ID, &user.Email, &user.Username, &user.Role, &user.IsActive, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("user not found")
+		}
 		return nil, err
 	}
 	return &user, nil
+}
+
+func (s *Service) ListUsers(ctx context.Context, search string) ([]User, error) {
+	var query string
+	var args []interface{}
+	if search != "" {
+		query = `
+			SELECT id, email, username, role, is_active, created_at, updated_at
+			FROM users
+			WHERE LOWER(username) LIKE $1 OR LOWER(email) LIKE $1
+			ORDER BY created_at DESC
+		`
+		args = append(args, "%"+strings.ToLower(search)+"%")
+	} else {
+		query = `
+			SELECT id, email, username, role, is_active, created_at, updated_at
+			FROM users
+			ORDER BY created_at DESC
+		`
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.Email, &u.Username, &u.Role, &u.IsActive, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	if users == nil {
+		users = []User{}
+	}
+	return users, nil
+}
+
+func (s *Service) UpdateUserRole(ctx context.Context, targetUserID, newRole string) (*User, error) {
+	newRole = strings.ToUpper(strings.TrimSpace(newRole))
+	if newRole != RoleAdmin && newRole != RoleUser {
+		return nil, errors.New("invalid role: must be ADMIN or USER")
+	}
+
+	target, err := s.GetUserByID(ctx, targetUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Safety check: last active admin demotion
+	if target.Role == RoleAdmin && target.IsActive && newRole != RoleAdmin {
+		var count int
+		err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = $1 AND is_active = true", RoleAdmin).Scan(&count)
+		if err != nil {
+			return nil, err
+		}
+		if count <= 1 {
+			return nil, errors.New("LAST_ADMIN")
+		}
+	}
+
+	now := time.Now().UTC()
+	_, err = s.db.ExecContext(ctx, "UPDATE users SET role = $1, updated_at = $2 WHERE id = $3", newRole, now, targetUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.GetUserByID(ctx, targetUserID)
+}
+
+func (s *Service) UpdateUserStatus(ctx context.Context, targetUserID string, isActive bool) (*User, error) {
+	target, err := s.GetUserByID(ctx, targetUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Safety check: last active admin disabling
+	if target.Role == RoleAdmin && target.IsActive && !isActive {
+		var count int
+		err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = $1 AND is_active = true", RoleAdmin).Scan(&count)
+		if err != nil {
+			return nil, err
+		}
+		if count <= 1 {
+			return nil, errors.New("LAST_ADMIN")
+		}
+	}
+
+	now := time.Now().UTC()
+	_, err = s.db.ExecContext(ctx, "UPDATE users SET is_active = $1, updated_at = $2 WHERE id = $3", isActive, now, targetUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.GetUserByID(ctx, targetUserID)
 }
 
 func (s *Service) generateToken(user *User) (string, error) {
 	claims := Claims{
 		UserID:   user.ID,
 		Username: user.Username,
+		Role:     user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -186,7 +338,9 @@ func (s *Service) AuthMiddleware(required bool) func(http.Handler) http.Handler 
 
 			if tokenStr == "" {
 				if required {
-					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 					return
 				}
 				next.ServeHTTP(w, r)
@@ -196,17 +350,69 @@ func (s *Service) AuthMiddleware(required bool) func(http.Handler) http.Handler 
 			claims, err := s.ParseToken(tokenStr)
 			if err != nil {
 				if required {
-					http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired token"})
 					return
 				}
 				next.ServeHTTP(w, r)
 				return
 			}
 
+			// Verify active status from database
+			var role string
+			var isActive bool
+			err = s.db.QueryRowContext(r.Context(), "SELECT role, is_active FROM users WHERE id = $1", claims.UserID).Scan(&role, &isActive)
+			if err != nil {
+				if required {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					_ = json.NewEncoder(w).Encode(map[string]string{"error": "user not found"})
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if !isActive {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "ACCOUNT_DISABLED"})
+				return
+			}
+
+			// Update role on claims with latest DB value
+			claims.Role = role
+
 			ctx := context.WithValue(r.Context(), UserContextKey, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func RequireRole(role string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims := GetUserFromContext(r.Context())
+			if claims == nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+				return
+			}
+			if claims.Role != role {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden"})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func RequireAdmin() func(http.Handler) http.Handler {
+	return RequireRole(RoleAdmin)
 }
 
 func GetUserFromContext(ctx context.Context) *Claims {
@@ -249,7 +455,9 @@ type loginReq struct {
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var req registerReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
 		return
 	}
 
@@ -272,14 +480,20 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	user, token, err := h.service.Login(r.Context(), req.EmailOrUsername, req.Password)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
+		if err.Error() == "ACCOUNT_DISABLED" {
+			w.WriteHeader(http.StatusForbidden)
+		} else {
+			w.WriteHeader(http.StatusUnauthorized)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
@@ -294,13 +508,17 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	claims := GetUserFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 		return
 	}
 
 	user, err := h.service.GetUserByID(r.Context(), claims.UserID)
 	if err != nil {
-		http.Error(w, `{"error":"user not found"}`, http.StatusNotFound)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user not found"})
 		return
 	}
 

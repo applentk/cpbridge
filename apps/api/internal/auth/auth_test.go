@@ -14,11 +14,14 @@ func TestTokenParsing(t *testing.T) {
 	user := &auth.User{
 		ID:       "usr_123456",
 		Username: "testuser",
+		Role:     auth.RoleAdmin,
+		IsActive: true,
 	}
 
 	claims := auth.Claims{
 		UserID:   user.ID,
 		Username: user.Username,
+		Role:     user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -37,4 +40,5 @@ func TestTokenParsing(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "usr_123456", parsedClaims.UserID)
 	assert.Equal(t, "testuser", parsedClaims.Username)
+	assert.Equal(t, auth.RoleAdmin, parsedClaims.Role)
 }

@@ -32,6 +32,11 @@ const (
 	ICPC   ScoringType = "ICPC"
 )
 
+const (
+	PublicationDraft     = "DRAFT"
+	PublicationPublished = "PUBLISHED"
+)
+
 type ContestProblem struct {
 	ContestID string           `json:"contestId"`
 	ProblemID string           `json:"problemId"`
@@ -42,21 +47,22 @@ type ContestProblem struct {
 }
 
 type Contest struct {
-	ID               string           `json:"id"`
-	OwnerID          string           `json:"ownerId"`
-	OwnerUsername    string           `json:"ownerUsername,omitempty"`
-	Name             string           `json:"name"`
-	Description      string           `json:"description"`
-	StartAt          time.Time        `json:"startAt"`
-	EndAt            time.Time        `json:"endAt"`
-	Visibility       string           `json:"visibility"`
-	ScoringType      ScoringType      `json:"scoringType"`
-	CreatedAt        time.Time        `json:"createdAt"`
-	UpdatedAt        time.Time        `json:"updatedAt"`
-	State            State            `json:"state"`
-	Problems         []ContestProblem `json:"problems,omitempty"`
-	ParticipantCount int              `json:"participantCount"`
-	IsParticipant    bool             `json:"isParticipant"`
+	ID                string           `json:"id"`
+	OwnerID           string           `json:"ownerId"`
+	OwnerUsername     string           `json:"ownerUsername,omitempty"`
+	Name              string           `json:"name"`
+	Description       string           `json:"description"`
+	StartAt           time.Time        `json:"startAt"`
+	EndAt             time.Time        `json:"endAt"`
+	Visibility        string           `json:"visibility"`
+	ScoringType       ScoringType      `json:"scoringType"`
+	PublicationStatus string           `json:"publicationStatus"`
+	CreatedAt         time.Time        `json:"createdAt"`
+	UpdatedAt         time.Time        `json:"updatedAt"`
+	State             State            `json:"state"`
+	Problems          []ContestProblem `json:"problems,omitempty"`
+	ParticipantCount  int              `json:"participantCount"`
+	IsParticipant     bool             `json:"isParticipant"`
 }
 
 func CalculateState(now, startAt, endAt time.Time) State {
@@ -98,33 +104,39 @@ func (s *Service) SetClock(clock func() time.Time) {
 	s.timeClock = clock
 }
 
-func (s *Service) CreateFromProblemSet(ctx context.Context, ownerID, problemSetID, name, description string, startAt, endAt time.Time, visibility string, scoring ScoringType) (*Contest, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
+type CreateContestParams struct {
+	OwnerID           string
+	ProblemSetID      string
+	ProblemIDs        []string
+	Name              string
+	Description       string
+	StartAt           time.Time
+	EndAt             time.Time
+	Visibility        string
+	ScoringType       ScoringType
+	PublicationStatus string
+}
+
+func (s *Service) Create(ctx context.Context, params CreateContestParams) (*Contest, error) {
+	params.Name = strings.TrimSpace(params.Name)
+	if params.Name == "" {
 		return nil, errors.New("contest name is required")
 	}
 
-	startAt = startAt.UTC()
-	endAt = endAt.UTC()
-	if !endAt.After(startAt) {
+	params.StartAt = params.StartAt.UTC()
+	params.EndAt = params.EndAt.UTC()
+	if !params.EndAt.After(params.StartAt) {
 		return nil, errors.New("end time must be after start time")
 	}
 
-	if visibility == "" {
-		visibility = "PUBLIC"
+	if params.Visibility == "" {
+		params.Visibility = "PUBLIC"
 	}
-	if scoring == "" {
-		scoring = ICPC
+	if params.ScoringType == "" {
+		params.ScoringType = ICPC
 	}
-
-	// Fetch problem set to snapshot
-	set, err := s.setSvc.GetByID(ctx, problemSetID, ownerID)
-	if err != nil {
-		return nil, fmt.Errorf("problem set not found: %w", err)
-	}
-
-	if len(set.Items) == 0 {
-		return nil, errors.New("cannot create contest from empty problem set")
+	if params.PublicationStatus == "" {
+		params.PublicationStatus = PublicationPublished
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -137,29 +149,45 @@ func (s *Service) CreateFromProblemSet(ctx context.Context, ownerID, problemSetI
 	now := s.timeClock()
 
 	contestQuery := `
-		INSERT INTO contests (id, owner_id, name, description, start_at, end_at, visibility, scoring_type, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO contests (id, owner_id, name, description, start_at, end_at, visibility, scoring_type, publication_status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
-	_, err = tx.ExecContext(ctx, contestQuery, contestID, ownerID, name, description, startAt, endAt, visibility, scoring, now, now)
+	_, err = tx.ExecContext(ctx, contestQuery, contestID, params.OwnerID, params.Name, params.Description, params.StartAt, params.EndAt, params.Visibility, params.ScoringType, params.PublicationStatus, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert contest: %w", err)
 	}
 
 	// Auto-join owner as participant
-	_, err = tx.ExecContext(ctx, `INSERT INTO contest_participants (contest_id, user_id, joined_at) VALUES ($1, $2, $3)`, contestID, ownerID, now)
+	_, err = tx.ExecContext(ctx, `INSERT INTO contest_participants (contest_id, user_id, joined_at) VALUES ($1, $2, $3)`, contestID, params.OwnerID, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add owner to participants: %w", err)
 	}
 
-	// Snapshot problems from problem set
-	for i, item := range set.Items {
-		label := GenerateLabel(i)
-		_, err := tx.ExecContext(ctx, `
-			INSERT INTO contest_problems (contest_id, problem_id, position, label)
-			VALUES ($1, $2, $3, $4)
-		`, contestID, item.ProblemID, i, label)
-		if err != nil {
-			return nil, fmt.Errorf("failed to snapshot problem %s: %w", item.ProblemID, err)
+	// Snapshot problems if problem set provided
+	if params.ProblemSetID != "" {
+		set, err := s.setSvc.GetByID(ctx, params.ProblemSetID, params.OwnerID)
+		if err == nil && len(set.Items) > 0 {
+			for i, item := range set.Items {
+				label := GenerateLabel(i)
+				_, err := tx.ExecContext(ctx, `
+					INSERT INTO contest_problems (contest_id, problem_id, position, label)
+					VALUES ($1, $2, $3, $4)
+				`, contestID, item.ProblemID, i, label)
+				if err != nil {
+					return nil, fmt.Errorf("failed to snapshot problem %s: %w", item.ProblemID, err)
+				}
+			}
+		}
+	} else if len(params.ProblemIDs) > 0 {
+		for i, pid := range params.ProblemIDs {
+			label := GenerateLabel(i)
+			_, err := tx.ExecContext(ctx, `
+				INSERT INTO contest_problems (contest_id, problem_id, position, label)
+				VALUES ($1, $2, $3, $4)
+			`, contestID, pid, i, label)
+			if err != nil {
+				return nil, fmt.Errorf("failed to snapshot problem %s: %w", pid, err)
+			}
 		}
 	}
 
@@ -167,12 +195,26 @@ func (s *Service) CreateFromProblemSet(ctx context.Context, ownerID, problemSetI
 		return nil, err
 	}
 
-	return s.GetByID(ctx, contestID, ownerID)
+	return s.GetByID(ctx, contestID, params.OwnerID, true)
 }
 
-func (s *Service) GetByID(ctx context.Context, contestID string, requestingUserID string) (*Contest, error) {
+func (s *Service) CreateFromProblemSet(ctx context.Context, ownerID, problemSetID, name, description string, startAt, endAt time.Time, visibility string, scoring ScoringType) (*Contest, error) {
+	return s.Create(ctx, CreateContestParams{
+		OwnerID:           ownerID,
+		ProblemSetID:      problemSetID,
+		Name:              name,
+		Description:       description,
+		StartAt:           startAt,
+		EndAt:             endAt,
+		Visibility:        visibility,
+		ScoringType:       scoring,
+		PublicationStatus: PublicationPublished,
+	})
+}
+
+func (s *Service) GetByID(ctx context.Context, contestID string, requestingUserID string, isAdmin bool) (*Contest, error) {
 	query := `
-		SELECT c.id, c.owner_id, u.username, c.name, c.description, c.start_at, c.end_at, c.visibility, c.scoring_type, c.created_at, c.updated_at,
+		SELECT c.id, c.owner_id, u.username, c.name, c.description, c.start_at, c.end_at, c.visibility, c.scoring_type, c.publication_status, c.created_at, c.updated_at,
 		       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_id = c.id) as participant_count,
 		       EXISTS(SELECT 1 FROM contest_participants cp WHERE cp.contest_id = c.id AND cp.user_id = $2) as is_participant
 		FROM contests c
@@ -181,7 +223,7 @@ func (s *Service) GetByID(ctx context.Context, contestID string, requestingUserI
 	`
 	var c Contest
 	err := s.db.QueryRowContext(ctx, query, contestID, requestingUserID).Scan(
-		&c.ID, &c.OwnerID, &c.OwnerUsername, &c.Name, &c.Description, &c.StartAt, &c.EndAt, &c.Visibility, &c.ScoringType, &c.CreatedAt, &c.UpdatedAt,
+		&c.ID, &c.OwnerID, &c.OwnerUsername, &c.Name, &c.Description, &c.StartAt, &c.EndAt, &c.Visibility, &c.ScoringType, &c.PublicationStatus, &c.CreatedAt, &c.UpdatedAt,
 		&c.ParticipantCount, &c.IsParticipant,
 	)
 	if err != nil {
@@ -191,10 +233,14 @@ func (s *Service) GetByID(ctx context.Context, contestID string, requestingUserI
 		return nil, err
 	}
 
+	if !isAdmin && c.PublicationStatus == PublicationDraft && c.OwnerID != requestingUserID {
+		return nil, errors.New("contest not found")
+	}
+
 	c.State = CalculateState(s.timeClock(), c.StartAt, c.EndAt)
 
 	// Fetch contest problems
-	problems, err := s.GetProblems(ctx, contestID, requestingUserID)
+	problems, err := s.GetProblems(ctx, contestID, requestingUserID, isAdmin)
 	if err == nil {
 		c.Problems = problems
 	}
@@ -202,14 +248,25 @@ func (s *Service) GetByID(ctx context.Context, contestID string, requestingUserI
 	return &c, nil
 }
 
-func (s *Service) GetProblems(ctx context.Context, contestID string, requestingUserID string) ([]ContestProblem, error) {
+func (s *Service) GetProblems(ctx context.Context, contestID string, requestingUserID string, isAdmin bool) ([]ContestProblem, error) {
 	var startAt, endAt time.Time
-	err := s.db.QueryRowContext(ctx, `SELECT start_at, end_at FROM contests WHERE id = $1`, contestID).Scan(&startAt, &endAt)
+	var pubStatus string
+	var ownerID string
+	err := s.db.QueryRowContext(ctx, `SELECT start_at, end_at, publication_status, owner_id FROM contests WHERE id = $1`, contestID).Scan(&startAt, &endAt, &pubStatus, &ownerID)
 	if err != nil {
 		return nil, errors.New("contest not found")
 	}
 
+	if !isAdmin && pubStatus == PublicationDraft && ownerID != requestingUserID {
+		return nil, errors.New("contest not found")
+	}
+
 	state := CalculateState(s.timeClock(), startAt, endAt)
+
+	// If contest has not started and user is NOT admin, return CONTEST_NOT_STARTED error
+	if state == Upcoming && !isAdmin {
+		return nil, errors.New("CONTEST_NOT_STARTED")
+	}
 
 	query := `
 		SELECT cp.contest_id, cp.problem_id, cp.position, cp.label, cp.points,
@@ -239,23 +296,9 @@ func (s *Service) GetProblems(ctx context.Context, contestID string, requestingU
 			return nil, err
 		}
 
-		if state == Upcoming {
-			// Redact problem statement/title/external details before contest starts
-			cp.Problem = &problem.Problem{
-				ID:         cp.ProblemID,
-				Title:      fmt.Sprintf("Problem %s", cp.Label),
-				Platform:   "",
-				ExternalID: "",
-				URL:        "",
-				Tags:       []string{},
-				Metadata:   map[string]interface{}{},
-			}
-		} else {
-			_ = json.Unmarshal(tagsJSON, &p.Tags)
-			_ = json.Unmarshal(metaJSON, &p.Metadata)
-			cp.Problem = &p
-		}
-
+		_ = json.Unmarshal(tagsJSON, &p.Tags)
+		_ = json.Unmarshal(metaJSON, &p.Metadata)
+		cp.Problem = &p
 		list = append(list, cp)
 	}
 
@@ -266,17 +309,34 @@ func (s *Service) GetProblems(ctx context.Context, contestID string, requestingU
 	return list, nil
 }
 
-func (s *Service) List(ctx context.Context, requestingUserID string) ([]Contest, error) {
-	query := `
-		SELECT c.id, c.owner_id, u.username, c.name, c.description, c.start_at, c.end_at, c.visibility, c.scoring_type, c.created_at, c.updated_at,
-		       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_id = c.id) as participant_count,
-		       EXISTS(SELECT 1 FROM contest_participants cp WHERE cp.contest_id = c.id AND cp.user_id = $1) as is_participant
-		FROM contests c
-		JOIN users u ON c.owner_id = u.id
-		WHERE c.visibility = 'PUBLIC' OR c.owner_id = $1 OR EXISTS(SELECT 1 FROM contest_participants cp WHERE cp.contest_id = c.id AND cp.user_id = $1)
-		ORDER BY c.start_at DESC
-	`
-	rows, err := s.db.QueryContext(ctx, query, requestingUserID)
+func (s *Service) List(ctx context.Context, requestingUserID string, isAdmin bool) ([]Contest, error) {
+	var query string
+	var args []interface{}
+
+	if isAdmin {
+		query = `
+			SELECT c.id, c.owner_id, u.username, c.name, c.description, c.start_at, c.end_at, c.visibility, c.scoring_type, c.publication_status, c.created_at, c.updated_at,
+			       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_id = c.id) as participant_count,
+			       EXISTS(SELECT 1 FROM contest_participants cp WHERE cp.contest_id = c.id AND cp.user_id = $1) as is_participant
+			FROM contests c
+			JOIN users u ON c.owner_id = u.id
+			ORDER BY c.start_at DESC
+		`
+		args = append(args, requestingUserID)
+	} else {
+		query = `
+			SELECT c.id, c.owner_id, u.username, c.name, c.description, c.start_at, c.end_at, c.visibility, c.scoring_type, c.publication_status, c.created_at, c.updated_at,
+			       (SELECT COUNT(*) FROM contest_participants cp WHERE cp.contest_id = c.id) as participant_count,
+			       EXISTS(SELECT 1 FROM contest_participants cp WHERE cp.contest_id = c.id AND cp.user_id = $1) as is_participant
+			FROM contests c
+			JOIN users u ON c.owner_id = u.id
+			WHERE c.publication_status = 'PUBLISHED' AND (c.visibility = 'PUBLIC' OR c.owner_id = $1 OR EXISTS(SELECT 1 FROM contest_participants cp WHERE cp.contest_id = c.id AND cp.user_id = $1))
+			ORDER BY c.start_at DESC
+		`
+		args = append(args, requestingUserID)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +347,7 @@ func (s *Service) List(ctx context.Context, requestingUserID string) ([]Contest,
 	for rows.Next() {
 		var c Contest
 		err := rows.Scan(
-			&c.ID, &c.OwnerID, &c.OwnerUsername, &c.Name, &c.Description, &c.StartAt, &c.EndAt, &c.Visibility, &c.ScoringType, &c.CreatedAt, &c.UpdatedAt,
+			&c.ID, &c.OwnerID, &c.OwnerUsername, &c.Name, &c.Description, &c.StartAt, &c.EndAt, &c.Visibility, &c.ScoringType, &c.PublicationStatus, &c.CreatedAt, &c.UpdatedAt,
 			&c.ParticipantCount, &c.IsParticipant,
 		)
 		if err != nil {
@@ -305,7 +365,7 @@ func (s *Service) List(ctx context.Context, requestingUserID string) ([]Contest,
 }
 
 func (s *Service) Join(ctx context.Context, contestID, userID string) error {
-	c, err := s.GetByID(ctx, contestID, userID)
+	c, err := s.GetByID(ctx, contestID, userID, false)
 	if err != nil {
 		return err
 	}
@@ -321,6 +381,150 @@ func (s *Service) Join(ctx context.Context, contestID, userID string) error {
 	`
 	_, err = s.db.ExecContext(ctx, query, contestID, userID, s.timeClock())
 	return err
+}
+
+type UpdateContestParams struct {
+	Name              *string
+	Description       *string
+	StartAt           *time.Time
+	EndAt             *time.Time
+	Visibility        *string
+	ScoringType       *ScoringType
+	PublicationStatus *string
+}
+
+func (s *Service) Update(ctx context.Context, contestID string, params UpdateContestParams) (*Contest, error) {
+	c, err := s.GetByID(ctx, contestID, "", true)
+	if err != nil {
+		return nil, err
+	}
+
+	// Active contest rules
+	if (c.State == Active || c.State == Finished) && params.StartAt != nil {
+		if !params.StartAt.Equal(c.StartAt) {
+			return nil, errors.New("cannot modify start time of active or finished contest")
+		}
+	}
+
+	if params.Name != nil && strings.TrimSpace(*params.Name) != "" {
+		c.Name = strings.TrimSpace(*params.Name)
+	}
+	if params.Description != nil {
+		c.Description = *params.Description
+	}
+	if params.StartAt != nil {
+		c.StartAt = params.StartAt.UTC()
+	}
+	if params.EndAt != nil {
+		c.EndAt = params.EndAt.UTC()
+	}
+	if !c.EndAt.After(c.StartAt) {
+		return nil, errors.New("end time must be after start time")
+	}
+	if params.Visibility != nil && *params.Visibility != "" {
+		c.Visibility = *params.Visibility
+	}
+	if params.ScoringType != nil && *params.ScoringType != "" {
+		c.ScoringType = *params.ScoringType
+	}
+	if params.PublicationStatus != nil && *params.PublicationStatus != "" {
+		c.PublicationStatus = *params.PublicationStatus
+	}
+	c.UpdatedAt = time.Now().UTC()
+
+	query := `
+		UPDATE contests
+		SET name = $1, description = $2, start_at = $3, end_at = $4, visibility = $5, scoring_type = $6, publication_status = $7, updated_at = $8
+		WHERE id = $9
+	`
+	_, err = s.db.ExecContext(ctx, query, c.Name, c.Description, c.StartAt, c.EndAt, c.Visibility, c.ScoringType, c.PublicationStatus, c.UpdatedAt, c.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.GetByID(ctx, contestID, "", true)
+}
+
+func (s *Service) Delete(ctx context.Context, contestID string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM contests WHERE id = $1`, contestID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return errors.New("contest not found")
+	}
+	return nil
+}
+
+func (s *Service) AddProblem(ctx context.Context, contestID, problemID string, position *int, label *string, points *int) error {
+	c, err := s.GetByID(ctx, contestID, "", true)
+	if err != nil {
+		return err
+	}
+	if c.State == Active || c.State == Finished {
+		return errors.New("cannot modify problems of active or finished contest")
+	}
+
+	pos := len(c.Problems)
+	if position != nil && *position >= 0 {
+		pos = *position
+	}
+
+	lbl := GenerateLabel(pos)
+	if label != nil && strings.TrimSpace(*label) != "" {
+		lbl = strings.TrimSpace(*label)
+	}
+
+	query := `
+		INSERT INTO contest_problems (contest_id, problem_id, position, label, points)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (contest_id, problem_id) DO UPDATE SET position = EXCLUDED.position, label = EXCLUDED.label, points = EXCLUDED.points
+	`
+	_, err = s.db.ExecContext(ctx, query, contestID, problemID, pos, lbl, points)
+	return err
+}
+
+func (s *Service) RemoveProblem(ctx context.Context, contestID, problemID string) error {
+	c, err := s.GetByID(ctx, contestID, "", true)
+	if err != nil {
+		return err
+	}
+	if c.State == Active || c.State == Finished {
+		return errors.New("cannot modify problems of active or finished contest")
+	}
+
+	_, err = s.db.ExecContext(ctx, `DELETE FROM contest_problems WHERE contest_id = $1 AND problem_id = $2`, contestID, problemID)
+	return err
+}
+
+func (s *Service) ReorderProblems(ctx context.Context, contestID string, problemIDs []string) error {
+	c, err := s.GetByID(ctx, contestID, "", true)
+	if err != nil {
+		return err
+	}
+	if c.State == Active || c.State == Finished {
+		return errors.New("cannot modify problems of active or finished contest")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for i, pid := range problemIDs {
+		lbl := GenerateLabel(i)
+		_, err := tx.ExecContext(ctx, `
+			UPDATE contest_problems
+			SET position = $1, label = $2
+			WHERE contest_id = $3 AND problem_id = $4
+		`, i, lbl, contestID, pid)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 type Handler struct {
@@ -344,7 +548,6 @@ func (h *Handler) Routes() chi.Router {
 
 	r.Group(func(pr chi.Router) {
 		pr.Use(h.authSvc.AuthMiddleware(true))
-		pr.Post("/", h.Create)
 		pr.Post("/{id}/join", h.Join)
 	})
 
@@ -353,13 +556,17 @@ func (h *Handler) Routes() chi.Router {
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	var uid string
+	isAdmin := false
 	if claims := auth.GetUserFromContext(r.Context()); claims != nil {
 		uid = claims.UserID
+		isAdmin = (claims.Role == auth.RoleAdmin)
 	}
 
-	contests, err := h.service.List(r.Context(), uid)
+	contests, err := h.service.List(r.Context(), uid, isAdmin)
 	if err != nil {
-		http.Error(w, `{"error":"failed to list contests"}`, http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to list contests"})
 		return
 	}
 
@@ -370,13 +577,17 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var uid string
+	isAdmin := false
 	if claims := auth.GetUserFromContext(r.Context()); claims != nil {
 		uid = claims.UserID
+		isAdmin = (claims.Role == auth.RoleAdmin)
 	}
 
-	c, err := h.service.GetByID(r.Context(), id, uid)
+	c, err := h.service.GetByID(r.Context(), id, uid, isAdmin)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotFound)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -387,62 +598,26 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetProblems(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var uid string
+	isAdmin := false
 	if claims := auth.GetUserFromContext(r.Context()); claims != nil {
 		uid = claims.UserID
+		isAdmin = (claims.Role == auth.RoleAdmin)
 	}
 
-	problems, err := h.service.GetProblems(r.Context(), id, uid)
-	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotFound)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(problems)
-}
-
-type createContestReq struct {
-	ProblemSetID string      `json:"problemSetId"`
-	Name         string      `json:"name"`
-	Description  string      `json:"description"`
-	StartAt      string      `json:"startAt"`
-	EndAt        string      `json:"endAt"`
-	Visibility   string      `json:"visibility"`
-	ScoringType  ScoringType `json:"scoringType"`
-}
-
-func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	claims := auth.GetUserFromContext(r.Context())
-	var req createContestReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
-		return
-	}
-
-	startAt, err := time.Parse(time.RFC3339, req.StartAt)
-	if err != nil {
-		http.Error(w, `{"error":"invalid startAt RFC3339 format"}`, http.StatusBadRequest)
-		return
-	}
-	endAt, err := time.Parse(time.RFC3339, req.EndAt)
-	if err != nil {
-		http.Error(w, `{"error":"invalid endAt RFC3339 format"}`, http.StatusBadRequest)
-		return
-	}
-
-	contest, err := h.service.CreateFromProblemSet(
-		r.Context(), claims.UserID, req.ProblemSetID, req.Name, req.Description, startAt, endAt, req.Visibility, req.ScoringType,
-	)
+	problems, err := h.service.GetProblems(r.Context(), id, uid, isAdmin)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
+		if err.Error() == "CONTEST_NOT_STARTED" {
+			w.WriteHeader(http.StatusForbidden)
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(contest)
+	_ = json.NewEncoder(w).Encode(problems)
 }
 
 func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {

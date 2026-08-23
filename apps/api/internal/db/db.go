@@ -62,9 +62,15 @@ func EnsureSchema(db *sql.DB) error {
 		email VARCHAR(255) UNIQUE NOT NULL,
 		username VARCHAR(64) UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
+		role VARCHAR(16) NOT NULL DEFAULT 'USER',
+		is_active BOOLEAN NOT NULL DEFAULT true,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);
+
+	-- Schema migrations for existing databases
+	ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(16) NOT NULL DEFAULT 'USER';
+	ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
 
 	CREATE TABLE IF NOT EXISTS problems (
 		id VARCHAR(36) PRIMARY KEY,
@@ -109,10 +115,15 @@ func EnsureSchema(db *sql.DB) error {
 		end_at TIMESTAMPTZ NOT NULL,
 		visibility VARCHAR(32) NOT NULL DEFAULT 'PUBLIC',
 		scoring_type VARCHAR(32) NOT NULL DEFAULT 'ICPC',
+		publication_status VARCHAR(16) NOT NULL DEFAULT 'PUBLISHED',
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);
 	CREATE INDEX IF NOT EXISTS idx_contests_times ON contests(start_at, end_at);
+
+	-- Contest publication_status migration for existing tables
+	ALTER TABLE contests ADD COLUMN IF NOT EXISTS publication_status VARCHAR(16) NOT NULL DEFAULT 'PUBLISHED';
+	CREATE INDEX IF NOT EXISTS idx_contests_publication_status ON contests(publication_status);
 
 	CREATE TABLE IF NOT EXISTS contest_problems (
 		contest_id VARCHAR(36) NOT NULL REFERENCES contests(id) ON DELETE CASCADE,

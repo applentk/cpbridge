@@ -351,6 +351,79 @@ func (s *Service) List(ctx context.Context, f Filter) ([]Problem, int, error) {
 	return problems, total, nil
 }
 
+type UpdateProblemReq struct {
+	Title      *string                `json:"title"`
+	URL        *string                `json:"url"`
+	Difficulty *int                   `json:"difficulty"`
+	Tags       []string               `json:"tags"`
+	Metadata   map[string]interface{} `json:"metadata"`
+}
+
+func (s *Service) Update(ctx context.Context, id string, req UpdateProblemReq) (*Problem, error) {
+	p, err := s.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if req.Title != nil && strings.TrimSpace(*req.Title) != "" {
+		p.Title = strings.TrimSpace(*req.Title)
+	}
+	if req.URL != nil && strings.TrimSpace(*req.URL) != "" {
+		p.URL = strings.TrimSpace(*req.URL)
+	}
+	if req.Difficulty != nil {
+		p.Difficulty = req.Difficulty
+	}
+	if req.Tags != nil {
+		p.Tags = req.Tags
+	}
+	if req.Metadata != nil {
+		p.Metadata = req.Metadata
+	}
+	p.UpdatedAt = time.Now().UTC()
+
+	tagsJSON, _ := json.Marshal(p.Tags)
+	metaJSON, _ := json.Marshal(p.Metadata)
+
+	query := `
+		UPDATE problems
+		SET title = $1, url = $2, difficulty = $3, tags = $4, metadata = $5, updated_at = $6
+		WHERE id = $7
+	`
+	_, err = s.db.ExecContext(ctx, query, p.Title, p.URL, p.Difficulty, tagsJSON, metaJSON, p.UpdatedAt, p.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}
+
+func (s *Service) Delete(ctx context.Context, id string) error {
+	// Check if problem is in use by any contest
+	var count int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM contest_problems WHERE problem_id = $1", id).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return errors.New("PROBLEM_IN_USE")
+	}
+
+	// Delete from problem_set_items first
+	_, _ = s.db.ExecContext(ctx, "DELETE FROM problem_set_items WHERE problem_id = $1", id)
+
+	res, err := s.db.ExecContext(ctx, "DELETE FROM problems WHERE id = $1", id)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return errors.New("problem not found")
+	}
+
+	return nil
+}
+
+
 // CleanBoilerplate removes redundant header metadata, footers, copyright, and server info from statement text/HTML
 func CleanBoilerplate(text string) string {
 	// 1. Remove Codeforces header div
@@ -382,7 +455,7 @@ func CleanBoilerplate(text string) string {
 	return strings.TrimSpace(text)
 }
 
-// ExtractFromRawContent parses copied text or HTML from Codeforces, AtCoder, LeetCode, or generic problem sources
+// ExtractFromRawContent parses copied text or HTML from Codeforces, AtCoder, or generic problem sources
 func ExtractFromRawContent(raw string) (title, statement, timeLimit, memoryLimit string, sampleCases []platform.SampleCase) {
 	raw = strings.TrimSpace(raw)
 

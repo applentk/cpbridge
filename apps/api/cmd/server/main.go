@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 
+	"github.com/cp-hub/api/internal/admin"
 	"github.com/cp-hub/api/internal/auth"
 	"github.com/cp-hub/api/internal/contest"
 	"github.com/cp-hub/api/internal/db"
@@ -43,10 +45,14 @@ func main() {
 
 	// Domain Services
 	authSvc := auth.NewService(database)
+	if err := authSvc.BootstrapInitialAdmin(context.Background()); err != nil {
+		log.Printf("Initial admin bootstrap notice: %v", err)
+	}
+
 	probSvc := problem.NewService(database, platRegistry)
 	setSvc := problemset.NewService(database)
 	contestSvc := contest.NewService(database, setSvc)
-	subSvc := submission.NewService(database, contestSvc, probSvc)
+	subSvc := submission.NewService(database, contestSvc, probSvc, platRegistry)
 	intSvc := integration.NewService(database)
 
 	// Domain Handlers
@@ -56,6 +62,7 @@ func main() {
 	contestHandler := contest.NewHandler(contestSvc, authSvc)
 	subHandler := submission.NewHandler(subSvc, authSvc)
 	intHandler := integration.NewHandler(intSvc, authSvc)
+	adminHandler := admin.NewHandler(database, authSvc, probSvc, setSvc, contestSvc)
 
 	// Main Router
 	r := chi.NewRouter()
@@ -89,6 +96,13 @@ func main() {
 		api.Mount("/contests", contestHandler.Routes())
 		api.Mount("/submissions", subHandler.Routes())
 		api.Mount("/integrations", intHandler.Routes())
+
+		// Admin API Group (Requires Auth + Admin Role)
+		api.Group(func(adminRouter chi.Router) {
+			adminRouter.Use(authSvc.AuthMiddleware(true))
+			adminRouter.Use(auth.RequireAdmin())
+			adminRouter.Mount("/admin", adminHandler.Routes())
+		})
 
 		// Standings route
 		api.Group(func(pr chi.Router) {

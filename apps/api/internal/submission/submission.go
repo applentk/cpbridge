@@ -86,23 +86,29 @@ type ProblemHeader struct {
 }
 
 type Service struct {
-	db         *sql.DB
-	contestSvc *contest.Service
-	probSvc    *problem.Service
-	timeClock  func() time.Time
+	db           *sql.DB
+	contestSvc   *contest.Service
+	probSvc      *problem.Service
+	platRegistry *platform.Registry
+	timeClock    func() time.Time
 }
 
-func NewService(db *sql.DB, contestSvc *contest.Service, probSvc *problem.Service) *Service {
+func NewService(db *sql.DB, contestSvc *contest.Service, probSvc *problem.Service, platRegistry *platform.Registry) *Service {
 	return &Service{
-		db:         db,
-		contestSvc: contestSvc,
-		probSvc:    probSvc,
-		timeClock:  func() time.Time { return time.Now().UTC() },
+		db:           db,
+		contestSvc:   contestSvc,
+		probSvc:      probSvc,
+		platRegistry: platRegistry,
+		timeClock:    func() time.Time { return time.Now().UTC() },
 	}
 }
 
 func (s *Service) SetClock(clock func() time.Time) {
 	s.timeClock = clock
+}
+
+func (s *Service) SetPlatformRegistry(reg *platform.Registry) {
+	s.platRegistry = reg
 }
 
 func (s *Service) Create(ctx context.Context, userID, problemID string, contestID *string, language, sourceCode string) (*Submission, error) {
@@ -115,7 +121,7 @@ func (s *Service) Create(ctx context.Context, userID, problemID string, contestI
 
 	// Validate contest window if contestId is present
 	if contestID != nil && *contestID != "" {
-		c, err := s.contestSvc.GetByID(ctx, *contestID, userID)
+		c, err := s.contestSvc.GetByID(ctx, *contestID, userID, true)
 		if err != nil {
 			return nil, fmt.Errorf("contest not found: %w", err)
 		}
@@ -156,6 +162,99 @@ func (s *Service) Create(ctx context.Context, userID, problemID string, contestI
 	return sub, nil
 }
 
+func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submission, error) {
+	if sub == nil || sub.ExternalSubmissionID == nil || *sub.ExternalSubmissionID == "" || s.platRegistry == nil {
+		return sub, nil
+	}
+
+	adapter, err := s.platRegistry.Get(sub.Platform)
+	if err != nil {
+		return sub, nil
+	}
+
+	prob, err := s.probSvc.GetByID(ctx, sub.ProblemID)
+	extSubID := *sub.ExternalSubmissionID
+	if err == nil && prob != nil && !strings.Contains(extSubID, "/") {
+		parts := strings.Split(prob.ExternalID, "/")
+		if len(parts) >= 1 {
+			extSubID = fmt.Sprintf("%s/%s", parts[0], extSubID)
+		}
+	}
+
+	statusObj, err := adapter.GetSubmission(ctx, extSubID)
+	if err != nil || statusObj == nil {
+		return sub, nil
+	}
+
+	if statusObj.Status != "JUDGING" && statusObj.Status != "PENDING" && statusObj.Status != "" {
+		newStatus := Status(statusObj.Status)
+		metadata := sub.Metadata
+		if metadata == nil {
+			metadata = make(map[string]interface{})
+		}
+		if statusObj.ExecutionTimeMs != nil {
+			metadata["executionTimeMs"] = *statusObj.ExecutionTimeMs
+		}
+		if statusObj.MemoryBytes != nil {
+			metadata["memoryBytes"] = *statusObj.MemoryBytes
+		}
+		if statusObj.FailedTestcase != nil {
+			metadata["failedTestcase"] = *statusObj.FailedTestcase
+		}
+		for k, v := range statusObj.RawPayload {
+			metadata[k] = v
+		}
+
+		now := s.timeClock()
+		metaJSON, _ := json.Marshal(metadata)
+		_, updateErr := s.db.ExecContext(ctx, `
+			UPDATE submissions
+			SET status = $1, judged_at = $2, metadata = $3
+			WHERE id = $4
+		`, newStatus, now, metaJSON, sub.ID)
+		if updateErr == nil {
+			sub.Status = newStatus
+			sub.JudgedAt = &now
+			sub.Metadata = metadata
+		}
+	}
+
+	return sub, nil
+}
+
+func (s *Service) SyncStatus(ctx context.Context, id string) (*Submission, error) {
+	query := `
+		SELECT s.id, s.user_id, u.username, s.problem_id, p.title, s.contest_id, s.platform, s.language,
+		       s.source_code, s.status, s.external_submission_id, s.submitted_at, s.judged_at, s.metadata
+		FROM submissions s
+		JOIN users u ON s.user_id = u.id
+		JOIN problems p ON s.problem_id = p.id
+		WHERE s.id = $1
+	`
+	var sub Submission
+	var metaJSON []byte
+
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
+		&sub.ID, &sub.UserID, &sub.Username, &sub.ProblemID, &sub.ProblemTitle, &sub.ContestID,
+		&sub.Platform, &sub.Language, &sub.SourceCode, &sub.Status, &sub.ExternalSubmissionID,
+		&sub.SubmittedAt, &sub.JudgedAt, &metaJSON,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("submission not found")
+		}
+		return nil, err
+	}
+
+	_ = json.Unmarshal(metaJSON, &sub.Metadata)
+
+	if sub.Status == Judging || sub.Status == Pending || sub.Status == Dispatching {
+		return s.syncStatusDirect(ctx, &sub)
+	}
+
+	return &sub, nil
+}
+
 func (s *Service) GetByID(ctx context.Context, id, requestingUserID string) (*Submission, error) {
 	query := `
 		SELECT s.id, s.user_id, u.username, s.problem_id, p.title, s.contest_id, s.platform, s.language,
@@ -181,6 +280,13 @@ func (s *Service) GetByID(ctx context.Context, id, requestingUserID string) (*Su
 	}
 
 	_ = json.Unmarshal(metaJSON, &sub.Metadata)
+
+	if (sub.Status == Judging || sub.Status == Pending || sub.Status == Dispatching) && sub.ExternalSubmissionID != nil && *sub.ExternalSubmissionID != "" && s.platRegistry != nil {
+		if synced, err := s.syncStatusDirect(ctx, &sub); err == nil && synced != nil {
+			return synced, nil
+		}
+	}
+
 	return &sub, nil
 }
 
@@ -302,13 +408,13 @@ func (s *Service) UpdateResult(ctx context.Context, id, userID string, status St
 }
 
 func (s *Service) CalculateStandings(ctx context.Context, contestID string, requestingUserID string) (*StandingsResponse, error) {
-	c, err := s.contestSvc.GetByID(ctx, contestID, requestingUserID)
+	c, err := s.contestSvc.GetByID(ctx, contestID, requestingUserID, true)
 	if err != nil {
 		return nil, err
 	}
 
 	// Fetch contest problems
-	problems, err := s.contestSvc.GetProblems(ctx, contestID, requestingUserID)
+	problems, err := s.contestSvc.GetProblems(ctx, contestID, requestingUserID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -467,6 +573,8 @@ func (h *Handler) Routes() chi.Router {
 		pr.Use(h.authSvc.AuthMiddleware(false))
 		pr.Get("/", h.List)
 		pr.Get("/{id}", h.Get)
+		pr.Get("/{id}/sync", h.Sync)
+		pr.Post("/{id}/sync", h.Sync)
 	})
 
 	r.Group(func(pr chi.Router) {
@@ -515,6 +623,18 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sub, err := h.service.GetByID(r.Context(), id, uid)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(sub)
+}
+
+func (h *Handler) Sync(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	sub, err := h.service.SyncStatus(r.Context(), id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusNotFound)
 		return
