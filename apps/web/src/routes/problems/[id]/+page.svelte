@@ -232,7 +232,7 @@
 {#if loading}
   <div class="h-96 rounded-2xl bg-zinc-900/40 border border-zinc-800 animate-pulse"></div>
 {:else if error || !problem}
-  <div class="p-8 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300 space-y-2">
+  <div class="p-8 rounded-2xl border border-zinc-700 bg-zinc-900 text-zinc-200 space-y-2">
     <h2 class="text-xl font-bold">Error loading problem</h2>
     <p class="text-sm">{error || 'Problem not found.'}</p>
   </div>
@@ -243,15 +243,12 @@
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div class="space-y-1.5">
           <div class="flex items-center space-x-2.5">
-            <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold {
-              problem.platform === 'CODEFORCES' ? 'bg-red-500/20 text-red-300 border border-red-500/30' :
-              'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-            }">
+            <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold font-mono bg-zinc-800 text-zinc-300 border border-zinc-700">
               {problem.platform}
             </span>
             <span class="text-xs font-mono text-zinc-400">{problem.externalId}</span>
             {#if problem.difficulty}
-              <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-zinc-800 text-zinc-300 border border-zinc-700">
+              <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-zinc-950 text-zinc-400 border border-zinc-800">
                 ★ {problem.difficulty}
               </span>
             {/if}
@@ -268,7 +265,7 @@
             <button
               on:click={() => (viewMode = 'tabbed')}
               class="px-3 py-1 rounded-lg font-semibold transition {
-                viewMode === 'tabbed' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
+                viewMode === 'tabbed' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'
               }"
             >
               Tabbed View
@@ -276,7 +273,7 @@
             <button
               on:click={() => (viewMode = 'split')}
               class="px-3 py-1 rounded-lg font-semibold transition flex items-center space-x-1 {
-                viewMode === 'split' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
+                viewMode === 'split' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'
               }"
             >
               <Columns class="w-3.5 h-3.5" />
@@ -288,7 +285,7 @@
             href={problem.url}
             target="_blank"
             rel="noopener noreferrer"
-            class="px-3 py-1.5 rounded-xl border border-zinc-800 hover:bg-zinc-800 text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition flex items-center space-x-1.5"
+            class="px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-xs text-zinc-200 hover:text-white font-semibold transition flex items-center space-x-1.5"
             title="Open official statement on source website"
           >
             <span>Source</span>
@@ -321,7 +318,7 @@
           <button
             on:click={() => (activeTab = 'statement')}
             class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
-              activeTab === 'statement' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
+              activeTab === 'statement' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
             }"
           >
             <BookOpen class="w-4 h-4" />
@@ -331,7 +328,7 @@
           <button
             on:click={() => (activeTab = 'editor')}
             class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
-              activeTab === 'editor' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
+              activeTab === 'editor' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
             }"
           >
             <Code2 class="w-4 h-4" />
@@ -341,7 +338,7 @@
           <button
             on:click={() => (activeTab = 'submissions')}
             class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
-              activeTab === 'submissions' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
+              activeTab === 'submissions' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
             }"
           >
             <Cpu class="w-4 h-4" />
@@ -373,7 +370,7 @@
               <div class="h-4 bg-zinc-800/60 rounded w-2/3 animate-pulse"></div>
             </div>
           {:else if renderedHtml}
-            <div class="statement-content text-base sm:text-lg text-zinc-100 leading-relaxed sm:leading-8 space-y-5">
+            <div class="statement-content text-sm text-zinc-300 leading-relaxed space-y-4">
               {@html renderedHtml}
             </div>
 
@@ -381,7 +378,7 @@
             {#if statement && statement.sampleCases && statement.sampleCases.length > 0}
               <div class="space-y-4 pt-4 border-t border-zinc-800">
                 <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
-                  <Terminal class="w-4 h-4 text-indigo-400" />
+                  <Terminal class="w-4 h-4 text-white" />
                   <span>Sample Test Cases</span>
                 </h3>
 
@@ -393,11 +390,11 @@
                         <span>Input:</span>
                         <button
                           on:click={() => copyToClipboard(sc.input, `in_split_${idx}`)}
-                          class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition flex items-center space-x-1"
+                          class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
                         >
                           {#if copiedCaseIndex === `in_split_${idx}`}
-                            <Check class="w-3.5 h-3.5 text-emerald-400" />
-                            <span class="text-[10px] text-emerald-400">Copied!</span>
+                            <Check class="w-3.5 h-3.5 text-white" />
+                            <span class="text-[10px] text-white">Copied!</span>
                           {:else}
                             <Copy class="w-3.5 h-3.5" />
                             <span class="text-[10px]">Copy</span>
@@ -413,11 +410,11 @@
                           <span>Output:</span>
                           <button
                             on:click={() => copyToClipboard(sc.output, `out_split_${idx}`)}
-                            class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition flex items-center space-x-1"
+                            class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
                           >
                             {#if copiedCaseIndex === `out_split_${idx}`}
-                              <Check class="w-3.5 h-3.5 text-emerald-400" />
-                              <span class="text-[10px] text-emerald-400">Copied!</span>
+                              <Check class="w-3.5 h-3.5 text-white" />
+                              <span class="text-[10px] text-white">Copied!</span>
                             {:else}
                               <Copy class="w-3.5 h-3.5" />
                               <span class="text-[10px]">Copy</span>
@@ -434,7 +431,7 @@
           {:else}
             <div class="p-8 text-center text-zinc-400 text-sm">
               Statement not loaded.
-              <a href={problem.url} target="_blank" class="text-indigo-400 underline ml-1">Open source statement</a>
+              <a href={problem.url} target="_blank" class="text-white underline ml-1">Open source statement</a>
             </div>
           {/if}
         </div>
@@ -446,7 +443,7 @@
               <select
                 bind:value={language}
                 on:change={handleLanguageChange}
-                class="px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-mono focus:border-indigo-500 focus:outline-none"
+                class="px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-mono focus:border-zinc-400 focus:outline-none"
               >
                 <option value="cpp23">C++23 (GCC)</option>
                 <option value="python3">Python 3</option>
@@ -462,7 +459,7 @@
                 class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center space-x-1.5"
                 title="Upload code file (.cpp, .py, .java, .go, .rs) with auto-detected language"
               >
-                <Upload class="w-3.5 h-3.5" />
+                <Upload class="w-3.5 h-3.5 text-white" />
                 <span>Upload File</span>
               </button>
             </div>
@@ -470,7 +467,7 @@
             <button
               on:click={handleSubmit}
               disabled={submitting}
-              class="px-5 py-1.5 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-lg shadow-indigo-600/30 transition flex items-center space-x-2 text-xs"
+              class="px-5 py-1.5 rounded-xl font-bold bg-white hover:bg-zinc-200 disabled:opacity-50 text-black shadow-sm transition flex items-center space-x-2 text-xs"
             >
               <Send class="w-3.5 h-3.5" />
               <span>{submitting ? 'Submitting...' : 'Submit Code'}</span>
@@ -478,8 +475,8 @@
           </div>
 
           {#if uploadSuccessMessage}
-            <div class="px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center space-x-2">
-              <CheckCircle2 class="w-3.5 h-3.5 shrink-0" />
+            <div class="px-3 py-2 rounded-xl bg-zinc-100 border border-white text-black text-xs font-semibold flex items-center space-x-2">
+              <CheckCircle2 class="w-3.5 h-3.5 shrink-0 text-black" />
               <span>{uploadSuccessMessage}</span>
             </div>
           {/if}
@@ -496,9 +493,9 @@
                 <span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Verdict</span>
                 {#if activeSubmission}
                   <span class="text-xs font-bold font-mono px-2 py-0.5 rounded-lg {
-                    activeSubmission.status === 'ACCEPTED' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                    activeSubmission.status === 'WRONG_ANSWER' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
-                    'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    activeSubmission.status === 'ACCEPTED' ? 'bg-white text-black border border-white' :
+                    activeSubmission.status === 'WRONG_ANSWER' ? 'bg-zinc-900 text-zinc-300 border border-zinc-600' :
+                    'bg-zinc-800 text-zinc-200 border border-zinc-700'
                   }">
                     {activeSubmission.status}
                   </span>
@@ -523,7 +520,7 @@
                 <div class="h-4 bg-zinc-800/60 rounded w-2/3 animate-pulse"></div>
               </div>
             {:else if renderedHtml}
-              <div class="statement-content text-base sm:text-lg text-zinc-100 leading-relaxed sm:leading-8 space-y-5">
+              <div class="statement-content text-sm text-zinc-300 leading-relaxed space-y-4">
                 {@html renderedHtml}
               </div>
 
@@ -531,7 +528,7 @@
               {#if statement && statement.sampleCases && statement.sampleCases.length > 0}
                 <div class="space-y-4 pt-6 border-t border-zinc-800">
                   <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
-                    <Terminal class="w-4 h-4 text-indigo-400" />
+                    <Terminal class="w-4 h-4 text-white" />
                     <span>Sample Test Cases</span>
                   </h3>
 
@@ -546,11 +543,11 @@
                             <span>Input:</span>
                             <button
                               on:click={() => copyToClipboard(sc.input, `in_tab_${idx}`)}
-                              class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition flex items-center space-x-1"
+                              class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
                             >
                               {#if copiedCaseIndex === `in_tab_${idx}`}
-                                <Check class="w-3.5 h-3.5 text-emerald-400" />
-                                <span class="text-[10px] text-emerald-400">Copied!</span>
+                                <Check class="w-3.5 h-3.5 text-white" />
+                                <span class="text-[10px] text-white">Copied!</span>
                               {:else}
                                 <Copy class="w-3.5 h-3.5" />
                                 <span class="text-[10px]">Copy</span>
@@ -567,11 +564,11 @@
                               <span>Output:</span>
                               <button
                                 on:click={() => copyToClipboard(sc.output, `out_tab_${idx}`)}
-                                class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition flex items-center space-x-1"
+                                class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
                               >
                                 {#if copiedCaseIndex === `out_tab_${idx}`}
-                                  <Check class="w-3.5 h-3.5 text-emerald-400" />
-                                  <span class="text-[10px] text-emerald-400">Copied!</span>
+                                  <Check class="w-3.5 h-3.5 text-white" />
+                                  <span class="text-[10px] text-white">Copied!</span>
                                 {:else}
                                   <Copy class="w-3.5 h-3.5" />
                                   <span class="text-[10px]">Copy</span>
@@ -591,7 +588,7 @@
               <div class="pt-6 border-t border-zinc-800 flex justify-end">
                 <button
                   on:click={() => (activeTab = 'editor')}
-                  class="px-5 py-2.5 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition flex items-center space-x-2 text-xs"
+                  class="px-5 py-2.5 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center space-x-2 text-xs"
                 >
                   <Code2 class="w-4 h-4" />
                   <span>Open Code Editor & Solve</span>
@@ -604,7 +601,7 @@
                   href={problem.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white inline-flex items-center space-x-1.5"
+                  class="px-4 py-2 rounded-xl text-xs font-bold bg-white hover:bg-zinc-200 text-black inline-flex items-center space-x-1.5"
                 >
                   <span>Open Source Statement</span>
                   <ExternalLink class="w-3.5 h-3.5" />
@@ -625,7 +622,7 @@
                     id="lang-select-tab"
                     bind:value={language}
                     on:change={handleLanguageChange}
-                    class="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-200 text-xs font-mono focus:border-indigo-500 focus:outline-none"
+                    class="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-200 text-xs font-mono focus:border-zinc-400 focus:outline-none"
                   >
                     <option value="cpp23">C++23 (GCC)</option>
                     <option value="python3">Python 3</option>
@@ -642,7 +639,7 @@
                   class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center space-x-1.5 shadow-sm"
                   title="Upload code file (.cpp, .py, .java, .go, .rs) to automatically set source code and detect language"
                 >
-                  <Upload class="w-3.5 h-3.5 text-indigo-400" />
+                  <Upload class="w-3.5 h-3.5 text-white" />
                   <span>Upload File (Auto-Detect)</span>
                 </button>
               </div>
@@ -651,7 +648,7 @@
                 <button
                   on:click={handleSubmit}
                   disabled={submitting}
-                  class="px-6 py-2 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-lg shadow-indigo-600/30 transition flex items-center space-x-2 text-xs"
+                  class="px-6 py-2 rounded-xl font-bold bg-white hover:bg-zinc-200 disabled:opacity-50 text-black shadow-sm transition flex items-center space-x-2 text-xs"
                 >
                   <Send class="w-4 h-4" />
                   <span>{submitting ? 'Submitting Solution...' : 'Submit Solution'}</span>
@@ -661,8 +658,8 @@
 
             <!-- Upload Feedback Notification -->
             {#if uploadSuccessMessage}
-              <div class="px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center space-x-2">
-                <CheckCircle2 class="w-4 h-4 shrink-0 text-emerald-400" />
+              <div class="px-4 py-2.5 rounded-xl bg-zinc-100 border border-white text-black text-xs font-semibold flex items-center space-x-2">
+                <CheckCircle2 class="w-4 h-4 shrink-0 text-black" />
                 <span class="font-medium">{uploadSuccessMessage}</span>
               </div>
             {/if}
@@ -679,9 +676,9 @@
                   <span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Submission Verdict</span>
                   {#if activeSubmission}
                     <span class="text-xs font-bold font-mono px-3 py-1 rounded-lg {
-                      activeSubmission.status === 'ACCEPTED' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                      activeSubmission.status === 'WRONG_ANSWER' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
-                      'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      activeSubmission.status === 'ACCEPTED' ? 'bg-white text-black border border-white' :
+                      activeSubmission.status === 'WRONG_ANSWER' ? 'bg-zinc-900 text-zinc-300 border border-zinc-600' :
+                      'bg-zinc-800 text-zinc-200 border border-zinc-700'
                     }">
                       {activeSubmission.status}
                     </span>
@@ -695,13 +692,13 @@
                     <span class="text-xs text-zinc-500">Record dev mock verdict:</span>
                     <button
                       on:click={() => handleMockVerdict('ACCEPTED')}
-                      class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition"
+                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-zinc-100 hover:bg-white text-black border border-zinc-300 transition"
                     >
                       Mark AC
                     </button>
                     <button
                       on:click={() => handleMockVerdict('WRONG_ANSWER')}
-                      class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition"
+                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-600 transition"
                     >
                       Mark WA
                     </button>
@@ -726,9 +723,9 @@
                       <div class="text-zinc-500">{new Date(sub.submittedAt).toLocaleString()}</div>
                     </div>
                     <span class="font-bold font-mono px-3 py-1.5 rounded-lg {
-                      sub.status === 'ACCEPTED' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                      sub.status === 'WRONG_ANSWER' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
-                      'bg-zinc-800 text-zinc-400'
+                      sub.status === 'ACCEPTED' ? 'bg-white text-black border border-white' :
+                      sub.status === 'WRONG_ANSWER' ? 'bg-zinc-900 text-zinc-300 border border-zinc-600' :
+                      'bg-zinc-800 text-zinc-400 border border-zinc-700'
                     }">
                       {sub.status}
                     </span>

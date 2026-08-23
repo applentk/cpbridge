@@ -171,7 +171,7 @@
         importError = '';
         importSuccess = '';
       }}
-      class="px-4 py-2.5 rounded-xl font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition flex items-center space-x-2 shrink-0 self-start sm:self-auto"
+      class="px-4 py-2.5 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center space-x-2 shrink-0 self-start sm:self-auto"
     >
       <Plus class="w-4 h-4" />
       <span>Add / Import Problem</span>
@@ -187,7 +187,7 @@
         bind:value={query}
         on:input={loadProblems}
         placeholder="Search problems by title, ID, or tag..."
-        class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 placeholder-zinc-500 text-sm transition"
+        class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 placeholder-zinc-500 text-sm transition"
       />
     </div>
 
@@ -195,11 +195,12 @@
       <select
         bind:value={selectedPlatform}
         on:change={loadProblems}
-        class="w-full px-4 py-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm transition"
+        class="w-full px-4 py-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm transition"
       >
         <option value="">All Platforms</option>
         <option value="CODEFORCES">Codeforces</option>
         <option value="ATCODER">AtCoder</option>
+        <option value="LEETCODE">LeetCode</option>
       </select>
     </div>
   </div>
@@ -216,7 +217,7 @@
       <p class="text-zinc-400 text-base">No problems found matching your criteria.</p>
       <button
         on:click={() => (showModal = true)}
-        class="px-4 py-2 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition inline-flex items-center space-x-1.5"
+        class="px-4 py-2 rounded-xl text-sm font-bold bg-white hover:bg-zinc-200 text-black transition inline-flex items-center space-x-1.5"
       >
         <Plus class="w-4 h-4" />
         <span>Add a Problem</span>
@@ -244,7 +245,7 @@
           <button
             on:click={() => (modalTab = 'url')}
             class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 {
-              modalTab === 'url' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+              modalTab === 'url' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
             }"
           >
             <Globe class="w-3.5 h-3.5" />
@@ -253,7 +254,7 @@
           <button
             on:click={() => (modalTab = 'paste')}
             class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 {
-              modalTab === 'paste' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+              modalTab === 'paste' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
             }"
           >
             <FileText class="w-3.5 h-3.5" />
@@ -262,15 +263,15 @@
         </div>
 
         {#if importError}
-          <div class="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm flex items-center space-x-2">
-            <AlertCircle class="w-4 h-4 shrink-0" />
+          <div class="p-3 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm flex items-center space-x-2">
+            <AlertCircle class="w-4 h-4 shrink-0 text-white" />
             <span>{importError}</span>
           </div>
         {/if}
 
         {#if importSuccess}
-          <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm flex items-center space-x-2">
-            <CheckCircle2 class="w-4 h-4 shrink-0" />
+          <div class="p-3 rounded-xl bg-zinc-100 border border-white text-black text-sm font-semibold flex items-center space-x-2">
+            <CheckCircle2 class="w-4 h-4 shrink-0 text-black" />
             <span>{importSuccess}</span>
           </div>
         {/if}
@@ -285,25 +286,26 @@
                 type="url"
                 bind:value={importUrl}
                 placeholder="https://codeforces.com/problemset/problem/1900/A"
-                class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm placeholder-zinc-600 transition"
+                class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm placeholder-zinc-600 transition"
               />
             </div>
             <div class="text-[11px] text-zinc-500 space-y-0.5">
               <div>Examples:</div>
               <div>• https://codeforces.com/problemset/problem/1900/A</div>
               <div>• https://atcoder.jp/contests/abc350/tasks/abc350_f</div>
+              <div>• https://leetcode.com/problems/two-sum/</div>
             </div>
             <div class="flex items-center justify-end space-x-3 pt-2">
               <button
                 on:click={() => (showModal = false)}
-                class="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
+                class="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
               >
                 Cancel
               </button>
               <button
                 on:click={handleImportUrl}
                 disabled={importLoading || !importUrl}
-                class="px-5 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white transition"
+                class="px-5 py-2.5 rounded-xl text-sm font-bold bg-white hover:bg-zinc-200 disabled:opacity-50 text-black transition"
               >
                 {importLoading ? 'Importing...' : 'Import'}
               </button>
@@ -314,22 +316,22 @@
           <!-- 2. Statement Paste / Custom Mode -->
           <div class="space-y-5">
             <!-- Extraction Tool Box -->
-            <div class="p-4 rounded-xl border border-indigo-500/30 bg-indigo-500/5 space-y-3">
+            <div class="p-4 rounded-xl border border-zinc-700 bg-zinc-950 space-y-3">
               <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-1.5 text-xs font-bold text-indigo-300">
-                  <Wand2 class="w-4 h-4 text-indigo-400" />
+                <div class="flex items-center space-x-1.5 text-xs font-bold text-white">
+                  <Wand2 class="w-4 h-4 text-white" />
                   <span>Auto-Extract from Copied Webpage Content</span>
                 </div>
                 {#if extractNotice}
-                  <span class="text-[11px] text-emerald-400 font-medium">{extractNotice}</span>
+                  <span class="text-[11px] text-zinc-300 font-medium">{extractNotice}</span>
                 {/if}
               </div>
 
               <textarea
                 bind:value={rawCopiedText}
                 rows="3"
-                placeholder="Paste raw text or HTML from Codeforces or AtCoder here to auto-fill title, limits, and sample testcases..."
-                class="w-full px-3 py-2 rounded-lg bg-zinc-950/80 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-200 text-xs font-mono placeholder-zinc-600 transition"
+                placeholder="Paste raw text or HTML from Codeforces, AtCoder, or LeetCode here to auto-fill title, limits, and sample testcases..."
+                class="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-200 text-xs font-mono placeholder-zinc-600 transition"
               ></textarea>
 
               <div class="flex justify-end">
@@ -337,7 +339,7 @@
                   type="button"
                   on:click={handleAutoExtract}
                   disabled={extracting || !rawCopiedText.trim()}
-                  class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white transition flex items-center space-x-1.5"
+                  class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-white hover:bg-zinc-200 disabled:opacity-50 text-black transition flex items-center space-x-1.5"
                 >
                   <Wand2 class="w-3.5 h-3.5" />
                   <span>{extracting ? 'Extracting...' : 'Auto-Extract Fields'}</span>
@@ -354,7 +356,7 @@
                   type="text"
                   bind:value={customTitle}
                   placeholder="e.g. A. Cover in Water"
-                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-xs transition"
+                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-xs transition"
                 />
               </div>
 
@@ -363,10 +365,11 @@
                 <select
                   id="c-plat"
                   bind:value={customPlatform}
-                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-xs transition"
+                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-xs transition"
                 >
                   <option value="CODEFORCES">Codeforces</option>
                   <option value="ATCODER">AtCoder</option>
+                  <option value="LEETCODE">LeetCode</option>
                 </select>
               </div>
 
@@ -377,7 +380,7 @@
                   type="text"
                   bind:value={customExternalId}
                   placeholder="e.g. 1900/A or abc350_a"
-                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-xs transition"
+                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-xs transition"
                 />
               </div>
 
@@ -388,7 +391,7 @@
                   type="url"
                   bind:value={customUrl}
                   placeholder="https://codeforces.com/problemset/problem/1900/A"
-                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-xs transition"
+                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-xs transition"
                 />
               </div>
 
@@ -399,7 +402,7 @@
                   type="number"
                   bind:value={customDifficulty}
                   placeholder="e.g. 800"
-                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-xs transition"
+                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-xs transition"
                 />
               </div>
 
@@ -410,7 +413,7 @@
                   type="text"
                   bind:value={customTagsStr}
                   placeholder="dp, math, greedy"
-                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-xs transition"
+                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-xs transition"
                 />
               </div>
 
@@ -421,7 +424,7 @@
                   type="text"
                   bind:value={customTimeLimit}
                   placeholder="1.0 sec"
-                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-xs transition"
+                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-xs transition"
                 />
               </div>
 
@@ -432,7 +435,7 @@
                   type="text"
                   bind:value={customMemoryLimit}
                   placeholder="256 MB"
-                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-xs transition"
+                  class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-xs transition"
                 />
               </div>
             </div>
@@ -445,7 +448,7 @@
                 bind:value={customStatement}
                 rows="6"
                 placeholder="Paste the problem statement description, input and output format, and constraints here..."
-                class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-xs font-mono transition"
+                class="w-full px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-xs font-mono transition"
               ></textarea>
             </div>
 
@@ -456,7 +459,7 @@
                 <button
                   type="button"
                   on:click={addSampleCase}
-                  class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition flex items-center space-x-1"
+                  class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center space-x-1"
                 >
                   <Plus class="w-3 h-3" />
                   <span>Add Sample Case</span>
@@ -471,7 +474,7 @@
                       <button
                         type="button"
                         on:click={() => removeSampleCase(idx)}
-                        class="text-zinc-500 hover:text-red-400 p-1"
+                        class="text-zinc-500 hover:text-white p-1"
                         title="Remove"
                       >
                         <Trash2 class="w-3.5 h-3.5" />
@@ -511,7 +514,7 @@
               <button
                 type="button"
                 on:click={() => (showModal = false)}
-                class="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
+                class="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
               >
                 Cancel
               </button>
@@ -519,7 +522,7 @@
                 type="button"
                 on:click={handleCreateCustom}
                 disabled={importLoading || !customTitle.trim()}
-                class="px-5 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white transition"
+                class="px-5 py-2.5 rounded-xl text-sm font-bold bg-white hover:bg-zinc-200 disabled:opacity-50 text-black transition"
               >
                 {importLoading ? 'Creating...' : 'Save Problem & Statement'}
               </button>

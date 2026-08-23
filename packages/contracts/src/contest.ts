@@ -22,6 +22,7 @@ export interface ContestParticipant {
 export interface Contest {
   id: string;
   ownerId: string;
+  ownerUsername?: string;
   name: string;
   description: string;
   startAt: string;

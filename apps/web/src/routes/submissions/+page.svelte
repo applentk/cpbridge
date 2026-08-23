@@ -31,7 +31,7 @@
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
     <div>
       <h1 class="text-3xl font-bold text-white flex items-center space-x-2">
-        <Cpu class="w-7 h-7 text-indigo-400" />
+        <Cpu class="w-7 h-7 text-white" />
         <span>Submissions Log</span>
       </h1>
       <p class="text-sm text-zinc-400">Track judging results and submission history across all platforms.</p>
@@ -45,7 +45,7 @@
             loadSubmissions();
           }}
           class="px-3.5 py-2 rounded-xl text-xs font-semibold border border-zinc-800 transition {
-            filterUser ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/40' : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'
+            filterUser ? 'bg-white text-black shadow-sm' : 'bg-zinc-900 text-zinc-300 hover:text-white hover:bg-zinc-800'
           }"
         >
           {filterUser ? 'Show All Submissions' : 'My Submissions Only'}
@@ -53,7 +53,7 @@
       {/if}
       <button
         on:click={loadSubmissions}
-        class="p-2.5 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
+        class="p-2.5 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
         title="Refresh"
       >
         <RefreshCw class="w-4 h-4" />
@@ -74,7 +74,7 @@
   {:else}
     <div class="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/60 shadow-lg">
       <table class="w-full text-left text-sm text-zinc-300">
-        <thead class="bg-zinc-800/80 text-xs uppercase tracking-wider text-zinc-400 font-semibold border-b border-zinc-700/80">
+        <thead class="bg-zinc-800/90 text-xs uppercase tracking-wider text-zinc-400 font-semibold border-b border-zinc-700">
           <tr>
             <th class="py-3.5 px-4">Problem</th>
             <th class="py-3.5 px-4">User</th>
@@ -89,7 +89,7 @@
           {#each submissions as s}
             <tr class="hover:bg-zinc-800/30 transition">
               <td class="py-3 px-4 font-sans font-semibold text-zinc-100">
-                <a href={`/problems/${s.problemId}`} class="hover:text-indigo-400 transition">
+                <a href={`/problems/${s.problemId}`} class="hover:text-white transition">
                   {s.problemTitle || s.problemId}
                 </a>
               </td>
@@ -99,10 +99,7 @@
               </td>
 
               <td class="py-3 px-4">
-                <span class="px-2 py-0.5 rounded text-[11px] font-bold {
-                  s.platform === 'CODEFORCES' ? 'text-red-400' :
-                  'text-blue-400'
-                }">
+                <span class="px-2 py-0.5 rounded text-[11px] font-bold text-zinc-300">
                   {s.platform}
                 </span>
               </td>
@@ -113,10 +110,10 @@
 
               <td class="py-3 px-4">
                 <span class="px-2.5 py-1 rounded-md font-bold {
-                  s.status === 'ACCEPTED' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                  s.status === 'WRONG_ANSWER' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
-                  s.status === 'JUDGING' || s.status === 'PENDING' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
-                  'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                  s.status === 'ACCEPTED' ? 'bg-white text-black border border-white' :
+                  s.status === 'WRONG_ANSWER' ? 'bg-zinc-900 text-zinc-300 border border-zinc-600' :
+                  s.status === 'JUDGING' || s.status === 'PENDING' ? 'bg-zinc-800 text-zinc-200 border border-zinc-700 font-medium' :
+                  'bg-zinc-950 text-zinc-400 border border-zinc-800'
                 }">
                   {s.status}
                 </span>
