@@ -16,12 +16,14 @@ export interface ExtensionPingRequest {
 export interface ExtensionPingResponse {
   type: 'PONG';
   version: string;
-  platforms: Record<
-    PlatformType,
-    {
-      loggedIn: boolean;
-      username?: string;
-    }
+  platforms: Partial<
+    Record<
+      PlatformType,
+      {
+        loggedIn: boolean;
+        username?: string;
+      }
+    >
   >;
 }
 

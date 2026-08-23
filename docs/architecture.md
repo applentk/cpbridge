@@ -1,6 +1,6 @@
 # CP Hub — System Architecture
 
-Competitive Programming Hub (cp-hub) provides a unified portal for competitive programming across **Codeforces**, **AtCoder**, and **LeetCode**.
+Competitive Programming Hub (cp-hub) provides a unified portal for competitive programming across **Codeforces** and **AtCoder**.
 
 ---
 
@@ -17,8 +17,7 @@ Competitive Programming Hub (cp-hub) provides a unified portal for competitive p
        └── (2) window.postMessage ───► [ Chrome Extension MV3 ]
                                              │
                                              ├── Codeforces Session Submit (Zero backend cookies)
-                                             ├── AtCoder Session Submit (Zero backend cookies)
-                                             └── LeetCode Session Submit (Zero backend cookies)
+                                             └── AtCoder Session Submit (Zero backend cookies)
 ```
 
 ---
@@ -27,7 +26,7 @@ Competitive Programming Hub (cp-hub) provides a unified portal for competitive p
 
 1. **Single Application Account**:
    - Users create and manage one account for CP Hub.
-   - External platforms (Codeforces, AtCoder, LeetCode) are optional and only needed when submitting solutions.
+   - External platforms (Codeforces, AtCoder) are optional and only needed when submitting solutions.
 
 2. **Zero-Cookie Backend Privacy**:
    - External platform passwords and session cookies are **never** sent to or stored on our backend.

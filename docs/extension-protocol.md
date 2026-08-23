@@ -23,8 +23,7 @@ Checks if the extension is installed and queries the active session state of eac
   "version": "1.0.0",
   "platforms": {
     "CODEFORCES": { "loggedIn": true, "username": "tourist" },
-    "ATCODER": { "loggedIn": true, "username": "chokudai" },
-    "LEETCODE": { "loggedIn": false }
+    "ATCODER": { "loggedIn": true, "username": "chokudai" }
   }
 }
 ```

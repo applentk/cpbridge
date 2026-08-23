@@ -16,8 +16,8 @@ CP Hub uses PostgreSQL 16 with versioned migrations in `migrations/`.
 
 ### `problems`
 - `id`: VARCHAR(36) PRIMARY KEY (`prb_...`)
-- `platform`: VARCHAR(32) NOT NULL (`CODEFORCES`, `ATCODER`, `LEETCODE`)
-- `external_id`: VARCHAR(128) NOT NULL (e.g. `1900/A`, `abc350/abc350_f`, `two-sum`)
+- `platform`: VARCHAR(32) NOT NULL (`CODEFORCES`, `ATCODER`)
+- `external_id`: VARCHAR(128) NOT NULL (e.g. `1900/A`, `abc350/abc350_f`)
 - `title`: VARCHAR(255) NOT NULL
 - `url`: TEXT NOT NULL
 - `difficulty`: INTEGER NULL

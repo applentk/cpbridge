@@ -45,6 +45,14 @@ export interface CreateCustomProblemRequest {
   sampleCases?: SampleCase[];
 }
 
+export interface UpdateProblemRequest {
+  title?: string;
+  url?: string;
+  difficulty?: number | null;
+  tags?: string[];
+  metadata?: Record<string, any>;
+}
+
 export interface ExtractStatementRequest {
   rawContent: string;
   platform?: PlatformType;

@@ -30,3 +30,15 @@ pnpm --filter @cp-hub/web dev
 ```
 
 Visit `http://localhost:3000`.
+
+---
+
+## Documentation & Contributing
+
+- 📖 **[System Architecture](docs/architecture.md)** — High-level architecture and platform philosophy
+- 🗄️ **[Database Schema](docs/database.md)** — PostgreSQL tables and relation designs
+- 🔌 **[Platform Adapters](docs/platform-adapters.md)** — Implementing new competitive programming platforms
+- 🧩 **[Extension Protocol](docs/extension-protocol.md)** — Client-side zero-cookie submission bridge protocol
+- 🤝 **[Contributing Guide](CONTRIBUTING.md)** — Development workflow, testing, and PR guidelines
+- 🤖 **[Agent Handbook](AGENTS.md)** — Invariants, conventions, and operational guide for AI agents and developers
+
