@@ -31,6 +31,16 @@ pnpm --filter @cp-hub/web dev
 
 Visit `http://localhost:3000`.
 
+### Seed a local test contest
+
+After PostgreSQL is running, populate the local database with 10 official problems (5 Codeforces and 5 AtCoder), a problem set, and an active ICPC contest:
+
+```bash
+pnpm seed:demo
+```
+
+The command is idempotent and creates the local test account `demo@cphub.local` with password `demo1234`. Override `SEED_DEMO_EMAIL`, `SEED_DEMO_USERNAME`, and `SEED_DEMO_PASSWORD` when needed. It refuses to run when `ENV` or `NODE_ENV` is production.
+
 ---
 
 ## Documentation & Contributing
@@ -41,4 +51,3 @@ Visit `http://localhost:3000`.
 - 🧩 **[Extension Protocol](docs/extension-protocol.md)** — Client-side zero-cookie submission bridge protocol
 - 🤝 **[Contributing Guide](CONTRIBUTING.md)** — Development workflow, testing, and PR guidelines
 - 🤖 **[Agent Handbook](AGENTS.md)** — Invariants, conventions, and operational guide for AI agents and developers
-

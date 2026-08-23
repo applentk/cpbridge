@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev:api": "cd apps/api && go run cmd/server/main.go",
+    "seed:demo": "cd apps/api && go run ./cmd/seed-demo",
     "dev:web": "pnpm --filter @cp-hub/web dev",
     "dev:ext": "pnpm --filter @cp-hub/extension build --watch",
     "build": "pnpm --recursive run build",
