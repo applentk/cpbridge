@@ -9,7 +9,6 @@
   import MonacoEditor from '$lib/components/MonacoEditor.svelte';
   import {
     ExternalLink,
-    Tag,
     Send,
     AlertCircle,
     CheckCircle2,
@@ -18,8 +17,11 @@
     Copy,
     Check,
     BookOpen,
+    Code2,
     Terminal,
-    RefreshCw
+    Upload,
+    FileCode,
+    Columns
   } from 'lucide-svelte';
 
   let problemId = $page.params.id;
@@ -30,7 +32,8 @@
   let loading = true;
   let error = '';
 
-  let activeTab: 'statement' | 'submissions' = 'statement';
+  let viewMode: 'tabbed' | 'split' = 'tabbed';
+  let activeTab: 'statement' | 'editor' | 'submissions' = 'statement';
   let copiedCaseIndex: string | null = null;
 
   let language: LanguageId = 'cpp23';
@@ -41,6 +44,9 @@
   let activeSubmission: Submission | null = null;
   let recentSubmissions: Submission[] = [];
 
+  let uploadSuccessMessage = '';
+  let fileInputElement: HTMLInputElement;
+
   const starterTemplates: Record<LanguageId, string> = {
     cpp23: `#include <iostream>\nusing namespace std;\n\nint main() {\n    ios_base::sync_with_stdio(false);\n    cin.tie(NULL);\n    \n    // Solve problem\n    \n    return 0;\n}\n`,
     python3: `import sys\n\ndef main():\n    input = sys.stdin.read\n    # Solve problem\n\nif __name__ == "__main__":\n    main()\n`,
@@ -48,6 +54,70 @@
     go: `package main\n\nimport "fmt"\n\nfunc main() {\n    // Solve problem\n    fmt.Println("Hello")\n}\n`,
     rust: `use std::io::{self, Read};\n\nfn main() {\n    // Solve problem\n}\n`
   };
+
+  const languageLabels: Record<LanguageId, string> = {
+    cpp23: 'C++23 (GCC)',
+    python3: 'Python 3',
+    java21: 'Java 21',
+    go: 'Go',
+    rust: 'Rust'
+  };
+
+  function detectLanguageFromFilename(filename: string): LanguageId | null {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'cpp':
+      case 'cc':
+      case 'cxx':
+      case 'c++':
+      case 'cp':
+      case 'hpp':
+      case 'h':
+        return 'cpp23';
+      case 'py':
+      case 'py3':
+      case 'python':
+        return 'python3';
+      case 'java':
+        return 'java21';
+      case 'go':
+        return 'go';
+      case 'rs':
+      case 'rust':
+        return 'rust';
+      default:
+        return null;
+    }
+  }
+
+  function handleFileUpload(event: Event) {
+    const target = event.target as HTMLInputElement;
+    const file = target.files?.[0];
+    if (!file) return;
+
+    const detected = detectLanguageFromFilename(file.name);
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      if (content !== undefined) {
+        sourceCode = content;
+        if (detected) {
+          language = detected;
+          uploadSuccessMessage = `Loaded "${file.name}" (Auto-detected: ${languageLabels[detected]})`;
+        } else {
+          uploadSuccessMessage = `Loaded "${file.name}"`;
+        }
+        setTimeout(() => {
+          uploadSuccessMessage = '';
+        }, 4000);
+      }
+    };
+
+    reader.readAsText(file);
+    // Reset file input so user can re-upload the same file if desired
+    target.value = '';
+  }
 
   function handleLanguageChange() {
     sourceCode = starterTemplates[language] || '';
@@ -167,13 +237,12 @@
     <p class="text-sm">{error || 'Problem not found.'}</p>
   </div>
 {:else}
-  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-140px)] min-h-[650px]">
-    <!-- Left Column: Rich Statement Reader & Submissions -->
-    <div class="lg:col-span-6 flex flex-col space-y-3 h-full overflow-hidden">
-      <!-- Problem Header Card -->
-      <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/60 shrink-0 space-y-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center space-x-2">
+  <div class="space-y-4">
+    <!-- Header Navigation Card -->
+    <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 space-y-4 shadow-xl">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div class="space-y-1.5">
+          <div class="flex items-center space-x-2.5">
             <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold {
               problem.platform === 'CODEFORCES' ? 'bg-red-500/20 text-red-300 border border-red-500/30' :
               problem.platform === 'LEETCODE' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
@@ -189,67 +258,115 @@
             {/if}
           </div>
 
+          <h1 class="text-2xl font-extrabold text-white leading-tight">
+            {problem.title}
+          </h1>
+        </div>
+
+        <div class="flex items-center space-x-3 shrink-0">
+          <!-- View Layout Toggle (Tabbed vs Split) -->
+          <div class="flex items-center bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
+            <button
+              on:click={() => (viewMode = 'tabbed')}
+              class="px-3 py-1 rounded-lg font-semibold transition {
+                viewMode === 'tabbed' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
+              }"
+            >
+              Tabbed View
+            </button>
+            <button
+              on:click={() => (viewMode = 'split')}
+              class="px-3 py-1 rounded-lg font-semibold transition flex items-center space-x-1 {
+                viewMode === 'split' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-400 hover:text-white'
+              }"
+            >
+              <Columns class="w-3.5 h-3.5" />
+              <span>Split View</span>
+            </button>
+          </div>
+
           <a
             href={problem.url}
             target="_blank"
             rel="noopener noreferrer"
-            class="text-xs text-indigo-400 hover:text-indigo-300 flex items-center space-x-1 font-semibold"
+            class="px-3 py-1.5 rounded-xl border border-zinc-800 hover:bg-zinc-800 text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition flex items-center space-x-1.5"
             title="Open official statement on source website"
           >
-            <span>Open Source</span>
+            <span>Source</span>
             <ExternalLink class="w-3.5 h-3.5" />
           </a>
         </div>
+      </div>
 
-        <h1 class="text-2xl font-extrabold text-white leading-tight">
-          {problem.title}
-        </h1>
+      <!-- Limits & Metadata Bar -->
+      {#if statement?.timeLimit || statement?.memoryLimit}
+        <div class="flex items-center space-x-5 text-xs font-mono text-zinc-400 pt-2 border-t border-zinc-800/80">
+          {#if statement.timeLimit}
+            <div class="flex items-center space-x-1.5">
+              <Clock class="w-3.5 h-3.5 text-zinc-500" />
+              <span>Time Limit: {statement.timeLimit}</span>
+            </div>
+          {/if}
+          {#if statement.memoryLimit}
+            <div class="flex items-center space-x-1.5">
+              <Cpu class="w-3.5 h-3.5 text-zinc-500" />
+              <span>Memory Limit: {statement.memoryLimit}</span>
+            </div>
+          {/if}
+        </div>
+      {/if}
 
-        <!-- Limits Bar -->
-        {#if statement?.timeLimit || statement?.memoryLimit}
-          <div class="flex items-center space-x-4 text-xs font-mono text-zinc-400 pt-1 border-t border-zinc-800/80">
-            {#if statement.timeLimit}
-              <div class="flex items-center space-x-1">
-                <Clock class="w-3.5 h-3.5 text-zinc-500" />
-                <span>Time: {statement.timeLimit}</span>
-              </div>
-            {/if}
-            {#if statement.memoryLimit}
-              <div class="flex items-center space-x-1">
-                <Cpu class="w-3.5 h-3.5 text-zinc-500" />
-                <span>Memory: {statement.memoryLimit}</span>
-              </div>
-            {/if}
-          </div>
-        {/if}
-
-        <!-- View Mode Tabs -->
-        <div class="flex items-center space-x-2 pt-2">
+      <!-- Main Navigation Tabs (Visible in Tabbed Mode) -->
+      {#if viewMode === 'tabbed'}
+        <div class="flex items-center space-x-2 pt-2 border-t border-zinc-800/80">
           <button
             on:click={() => (activeTab = 'statement')}
-            class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 {
-              activeTab === 'statement' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+            class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
+              activeTab === 'statement' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
             }"
           >
-            <BookOpen class="w-3.5 h-3.5" />
+            <BookOpen class="w-4 h-4" />
             <span>Problem Statement</span>
           </button>
 
           <button
-            on:click={() => (activeTab = 'submissions')}
-            class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 {
-              activeTab === 'submissions' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+            on:click={() => (activeTab = 'editor')}
+            class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
+              activeTab === 'editor' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
             }"
           >
-            <Cpu class="w-3.5 h-3.5" />
+            <Code2 class="w-4 h-4" />
+            <span>Code Editor & Submit</span>
+          </button>
+
+          <button
+            on:click={() => (activeTab = 'submissions')}
+            class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
+              activeTab === 'submissions' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'bg-zinc-800/80 text-zinc-400 hover:text-white'
+            }"
+          >
+            <Cpu class="w-4 h-4" />
             <span>Submissions ({recentSubmissions.length})</span>
           </button>
         </div>
-      </div>
+      {/if}
+    </div>
 
-      <!-- Tab Content Container -->
-      <div class="flex-1 overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5 space-y-6">
-        {#if activeTab === 'statement'}
+    <!-- Hidden File Input for Auto-Detect Upload -->
+    <input
+      type="file"
+      bind:this={fileInputElement}
+      on:change={handleFileUpload}
+      accept=".cpp,.cc,.cxx,.c++,.cp,.py,.py3,.python,.java,.go,.rs,.rust,.txt"
+      class="hidden"
+    />
+
+    <!-- Layout Container -->
+    {#if viewMode === 'split'}
+      <!-- Split View Layout -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-220px)] min-h-[650px]">
+        <!-- Left: Statement -->
+        <div class="lg:col-span-6 overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 space-y-6">
           {#if statementLoading}
             <div class="space-y-3 py-6">
               <div class="h-4 bg-zinc-800/60 rounded w-3/4 animate-pulse"></div>
@@ -257,12 +374,11 @@
               <div class="h-4 bg-zinc-800/60 rounded w-2/3 animate-pulse"></div>
             </div>
           {:else if renderedHtml}
-            <!-- Statement Body HTML with KaTeX formulas -->
             <div class="statement-content text-sm text-zinc-300 leading-relaxed space-y-4">
               {@html renderedHtml}
             </div>
 
-            <!-- Sample Test Cases -->
+            <!-- Sample Cases -->
             {#if statement && statement.sampleCases && statement.sampleCases.length > 0}
               <div class="space-y-4 pt-4 border-t border-zinc-800">
                 <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
@@ -273,17 +389,14 @@
                 {#each statement.sampleCases as sc, idx}
                   <div class="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/80 space-y-3">
                     <div class="text-xs font-bold text-zinc-400 uppercase">Example {idx + 1}</div>
-
-                    <!-- Input -->
                     <div class="space-y-1">
                       <div class="flex items-center justify-between text-xs font-mono text-zinc-400">
                         <span>Input:</span>
                         <button
-                          on:click={() => copyToClipboard(sc.input, `in_${idx}`)}
+                          on:click={() => copyToClipboard(sc.input, `in_split_${idx}`)}
                           class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition flex items-center space-x-1"
-                          title="Copy input"
                         >
-                          {#if copiedCaseIndex === `in_${idx}`}
+                          {#if copiedCaseIndex === `in_split_${idx}`}
                             <Check class="w-3.5 h-3.5 text-emerald-400" />
                             <span class="text-[10px] text-emerald-400">Copied!</span>
                           {:else}
@@ -295,17 +408,15 @@
                       <pre class="p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-200 overflow-x-auto select-all">{sc.input}</pre>
                     </div>
 
-                    <!-- Output -->
                     {#if sc.output}
                       <div class="space-y-1">
                         <div class="flex items-center justify-between text-xs font-mono text-zinc-400">
                           <span>Output:</span>
                           <button
-                            on:click={() => copyToClipboard(sc.output, `out_${idx}`)}
+                            on:click={() => copyToClipboard(sc.output, `out_split_${idx}`)}
                             class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition flex items-center space-x-1"
-                            title="Copy output"
                           >
-                            {#if copiedCaseIndex === `out_${idx}`}
+                            {#if copiedCaseIndex === `out_split_${idx}`}
                               <Check class="w-3.5 h-3.5 text-emerald-400" />
                               <span class="text-[10px] text-emerald-400">Copied!</span>
                             {:else}
@@ -322,128 +433,314 @@
               </div>
             {/if}
           {:else}
-            <div class="p-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 text-center space-y-4">
-              <div class="w-12 h-12 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 flex items-center justify-center mx-auto">
-                <BookOpen class="w-6 h-6" />
-              </div>
-              <div class="space-y-1">
-                <h3 class="font-bold text-white text-base">Statement Available on Source Website</h3>
-                <p class="text-xs text-zinc-400 max-w-sm mx-auto">
-                  Click below to view the official statement on {problem.platform}.
-                </p>
-              </div>
-              <a
-                href={problem.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition inline-flex items-center space-x-1.5"
+            <div class="p-8 text-center text-zinc-400 text-sm">
+              Statement not loaded.
+              <a href={problem.url} target="_blank" class="text-indigo-400 underline ml-1">Open source statement</a>
+            </div>
+          {/if}
+        </div>
+
+        <!-- Right: Code Editor & Upload Toolbar -->
+        <div class="lg:col-span-6 flex flex-col space-y-3 h-full">
+          <div class="flex flex-wrap items-center justify-between gap-2 bg-zinc-900/60 p-3 rounded-2xl border border-zinc-800">
+            <div class="flex items-center space-x-2">
+              <select
+                bind:value={language}
+                on:change={handleLanguageChange}
+                class="px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-mono focus:border-indigo-500 focus:outline-none"
               >
-                <span>Open {problem.platform} Statement</span>
-                <ExternalLink class="w-3.5 h-3.5" />
-              </a>
+                <option value="cpp23">C++23 (GCC)</option>
+                <option value="python3">Python 3</option>
+                <option value="java21">Java 21</option>
+                <option value="go">Go</option>
+                <option value="rust">Rust</option>
+              </select>
+
+              <!-- Upload File Button with Auto-Detect -->
+              <button
+                type="button"
+                on:click={() => fileInputElement.click()}
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center space-x-1.5"
+                title="Upload code file (.cpp, .py, .java, .go, .rs) with auto-detected language"
+              >
+                <Upload class="w-3.5 h-3.5" />
+                <span>Upload File</span>
+              </button>
+            </div>
+
+            <button
+              on:click={handleSubmit}
+              disabled={submitting}
+              class="px-5 py-1.5 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-lg shadow-indigo-600/30 transition flex items-center space-x-2 text-xs"
+            >
+              <Send class="w-3.5 h-3.5" />
+              <span>{submitting ? 'Submitting...' : 'Submit Code'}</span>
+            </button>
+          </div>
+
+          {#if uploadSuccessMessage}
+            <div class="px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center space-x-2">
+              <CheckCircle2 class="w-3.5 h-3.5 shrink-0" />
+              <span>{uploadSuccessMessage}</span>
             </div>
           {/if}
-        {:else}
-          <!-- Submissions Tab -->
-          {#if recentSubmissions.length === 0}
-            <p class="text-xs text-zinc-500 py-8 text-center">No submissions yet for this problem.</p>
-          {:else}
-            <div class="space-y-2">
-              {#each recentSubmissions as sub}
-                <div class="p-3 rounded-xl border border-zinc-800 bg-zinc-950 flex items-center justify-between text-xs">
-                  <div class="space-y-0.5">
-                    <div class="font-mono text-zinc-300">{sub.language}</div>
-                    <div class="text-zinc-500">{new Date(sub.submittedAt).toLocaleTimeString()}</div>
-                  </div>
-                  <span class="font-bold font-mono px-2.5 py-1 rounded-md {
-                    sub.status === 'ACCEPTED' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                    sub.status === 'WRONG_ANSWER' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
-                    'bg-zinc-800 text-zinc-400'
+
+          <!-- Editor -->
+          <div class="flex-1 min-h-[350px]">
+            <MonacoEditor bind:value={sourceCode} {language} />
+          </div>
+
+          <!-- Verdict Banner -->
+          {#if activeSubmission || submitStatus}
+            <div class="p-3.5 rounded-2xl border border-zinc-800 bg-zinc-900/80 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Verdict</span>
+                {#if activeSubmission}
+                  <span class="text-xs font-bold font-mono px-2 py-0.5 rounded-lg {
+                    activeSubmission.status === 'ACCEPTED' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                    activeSubmission.status === 'WRONG_ANSWER' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
+                    'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                   }">
-                    {sub.status}
+                    {activeSubmission.status}
                   </span>
-                </div>
-              {/each}
+                {/if}
+              </div>
+              <p class="text-xs text-zinc-400">{submitStatus}</p>
             </div>
           {/if}
-        {/if}
-      </div>
-    </div>
-
-    <!-- Right Column: Monaco Code Editor & Submission Controls -->
-    <div class="lg:col-span-6 flex flex-col space-y-3 h-full">
-      <div class="flex items-center justify-between bg-zinc-900/60 p-3 rounded-2xl border border-zinc-800">
-        <div class="flex items-center space-x-3">
-          <label for="lang-select" class="text-xs font-semibold uppercase text-zinc-400">Language:</label>
-          <select
-            id="lang-select"
-            bind:value={language}
-            on:change={handleLanguageChange}
-            class="px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-mono focus:border-indigo-500 focus:outline-none"
-          >
-            <option value="cpp23">C++23 (GCC)</option>
-            <option value="python3">Python 3</option>
-            <option value="java21">Java 21</option>
-            <option value="go">Go</option>
-            <option value="rust">Rust</option>
-          </select>
-        </div>
-
-        <div class="flex items-center space-x-2">
-          <button
-            on:click={handleSubmit}
-            disabled={submitting}
-            class="px-5 py-2 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-lg shadow-indigo-600/30 transition flex items-center space-x-2 text-sm"
-          >
-            <Send class="w-4 h-4" />
-            <span>{submitting ? 'Submitting...' : 'Submit Code'}</span>
-          </button>
         </div>
       </div>
 
-      <!-- Editor Container -->
-      <div class="flex-1 min-h-[350px]">
-        <MonacoEditor bind:value={sourceCode} {language} />
-      </div>
+    {:else}
+      <!-- Tabbed View Layout -->
+      <div class="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 min-h-[550px]">
+        {#if activeTab === 'statement'}
+          <!-- 1. Full-Width Statement Tab -->
+          <div class="max-w-4xl mx-auto space-y-6">
+            {#if statementLoading}
+              <div class="space-y-3 py-6">
+                <div class="h-4 bg-zinc-800/60 rounded w-3/4 animate-pulse"></div>
+                <div class="h-4 bg-zinc-800/60 rounded w-5/6 animate-pulse"></div>
+                <div class="h-4 bg-zinc-800/60 rounded w-2/3 animate-pulse"></div>
+              </div>
+            {:else if renderedHtml}
+              <div class="statement-content text-sm text-zinc-300 leading-relaxed space-y-4">
+                {@html renderedHtml}
+              </div>
 
-      <!-- Verdict / Submission Banner -->
-      {#if activeSubmission || submitStatus}
-        <div class="p-4 rounded-2xl border border-zinc-800 bg-zinc-900/80 space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Verdict</span>
-            {#if activeSubmission}
-              <span class="text-xs font-bold font-mono px-2.5 py-1 rounded-lg {
-                activeSubmission.status === 'ACCEPTED' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                activeSubmission.status === 'WRONG_ANSWER' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
-                'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-              }">
-                {activeSubmission.status}
-              </span>
+              <!-- Sample Test Cases -->
+              {#if statement && statement.sampleCases && statement.sampleCases.length > 0}
+                <div class="space-y-4 pt-6 border-t border-zinc-800">
+                  <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
+                    <Terminal class="w-4 h-4 text-indigo-400" />
+                    <span>Sample Test Cases</span>
+                  </h3>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {#each statement.sampleCases as sc, idx}
+                      <div class="p-4 rounded-xl border border-zinc-800 bg-zinc-950/80 space-y-3">
+                        <div class="text-xs font-bold text-zinc-400 uppercase">Example {idx + 1}</div>
+
+                        <!-- Input -->
+                        <div class="space-y-1">
+                          <div class="flex items-center justify-between text-xs font-mono text-zinc-400">
+                            <span>Input:</span>
+                            <button
+                              on:click={() => copyToClipboard(sc.input, `in_tab_${idx}`)}
+                              class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition flex items-center space-x-1"
+                            >
+                              {#if copiedCaseIndex === `in_tab_${idx}`}
+                                <Check class="w-3.5 h-3.5 text-emerald-400" />
+                                <span class="text-[10px] text-emerald-400">Copied!</span>
+                              {:else}
+                                <Copy class="w-3.5 h-3.5" />
+                                <span class="text-[10px]">Copy</span>
+                              {/if}
+                            </button>
+                          </div>
+                          <pre class="p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-200 overflow-x-auto select-all">{sc.input}</pre>
+                        </div>
+
+                        <!-- Output -->
+                        {#if sc.output}
+                          <div class="space-y-1">
+                            <div class="flex items-center justify-between text-xs font-mono text-zinc-400">
+                              <span>Output:</span>
+                              <button
+                                on:click={() => copyToClipboard(sc.output, `out_tab_${idx}`)}
+                                class="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition flex items-center space-x-1"
+                              >
+                                {#if copiedCaseIndex === `out_tab_${idx}`}
+                                  <Check class="w-3.5 h-3.5 text-emerald-400" />
+                                  <span class="text-[10px] text-emerald-400">Copied!</span>
+                                {:else}
+                                  <Copy class="w-3.5 h-3.5" />
+                                  <span class="text-[10px]">Copy</span>
+                                {/if}
+                              </button>
+                            </div>
+                            <pre class="p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono text-zinc-200 overflow-x-auto select-all">{sc.output}</pre>
+                          </div>
+                        {/if}
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+
+              <!-- Quick Jump to Code Editor -->
+              <div class="pt-6 border-t border-zinc-800 flex justify-end">
+                <button
+                  on:click={() => (activeTab = 'editor')}
+                  class="px-5 py-2.5 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition flex items-center space-x-2 text-xs"
+                >
+                  <Code2 class="w-4 h-4" />
+                  <span>Open Code Editor & Solve</span>
+                </button>
+              </div>
+            {:else}
+              <div class="p-12 text-center text-zinc-400 space-y-4">
+                <p>Statement could not be loaded automatically.</p>
+                <a
+                  href={problem.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white inline-flex items-center space-x-1.5"
+                >
+                  <span>Open Source Statement</span>
+                  <ExternalLink class="w-3.5 h-3.5" />
+                </a>
+              </div>
             {/if}
           </div>
 
-          <p class="text-xs text-zinc-400">{submitStatus}</p>
+        {:else if activeTab === 'editor'}
+          <!-- 2. Full-Width Code Editor Tab -->
+          <div class="space-y-4">
+            <!-- Toolbar -->
+            <div class="flex flex-wrap items-center justify-between gap-3 bg-zinc-950 p-4 rounded-2xl border border-zinc-800">
+              <div class="flex items-center space-x-3">
+                <div class="flex items-center space-x-2">
+                  <label for="lang-select-tab" class="text-xs font-semibold uppercase text-zinc-400">Language:</label>
+                  <select
+                    id="lang-select-tab"
+                    bind:value={language}
+                    on:change={handleLanguageChange}
+                    class="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-200 text-xs font-mono focus:border-indigo-500 focus:outline-none"
+                  >
+                    <option value="cpp23">C++23 (GCC)</option>
+                    <option value="python3">Python 3</option>
+                    <option value="java21">Java 21</option>
+                    <option value="go">Go</option>
+                    <option value="rust">Rust</option>
+                  </select>
+                </div>
 
-          {#if activeSubmission && (activeSubmission.status === 'PENDING' || activeSubmission.status === 'JUDGING')}
-            <div class="flex items-center space-x-2 pt-2 border-t border-zinc-800">
-              <span class="text-xs text-zinc-500">Record dev mock verdict:</span>
-              <button
-                on:click={() => handleMockVerdict('ACCEPTED')}
-                class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition"
-              >
-                Mark AC
-              </button>
-              <button
-                on:click={() => handleMockVerdict('WRONG_ANSWER')}
-                class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition"
-              >
-                Mark WA
-              </button>
+                <!-- Upload File with Auto Detect -->
+                <button
+                  type="button"
+                  on:click={() => fileInputElement.click()}
+                  class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center space-x-1.5 shadow-sm"
+                  title="Upload code file (.cpp, .py, .java, .go, .rs) to automatically set source code and detect language"
+                >
+                  <Upload class="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Upload File (Auto-Detect)</span>
+                </button>
+              </div>
+
+              <div class="flex items-center space-x-3">
+                <button
+                  on:click={handleSubmit}
+                  disabled={submitting}
+                  class="px-6 py-2 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-lg shadow-indigo-600/30 transition flex items-center space-x-2 text-xs"
+                >
+                  <Send class="w-4 h-4" />
+                  <span>{submitting ? 'Submitting Solution...' : 'Submit Solution'}</span>
+                </button>
+              </div>
             </div>
-          {/if}
-        </div>
-      {/if}
-    </div>
+
+            <!-- Upload Feedback Notification -->
+            {#if uploadSuccessMessage}
+              <div class="px-4 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center space-x-2">
+                <CheckCircle2 class="w-4 h-4 shrink-0 text-emerald-400" />
+                <span class="font-medium">{uploadSuccessMessage}</span>
+              </div>
+            {/if}
+
+            <!-- Monaco Editor -->
+            <div class="h-[550px] rounded-2xl overflow-hidden border border-zinc-800">
+              <MonacoEditor bind:value={sourceCode} {language} />
+            </div>
+
+            <!-- Verdict & Dispatch Banner -->
+            {#if activeSubmission || submitStatus}
+              <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-950 space-y-3">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Submission Verdict</span>
+                  {#if activeSubmission}
+                    <span class="text-xs font-bold font-mono px-3 py-1 rounded-lg {
+                      activeSubmission.status === 'ACCEPTED' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                      activeSubmission.status === 'WRONG_ANSWER' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
+                      'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    }">
+                      {activeSubmission.status}
+                    </span>
+                  {/if}
+                </div>
+
+                <p class="text-xs text-zinc-400 font-mono">{submitStatus}</p>
+
+                {#if activeSubmission && (activeSubmission.status === 'PENDING' || activeSubmission.status === 'JUDGING')}
+                  <div class="flex items-center space-x-2 pt-2 border-t border-zinc-800/80">
+                    <span class="text-xs text-zinc-500">Record dev mock verdict:</span>
+                    <button
+                      on:click={() => handleMockVerdict('ACCEPTED')}
+                      class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition"
+                    >
+                      Mark AC
+                    </button>
+                    <button
+                      on:click={() => handleMockVerdict('WRONG_ANSWER')}
+                      class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 transition"
+                    >
+                      Mark WA
+                    </button>
+                  </div>
+                {/if}
+              </div>
+            {/if}
+          </div>
+
+        {:else}
+          <!-- 3. Submissions History Tab -->
+          <div class="space-y-4 max-w-4xl mx-auto">
+            <h3 class="text-sm font-bold text-white uppercase tracking-wider">Your Submission History</h3>
+            {#if recentSubmissions.length === 0}
+              <p class="text-xs text-zinc-500 py-12 text-center">No submissions recorded yet for this problem.</p>
+            {:else}
+              <div class="space-y-2.5">
+                {#each recentSubmissions as sub}
+                  <div class="p-4 rounded-xl border border-zinc-800 bg-zinc-950 flex items-center justify-between text-xs">
+                    <div class="space-y-1">
+                      <div class="font-mono font-semibold text-zinc-200">{sub.language}</div>
+                      <div class="text-zinc-500">{new Date(sub.submittedAt).toLocaleString()}</div>
+                    </div>
+                    <span class="font-bold font-mono px-3 py-1.5 rounded-lg {
+                      sub.status === 'ACCEPTED' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                      sub.status === 'WRONG_ANSWER' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
+                      'bg-zinc-800 text-zinc-400'
+                    }">
+                      {sub.status}
+                    </span>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
   </div>
 {/if}
 
