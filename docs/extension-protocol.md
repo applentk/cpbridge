@@ -1,39 +1,51 @@
-# Chrome Extension Bridge Protocol
+# CP Hub — Chrome Extension Protocol
 
-The CP Hub Chrome Extension communicates with the web application via `window.postMessage` and handles background submission dispatches using browser cookies.
+The extension is a Manifest V3 Chrome extension built from `apps/extension`. It is a browser-session bridge: the CP Hub backend never receives Codeforces or AtCoder cookies.
 
----
+## Components
 
-## Protocol Messages
+- `apps/extension/src/bridge.ts`: content script injected into allowed CP Hub origins; forwards messages between the page and `chrome.runtime`.
+- `apps/extension/src/background.ts`: service worker; checks sessions, submits code, and polls verdicts.
+- `apps/extension/src/platforms/codeforces.ts`: Codeforces form/API/HTML submission logic.
+- `apps/extension/src/platforms/atcoder.ts`: AtCoder form/API/HTML submission logic.
+- `apps/web/src/lib/extension/bridge.ts`: web-side request/response wrapper.
+- `packages/contracts/src/protocol.ts`: shared message and response types.
 
-### `PING` -> `PONG`
-Checks if the extension is installed and queries the active session state of each platform.
+## Transport and origin checks
 
-**Request**:
+The web page sends a message with `source: CP_HUB_WEB` using `window.postMessage`. The content script accepts only messages from the same window and an allowlisted origin. It forwards the payload to the background worker and posts the response back with `source: CP_HUB_EXTENSION`.
+
+Allowed origins include the local development hosts and `https://cphub.dev` / `https://app.cphub.dev`.
+
+Each request has a generated ID. The web bridge keeps a callback map and times out a request after 10 seconds.
+
+## Messages
+
+### `PING` → `PONG`
+
+Checks Codeforces and AtCoder sessions.
+
 ```json
 {
   "type": "PING"
 }
 ```
 
-**Response**:
 ```json
 {
   "type": "PONG",
   "version": "1.0.0",
   "platforms": {
     "CODEFORCES": { "loggedIn": true, "username": "tourist" },
-    "ATCODER": { "loggedIn": true, "username": "chokudai" }
+    "ATCODER": { "loggedIn": false }
   }
 }
 ```
 
----
+### `SUBMIT` → `SUBMISSION_CREATED` or `SUBMISSION_FAILED`
 
-### `SUBMIT` -> `SUBMISSION_CREATED` | `SUBMISSION_FAILED`
-Dispatches code to the external platform judge.
+The web app sends the CP Hub submission ID, normalized platform problem ID, language, and source code.
 
-**Request**:
 ```json
 {
   "type": "SUBMIT",
@@ -48,7 +60,8 @@ Dispatches code to the external platform judge.
 }
 ```
 
-**Success Response**:
+On success, the extension returns the external judge submission ID:
+
 ```json
 {
   "type": "SUBMISSION_CREATED",
@@ -57,12 +70,30 @@ Dispatches code to the external platform judge.
 }
 ```
 
-**Error Response**:
+On failure, it returns an error code such as `NOT_LOGGED_IN`, `SUBMISSION_FAILED`, or `PLATFORM_UNAVAILABLE`.
+
+### `POLL_STATUS` → `POLL_STATUS_RESULT`
+
+The web app can ask the extension to poll a submission using the user's browser session:
+
 ```json
 {
-  "type": "SUBMISSION_FAILED",
-  "submissionId": "sub_018f9...",
-  "error": "NOT_LOGGED_IN",
-  "message": "Please log in to Codeforces in your browser"
+  "type": "POLL_STATUS",
+  "platform": "ATCODER",
+  "externalSubmissionId": "123456",
+  "problem": {
+    "externalId": "abc350/abc350_f",
+    "url": "https://atcoder.jp/contests/abc350/tasks/abc350_f"
+  }
 }
 ```
+
+The response normalizes platform verdicts to `JUDGING`, `ACCEPTED`, `WRONG_ANSWER`, `TIME_LIMIT`, `MEMORY_LIMIT`, `RUNTIME_ERROR`, `COMPILE_ERROR`, or `FAILED`.
+
+## Submission lifecycle
+
+The API creates the database row first. After the extension returns an external ID, the web app calls `/api/submissions/{id}/dispatched`. The API changes the row to `JUDGING` and enqueues an Asynq polling task. The web page also polls while the submission is active and may request an extension-side status check.
+
+## Required Chrome permissions
+
+The manifest requests `cookies`, `activeTab`, and `scripting`, plus host permissions for Codeforces, AtCoder, local CP Hub development hosts, and the production CP Hub hosts. These permissions are what allow the extension to use the user's existing platform session and, for AtCoder fallback submission, open a same-origin submit page and execute the form request there.

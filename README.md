@@ -18,7 +18,7 @@ Unified web platform for **Codeforces** and **AtCoder**.
 ## Quickstart
 
 ```bash
-# 1. Start PostgreSQL
+# 1. Start PostgreSQL and Redis
 docker-compose up -d
 
 # 2. Run Go Backend API
@@ -30,6 +30,16 @@ pnpm --filter @cp-hub/web dev
 ```
 
 Visit `http://localhost:3000`.
+
+### Build and install the extension
+
+The web app can browse without the extension, but submitting to Codeforces or AtCoder requires the built extension and an active login on the target platform:
+
+```bash
+pnpm --filter @cp-hub/extension build
+```
+
+Load `apps/extension` as an unpacked extension in Chrome after the build. The manifest points to the generated `dist/background.js` and `dist/bridge.js` files.
 
 ### Seed a local test contest
 
@@ -45,9 +55,9 @@ The command is idempotent and creates the local test account `demo@cphub.local` 
 
 ## Documentation & Contributing
 
-- 📖 **[System Architecture](docs/architecture.md)** — High-level architecture and platform philosophy
+- 📖 **[System Architecture](docs/architecture.md)** — Current runtime topology and submission flow
 - 🗄️ **[Database Schema](docs/database.md)** — PostgreSQL tables and relation designs
 - 🔌 **[Platform Adapters](docs/platform-adapters.md)** — Implementing new competitive programming platforms
 - 🧩 **[Extension Protocol](docs/extension-protocol.md)** — Client-side zero-cookie submission bridge protocol
-- 🤝 **[Contributing Guide](CONTRIBUTING.md)** — Development workflow, testing, and PR guidelines
+- 🤝 **[Contributing Guide](CONTRIBUTE.md)** — Development workflow, testing, and PR guidelines
 - 🤖 **[Agent Handbook](AGENTS.md)** — Invariants, conventions, and operational guide for AI agents and developers
