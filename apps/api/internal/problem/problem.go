@@ -1,0 +1,330 @@
+package problem
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/cp-hub/api/internal/idgen"
+	"github.com/cp-hub/api/internal/platform"
+	"github.com/go-chi/chi/v5"
+)
+
+type Problem struct {
+	ID         string                 `json:"id"`
+	Platform   platform.Type          `json:"platform"`
+	ExternalID string                 `json:"externalId"`
+	Title      string                 `json:"title"`
+	URL        string                 `json:"url"`
+	Difficulty *int                   `json:"difficulty"`
+	Tags       []string               `json:"tags"`
+	Metadata   map[string]interface{} `json:"metadata"`
+	CreatedAt  time.Time              `json:"createdAt"`
+	UpdatedAt  time.Time              `json:"updatedAt"`
+}
+
+type Filter struct {
+	Platform      *platform.Type
+	Query         string
+	MinDifficulty *int
+	MaxDifficulty *int
+	Tag           string
+	Limit         int
+	Offset        int
+}
+
+type Service struct {
+	db       *sql.DB
+	registry *platform.Registry
+}
+
+func NewService(db *sql.DB, registry *platform.Registry) *Service {
+	return &Service{
+		db:       db,
+		registry: registry,
+	}
+}
+
+func (s *Service) ImportByUrl(ctx context.Context, rawURL string) (*Problem, error) {
+	pType, extID, adapter, err := s.registry.ParseURL(rawURL)
+	if err != nil {
+		return nil, err
+	}
+
+	norm, err := adapter.GetProblem(ctx, extID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch problem from %s: %w", pType, err)
+	}
+
+	tagsJSON, err := json.Marshal(norm.Tags)
+	if err != nil {
+		tagsJSON = []byte("[]")
+	}
+
+	metaJSON, err := json.Marshal(norm.Metadata)
+	if err != nil {
+		metaJSON = []byte("{}")
+	}
+
+	id := idgen.New(idgen.PrefixProblem)
+	now := time.Now().UTC()
+
+	query := `
+		INSERT INTO problems (id, platform, external_id, title, url, difficulty, tags, metadata, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (platform, external_id) DO UPDATE SET
+			title = EXCLUDED.title,
+			url = EXCLUDED.url,
+			difficulty = EXCLUDED.difficulty,
+			tags = EXCLUDED.tags,
+			metadata = EXCLUDED.metadata,
+			updated_at = EXCLUDED.updated_at
+		RETURNING id, platform, external_id, title, url, difficulty, tags, metadata, created_at, updated_at
+	`
+
+	var p Problem
+	var scannedTags []byte
+	var scannedMeta []byte
+
+	row := s.db.QueryRowContext(ctx, query, id, norm.Platform, norm.ExternalID, norm.Title, norm.URL, norm.Difficulty, tagsJSON, metaJSON, now, now)
+	err = row.Scan(&p.ID, &p.Platform, &p.ExternalID, &p.Title, &p.URL, &p.Difficulty, &scannedTags, &scannedMeta, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save problem: %w", err)
+	}
+
+	_ = json.Unmarshal(scannedTags, &p.Tags)
+	_ = json.Unmarshal(scannedMeta, &p.Metadata)
+
+	return &p, nil
+}
+
+func (s *Service) GetByID(ctx context.Context, id string) (*Problem, error) {
+	query := `
+		SELECT id, platform, external_id, title, url, difficulty, tags, metadata, created_at, updated_at
+		FROM problems
+		WHERE id = $1
+	`
+	var p Problem
+	var scannedTags []byte
+	var scannedMeta []byte
+
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
+		&p.ID, &p.Platform, &p.ExternalID, &p.Title, &p.URL, &p.Difficulty, &scannedTags, &scannedMeta, &p.CreatedAt, &p.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("problem not found")
+		}
+		return nil, err
+	}
+
+	_ = json.Unmarshal(scannedTags, &p.Tags)
+	_ = json.Unmarshal(scannedMeta, &p.Metadata)
+
+	return &p, nil
+}
+
+func (s *Service) GetStatement(ctx context.Context, id string) (*platform.ProblemStatement, error) {
+	prob, err := s.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	adapter, err := s.registry.Get(prob.Platform)
+	if err != nil {
+		return nil, err
+	}
+
+	return adapter.GetStatement(ctx, prob.ExternalID)
+}
+
+func (s *Service) List(ctx context.Context, f Filter) ([]Problem, int, error) {
+	if f.Limit <= 0 || f.Limit > 100 {
+		f.Limit = 50
+	}
+	if f.Offset < 0 {
+		f.Offset = 0
+	}
+
+	var conditions []string
+	var args []interface{}
+	idx := 1
+
+	if f.Platform != nil && *f.Platform != "" {
+		conditions = append(conditions, fmt.Sprintf("platform = $%d", idx))
+		args = append(args, *f.Platform)
+		idx++
+	}
+
+	if f.Query != "" {
+		conditions = append(conditions, fmt.Sprintf("(LOWER(title) LIKE $%d OR LOWER(external_id) LIKE $%d)", idx, idx))
+		args = append(args, "%"+strings.ToLower(f.Query)+"%")
+		idx++
+	}
+
+	if f.MinDifficulty != nil {
+		conditions = append(conditions, fmt.Sprintf("difficulty >= $%d", idx))
+		args = append(args, *f.MinDifficulty)
+		idx++
+	}
+
+	if f.MaxDifficulty != nil {
+		conditions = append(conditions, fmt.Sprintf("difficulty <= $%d", idx))
+		args = append(args, *f.MaxDifficulty)
+		idx++
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM problems %s", whereClause)
+	var total int
+	err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, platform, external_id, title, url, difficulty, tags, metadata, created_at, updated_at
+		FROM problems
+		%s
+		ORDER BY created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, whereClause, idx, idx+1)
+
+	args = append(args, f.Limit, f.Offset)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var problems []Problem
+	for rows.Next() {
+		var p Problem
+		var scannedTags []byte
+		var scannedMeta []byte
+
+		if err := rows.Scan(&p.ID, &p.Platform, &p.ExternalID, &p.Title, &p.URL, &p.Difficulty, &scannedTags, &scannedMeta, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		_ = json.Unmarshal(scannedTags, &p.Tags)
+		_ = json.Unmarshal(scannedMeta, &p.Metadata)
+		problems = append(problems, p)
+	}
+
+	if problems == nil {
+		problems = []Problem{}
+	}
+
+	return problems, total, nil
+}
+
+type Handler struct {
+	service *Service
+}
+
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
+}
+
+func (h *Handler) Routes() chi.Router {
+	r := chi.NewRouter()
+	r.Get("/", h.List)
+	r.Get("/{id}", h.Get)
+	r.Get("/{id}/statement", h.GetStatement)
+	r.Post("/import", h.Import)
+	return r
+}
+
+type importReq struct {
+	URL string `json:"url"`
+}
+
+func (h *Handler) Import(w http.ResponseWriter, r *http.Request) {
+	var req importReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	p, err := h.service.ImportByUrl(r.Context(), req.URL)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(p)
+}
+
+func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := h.service.GetByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, `{"error":"problem not found"}`, http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(p)
+}
+
+func (h *Handler) GetStatement(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	st, err := h.service.GetStatement(r.Context(), id)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"failed to fetch statement: %s"}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(st)
+}
+
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	filter := Filter{
+		Query: q.Get("query"),
+	}
+
+	if p := q.Get("platform"); p != "" {
+		pt := platform.Type(strings.ToUpper(p))
+		filter.Platform = &pt
+	}
+
+	if limitStr := q.Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil {
+			filter.Limit = l
+		}
+	}
+	if offsetStr := q.Get("offset"); offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil {
+			filter.Offset = o
+		}
+	}
+
+	problems, total, err := h.service.List(r.Context(), filter)
+	if err != nil {
+		http.Error(w, `{"error":"failed to fetch problems"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"problems": problems,
+		"total":    total,
+	})
+}

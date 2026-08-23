@@ -1,0 +1,10 @@
+node_modules/
+.svelte-kit/
+build/
+dist/
+.env
+.env.local
+*.log
+apps/api/bin/
+apps/extension/dist/
+.DS_Store

@@ -1,0 +1,43 @@
+export type PlatformType = 'CODEFORCES' | 'ATCODER' | 'LEETCODE';
+
+export type LanguageId = 'cpp23' | 'python3' | 'java21' | 'go' | 'rust';
+
+export interface SampleCase {
+  input: string;
+  output: string;
+  explanation?: string;
+}
+
+export interface ProblemStatement {
+  html: string;
+  timeLimit?: string;
+  memoryLimit?: string;
+  sampleCases: SampleCase[];
+}
+
+export interface Problem {
+  id: string;
+  platform: PlatformType;
+  externalId: string;
+  title: string;
+  url: string;
+  difficulty: number | null;
+  tags: string[];
+  metadata: Record<string, any>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ImportProblemRequest {
+  url: string;
+}
+
+export interface ProblemFilter {
+  platform?: PlatformType;
+  query?: string;
+  minDifficulty?: number;
+  maxDifficulty?: number;
+  tag?: string;
+  limit?: number;
+  offset?: number;
+}

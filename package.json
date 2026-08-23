@@ -1,0 +1,17 @@
+{
+  "name": "cp-hub-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev:api": "cd apps/api && go run cmd/server/main.go",
+    "dev:web": "pnpm --filter @cp-hub/web dev",
+    "dev:ext": "pnpm --filter @cp-hub/extension build --watch",
+    "build": "pnpm --recursive run build",
+    "test:api": "cd apps/api && go test -v ./...",
+    "test:web": "pnpm --filter @cp-hub/web test",
+    "check": "pnpm --recursive run check"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

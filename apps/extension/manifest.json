@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "CP Hub Submission Bridge",
+  "version": "1.0.0",
+  "description": "Zero-cookie browser session bridge for Competitive Programming Hub submissions",
+  "permissions": [
+    "cookies",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://codeforces.com/*",
+    "https://atcoder.jp/*",
+    "https://leetcode.com/*",
+    "http://localhost:3000/*",
+    "http://localhost:8080/*",
+    "https://*.cphub.dev/*"
+  ],
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://localhost:3000/*", "https://*.cphub.dev/*"],
+      "js": ["dist/bridge.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

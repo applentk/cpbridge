@@ -1,0 +1,169 @@
+package atcoder
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/cp-hub/api/internal/platform"
+)
+
+var (
+	urlPattern = regexp.MustCompile(`atcoder\.jp/contests/([a-zA-Z0-9_\-]+)/tasks/([a-zA-Z0-9_\-]+)`)
+	titleRegex = regexp.MustCompile(`<title>(.*?) - .*?</title>`)
+
+	taskStatementRegex  = regexp.MustCompile(`(?s)<div id="task-statement">(.*?)</div>\s*<span class="center-block`)
+	taskStatementRegex2 = regexp.MustCompile(`(?s)<div id="task-statement">(.*)`)
+	langEnRegex         = regexp.MustCompile(`(?s)<span class="lang-en">(.*?)</span>\s*</span>`)
+	timeLimitRegex      = regexp.MustCompile(`Time Limit:\s*([0-9\.]+\s*sec)`)
+	memoryLimitRegex    = regexp.MustCompile(`Memory Limit:\s*([0-9\.]+\s*MB)`)
+	sampleInputRegex    = regexp.MustCompile(`(?s)<h3>\s*Sample Input\s*\d*\s*</h3>\s*<pre>(.*?)</pre>`)
+	sampleOutputRegex   = regexp.MustCompile(`(?s)<h3>\s*Sample Output\s*\d*\s*</h3>\s*<pre>(.*?)</pre>`)
+)
+
+type Adapter struct {
+	client *http.Client
+}
+
+func New() *Adapter {
+	return &Adapter{
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+		},
+	}
+}
+
+func (a *Adapter) Type() platform.Type {
+	return platform.AtCoder
+}
+
+func (a *Adapter) MatchURL(rawURL string) (string, bool) {
+	if m := urlPattern.FindStringSubmatch(rawURL); len(m) == 3 {
+		return fmt.Sprintf("%s/%s", m[1], m[2]), true
+	}
+	return "", false
+}
+
+func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.NormalizedProblem, error) {
+	parts := strings.Split(externalID, "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid atcoder external id: %s", externalID)
+	}
+	contestID, taskID := parts[0], parts[1]
+	officialURL := fmt.Sprintf("https://atcoder.jp/contests/%s/tasks/%s", contestID, taskID)
+
+	title := fmt.Sprintf("%s (%s)", taskID, contestID)
+	req, err := http.NewRequestWithContext(ctx, "GET", officialURL, nil)
+	if err == nil {
+		req.Header.Set("User-Agent", "Mozilla/5.0 CPHub/1.0")
+		resp, err := a.client.Do(req)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			defer resp.Body.Close()
+			bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*100))
+			if m := titleRegex.FindStringSubmatch(string(bodyBytes)); len(m) == 2 {
+				cleanTitle := strings.TrimSpace(m[1])
+				if cleanTitle != "" {
+					title = cleanTitle
+				}
+			}
+		}
+	}
+
+	return &platform.NormalizedProblem{
+		Platform:   platform.AtCoder,
+		ExternalID: externalID,
+		Title:      title,
+		URL:        officialURL,
+		Difficulty: nil,
+		Tags:       []string{"atcoder", contestID},
+		Metadata: map[string]interface{}{
+			"contestId": contestID,
+			"taskId":    taskID,
+		},
+	}, nil
+}
+
+func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platform.ProblemStatement, error) {
+	parts := strings.Split(externalID, "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid atcoder external id: %s", externalID)
+	}
+	contestID, taskID := parts[0], parts[1]
+	officialURL := fmt.Sprintf("https://atcoder.jp/contests/%s/tasks/%s", contestID, taskID)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", officialURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch problem statement: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024*2))
+	if err != nil {
+		return nil, err
+	}
+	htmlStr := string(bodyBytes)
+
+	var statementHTML string
+	if m := langEnRegex.FindStringSubmatch(htmlStr); len(m) > 1 {
+		statementHTML = m[1]
+	} else if m := taskStatementRegex.FindStringSubmatch(htmlStr); len(m) > 1 {
+		statementHTML = m[1]
+	} else if m := taskStatementRegex2.FindStringSubmatch(htmlStr); len(m) > 1 {
+		statementHTML = m[1]
+	}
+
+	var timeLimit, memoryLimit string
+	if m := timeLimitRegex.FindStringSubmatch(htmlStr); len(m) > 1 {
+		timeLimit = m[1]
+	}
+	if m := memoryLimitRegex.FindStringSubmatch(htmlStr); len(m) > 1 {
+		memoryLimit = m[1]
+	}
+
+	var sampleCases []platform.SampleCase
+	inputs := sampleInputRegex.FindAllStringSubmatch(htmlStr, -1)
+	outputs := sampleOutputRegex.FindAllStringSubmatch(htmlStr, -1)
+	minLen := len(inputs)
+	if len(outputs) < minLen {
+		minLen = len(outputs)
+	}
+
+	for i := 0; i < minLen; i++ {
+		sampleCases = append(sampleCases, platform.SampleCase{
+			Input:  strings.TrimSpace(inputs[i][1]),
+			Output: strings.TrimSpace(outputs[i][1]),
+		})
+	}
+
+	if sampleCases == nil {
+		sampleCases = []platform.SampleCase{}
+	}
+
+	if statementHTML == "" {
+		statementHTML = fmt.Sprintf(`<p>Please refer to the official AtCoder statement at <a href="%s" target="_blank">%s</a>.</p>`, officialURL, officialURL)
+	}
+
+	return &platform.ProblemStatement{
+		HTML:        statementHTML,
+		TimeLimit:   timeLimit,
+		MemoryLimit: memoryLimit,
+		SampleCases: sampleCases,
+	}, nil
+}
+
+func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string) (*platform.SubmissionStatus, error) {
+	return &platform.SubmissionStatus{
+		ExternalSubmissionID: externalSubmissionID,
+		Status:               "JUDGING",
+	}, nil
+}
