@@ -1,5 +1,6 @@
 <script lang="ts">
   import '../app.css';
+  import 'katex/dist/katex.min.css';
   import { onMount } from 'svelte';
   import { auth } from '$lib/stores/auth';
   import Navbar from '$lib/components/Navbar.svelte';

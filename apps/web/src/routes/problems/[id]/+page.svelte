@@ -4,6 +4,7 @@
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
   import { pingExtension, submitViaExtension } from '$lib/extension/bridge';
+  import { renderMathInHtml } from '$lib/utils/math';
   import type { Problem, LanguageId, Submission, ProblemStatement } from '@cp-hub/contracts';
   import MonacoEditor from '$lib/components/MonacoEditor.svelte';
   import {
@@ -26,13 +27,13 @@
   let problemId = $page.params.id;
   let problem: Problem | null = null;
   let statement: ProblemStatement | null = null;
+  let renderedHtml = '';
   let statementLoading = true;
   let loading = true;
   let error = '';
 
   let activeTab: 'statement' | 'iframe' | 'submissions' = 'statement';
   let copiedCaseIndex: string | null = null;
-  let iframeError = false;
 
   let language: LanguageId = 'cpp23';
   let sourceCode = `#include <iostream>\nusing namespace std;\n\nint main() {\n    ios_base::sync_with_stdio(false);\n    cin.tie(NULL);\n    \n    // Solve problem\n    \n    return 0;\n}\n`;
@@ -70,6 +71,9 @@
     statementLoading = true;
     try {
       statement = await api.get<ProblemStatement>(`/problems/${problemId}/statement`);
+      if (statement && statement.html) {
+        renderedHtml = renderMathInHtml(statement.html);
+      }
       // If statement extraction returned empty/fallback or failed, switch default tab to iframe
       if (!statement || !statement.html || statement.html.includes('Please refer to the official')) {
         activeTab = 'iframe';
@@ -235,7 +239,7 @@
             }"
           >
             <BookOpen class="w-3.5 h-3.5" />
-            <span>Extracted Reader</span>
+            <span>Extracted Reader (LaTeX)</span>
           </button>
 
           <button
@@ -270,14 +274,14 @@
               <div class="h-4 bg-zinc-800/60 rounded w-5/6 animate-pulse"></div>
               <div class="h-4 bg-zinc-800/60 rounded w-2/3 animate-pulse"></div>
             </div>
-          {:else if statement && statement.html && !statement.html.includes('Please refer to the official')}
-            <!-- Statement Body HTML -->
+          {:else if renderedHtml && !renderedHtml.includes('Please refer to the official')}
+            <!-- Statement Body HTML with KaTeX formulas -->
             <div class="statement-content text-sm text-zinc-300 leading-relaxed space-y-4">
-              {@html statement.html}
+              {@html renderedHtml}
             </div>
 
             <!-- Sample Test Cases -->
-            {#if statement.sampleCases && statement.sampleCases.length > 0}
+            {#if statement && statement.sampleCases && statement.sampleCases.length > 0}
               <div class="space-y-4 pt-4 border-t border-zinc-800">
                 <h3 class="text-sm font-bold text-white uppercase tracking-wider flex items-center space-x-2">
                   <Terminal class="w-4 h-4 text-indigo-400" />
@@ -547,5 +551,15 @@
     color: #f4f4f5;
     margin-top: 1rem;
     margin-bottom: 0.5rem;
+  }
+  :global(.katex) {
+    font-size: 1.05em;
+    color: #e4e4e7;
+  }
+  :global(.katex-display) {
+    margin: 1em 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.5rem 0;
   }
 </style>
