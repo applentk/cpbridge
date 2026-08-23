@@ -1,158 +1,194 @@
 import type { LanguageId } from '@cp-hub/contracts';
 
+// Fallbacks only: Codeforces changes compiler IDs periodically. The submit form
+// is the source of truth whenever it is available.
 const CF_LANGUAGE_MAP: Record<LanguageId, string> = {
-  cpp23: '89',     // GNU G++23 14.2
-  python3: '70',   // PyPy 3.10
-  java21: '87',    // Java 21
-  go: '32',        // Go 1.22
-  rust: '75'       // Rust 1.75
+  cpp23: '89', python3: '70', java21: '87', go: '32', rust: '75'
 };
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function cleanOptionText(value: string): string {
+  return value.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function getOptionValue(html: string, language: LanguageId): string | undefined {
+  const wanted: Record<LanguageId, RegExp[]> = {
+    cpp23: [/c\+\+\s*23/, /gnu c\+\+\s*23/, /c\+\+\s*20/],
+    python3: [/python.*3/, /pypy.*3/], java21: [/java\s*21/, /java\s*17/],
+    go: [/\bgo\b.*1\./], rust: [/\brust\b.*1\./]
+  };
+  const options = [...html.matchAll(/<option\b[^>]*value=["']([^"']+)["'][^>]*>([\s\S]*?)<\/option>/gi)];
+  for (const pattern of wanted[language]) {
+    const option = options.find((match) => pattern.test(cleanOptionText(match[2])));
+    if (option) return option[1];
+  }
+  return undefined;
+}
+
+function getInputValue(html: string, name: string): string | undefined {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return html.match(new RegExp(`<input\\b[^>]*name=["']${escapedName}["'][^>]*value=["']([^"']*)["']`, 'i'))?.[1];
+}
+
+function getCsrfToken(html: string): string | undefined {
+  return html.match(/csrf_token\s*=\s*["']([^"']+)["']/i)?.[1]
+    || html.match(/name=["']csrf_token["'][^>]*value=["']([^"']+)["']/i)?.[1]
+    || html.match(/data-csrf=["']([^"']+)["']/i)?.[1];
+}
+
+function extractSubmissionIds(html: string, problemIndex?: string): string[] {
+  const rows = [...html.matchAll(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi)].map((match) => match[0]);
+  const candidates = rows.length > 0 ? rows : [html];
+  const escapedIndex = problemIndex?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const problemPattern = escapedIndex ? new RegExp(`/problem/${escapedIndex}(?:["'/?]|$)`, 'i') : undefined;
+  const ids: string[] = [];
+  for (const row of candidates) {
+    if (problemPattern && !problemPattern.test(row)) continue;
+    for (const match of row.matchAll(/(?:data-submission-id=["']|\/submission\/)(\d+)/gi)) {
+      if (!ids.includes(match[1])) ids.push(match[1]);
+    }
+  }
+  return ids;
+}
+
+async function findLatestCodeforcesSubmission(contestId: string, problemIndex: string, knownIds: Set<string>): Promise<string | undefined> {
+  const urls = [
+    `https://codeforces.com/contest/${contestId}/status?my=on`,
+    `https://codeforces.com/contest/${contestId}/my`,
+    `https://codeforces.com/problemset/status?my=on`
+  ];
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, { method: 'GET', credentials: 'include' });
+      if (!response.ok) continue;
+      const ids = extractSubmissionIds(await response.text(), problemIndex);
+      const newId = ids.find((id) => !knownIds.has(id));
+      if (newId) return newId;
+      if (ids[0] && knownIds.size === 0) return ids[0];
+    } catch {}
+  }
+  return undefined;
+}
+
+async function waitForCodeforcesSubmission(contestId: string, problemIndex: string, knownIds: Set<string>): Promise<string | undefined> {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const id = await findLatestCodeforcesSubmission(contestId, problemIndex, knownIds);
+    if (id) return id;
+    if (attempt < 5) await sleep(500);
+  }
+  return undefined;
+}
+
+function platformError(html: string): string | undefined {
+  const match = html.match(/<(?:span|div|p)[^>]*class=["'][^"']*(?:error|alert-danger)[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|div|p)>/i);
+  const message = match?.[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return message || undefined;
+}
 
 export async function checkCodeforcesSession(): Promise<{ loggedIn: boolean; username?: string }> {
   try {
     const res = await fetch('https://codeforces.com/enter', { method: 'GET', credentials: 'include' });
     const text = await res.text();
-    // If user is logged in, Codeforces redirects away from /enter or page shows user handle
-    const handleMatch = text.match(/handle\s*=\s*"([^"]+)"/) || text.match(/\/profile\/([a-zA-Z0-9_\-]+)/);
-    if (!text.includes('Enter Codeforces') || handleMatch) {
-      return {
-        loggedIn: true,
-        username: handleMatch ? handleMatch[1] : undefined
-      };
-    }
-    return { loggedIn: false };
+    const handleMatch = text.match(/handle\s*=\s*["']([^"']+)["']/) || text.match(/\/profile\/([a-zA-Z0-9_\-]+)/);
+    return { loggedIn: !text.includes('Enter Codeforces') || !!handleMatch, username: handleMatch?.[1] };
   } catch {
     return { loggedIn: false };
   }
 }
 
-export async function submitCodeforces(
-  contestId: string,
-  index: string,
-  language: LanguageId,
-  sourceCode: string
-): Promise<{ externalSubmissionId: string }> {
-  const submitUrl = `https://codeforces.com/problemset/submit`;
-  const pageRes = await fetch(submitUrl, { method: 'GET', credentials: 'include' });
-  const html = await pageRes.text();
-
-  const csrfMatch = html.match(/csrf_token["\s=]+'([a-f0-9]+)'/) || html.match(/data-csrf='([a-f0-9]+)'/);
-  if (!csrfMatch) {
-    throw new Error('NOT_LOGGED_IN');
-  }
-  const csrfToken = csrfMatch[1];
-  const langId = CF_LANGUAGE_MAP[language] || '89';
-
-  const formData = new URLSearchParams();
-  formData.append('csrf_token', csrfToken);
-  formData.append('action', 'submitSolutionFormSubmitted');
-  formData.append('submittedProblemCode', `${contestId}${index}`);
-  formData.append('programTypeId', langId);
-  formData.append('source', sourceCode);
-  formData.append('tabSize', '4');
-  formData.append('_tta', '176');
-
-  const submitRes = await fetch(`https://codeforces.com/problemset/submit?csrf_token=${csrfToken}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: formData.toString()
-  });
-
-  if (submitRes.redirected && submitRes.url.includes('/status')) {
-    // Successfully submitted, fetch status page to find latest submission id
-    const statusRes = await fetch(submitRes.url, { method: 'GET', credentials: 'include' });
-    const statusHtml = await statusRes.text();
-    const subMatch = statusHtml.match(/data-submission-id="(\d+)"/);
-    if (subMatch) {
-      return { externalSubmissionId: subMatch[1] };
+async function getCodeforcesTTA(): Promise<string> {
+  try {
+    const cookie = await chrome.cookies.get({ url: 'https://codeforces.com', name: '39c3' });
+    if (cookie?.value) {
+      let result = 0;
+      for (let i = 0; i < cookie.value.length; i++) result = (result * 31 + cookie.value.charCodeAt(i)) % 10007;
+      return String(result);
     }
-  }
-
-  // Fallback generation for mock / test responses
-  return { externalSubmissionId: `cf_${Date.now()}` };
+  } catch {}
+  return '176';
 }
 
-export async function pollCodeforcesStatus(
-  contestId: string,
-  externalSubmissionId: string
-): Promise<{ status: 'JUDGING' | 'ACCEPTED' | 'WRONG_ANSWER' | 'TIME_LIMIT' | 'MEMORY_LIMIT' | 'RUNTIME_ERROR' | 'COMPILE_ERROR' | 'FAILED' }> {
-  if (externalSubmissionId.startsWith('cf_')) {
-    return { status: 'JUDGING' };
-  }
+export async function submitCodeforces(contestId: string, index: string, language: LanguageId, sourceCode: string): Promise<{ externalSubmissionId: string }> {
+  const submitUrls = /^\d+$/.test(contestId)
+    ? [`https://codeforces.com/contest/${contestId}/submit`, `https://codeforces.com/problemset/submit`]
+    : ['https://codeforces.com/problemset/submit'];
+  let lastError = '';
 
-  // 1. Try Codeforces API
+  for (const submitUrl of submitUrls) {
+    let postSent = false;
+    try {
+      const pageRes = await fetch(submitUrl, { method: 'GET', credentials: 'include' });
+      const html = await pageRes.text();
+      const csrfToken = getCsrfToken(html);
+      if (!csrfToken) {
+        if (html.includes('Enter Codeforces') || html.includes('handleOrEmail')) throw new Error('NOT_LOGGED_IN');
+        lastError = `Could not find the Codeforces CSRF token at ${submitUrl}`;
+        continue;
+      }
+
+      const previousId = await findLatestCodeforcesSubmission(contestId, index, new Set());
+      const knownIds = new Set(previousId ? [previousId] : []);
+      const formData = new URLSearchParams({
+        csrf_token: csrfToken, action: 'submitSolutionFormSubmitted', submittedProblemIndex: index,
+        submittedProblemCode: `${contestId}${index}`, programTypeId: getOptionValue(html, language) || CF_LANGUAGE_MAP[language] || '89',
+        source: sourceCode, tabSize: '4', _tta: getInputValue(html, '_tta') || await getCodeforcesTTA()
+      });
+      const submitRes = await fetch(`${submitUrl}?csrf_token=${encodeURIComponent(csrfToken)}`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString()
+      });
+      postSent = true;
+      const responseHtml = await submitRes.text();
+      if (!submitRes.ok) throw new Error(`Codeforces returned HTTP ${submitRes.status}`);
+      const error = platformError(responseHtml);
+      if (error && !/has been submitted|success/i.test(error)) throw new Error(error);
+
+      const immediateId = extractSubmissionIds(responseHtml)[0];
+      if (immediateId) return { externalSubmissionId: immediateId };
+      const id = await waitForCodeforcesSubmission(contestId, index, knownIds);
+      if (id) return { externalSubmissionId: id };
+      throw new Error('Codeforces accepted the request but the new submission ID was not visible yet. Check the Codeforces submissions page.');
+    } catch (err: any) {
+      if (err.message === 'NOT_LOGGED_IN') throw err;
+      lastError = err.message || 'Unknown Codeforces submission error';
+      if (postSent) throw new Error(`Codeforces: ${lastError}`);
+    }
+  }
+  throw new Error(`Codeforces: ${lastError || 'Failed to open the submission form.'}`);
+}
+
+export async function pollCodeforcesStatus(contestId: string, externalSubmissionId: string): Promise<{ status: 'JUDGING' | 'ACCEPTED' | 'WRONG_ANSWER' | 'TIME_LIMIT' | 'MEMORY_LIMIT' | 'RUNTIME_ERROR' | 'COMPILE_ERROR' | 'FAILED' }> {
+  if (externalSubmissionId.startsWith('cf_')) return { status: 'FAILED' };
   try {
-    const res = await fetch(`https://codeforces.com/api/contest.status?contestId=${contestId}&from=1&count=50`, {
-      method: 'GET',
-      credentials: 'include'
-    });
+    const res = await fetch(`https://codeforces.com/api/contest.status?contestId=${contestId}&from=1&count=100`, { method: 'GET', credentials: 'include' });
     if (res.ok) {
       const data = await res.json();
-      if (data.status === 'OK' && Array.isArray(data.result)) {
-        const sub = data.result.find((item: any) => String(item.id) === String(externalSubmissionId));
-        if (sub && sub.verdict) {
-          switch (sub.verdict) {
-            case 'OK':
-              return { status: 'ACCEPTED' };
-            case 'WRONG_ANSWER':
-              return { status: 'WRONG_ANSWER' };
-            case 'TIME_LIMIT_EXCEEDED':
-              return { status: 'TIME_LIMIT' };
-            case 'MEMORY_LIMIT_EXCEEDED':
-              return { status: 'MEMORY_LIMIT' };
-            case 'COMPILATION_ERROR':
-              return { status: 'COMPILE_ERROR' };
-            case 'RUNTIME_ERROR':
-              return { status: 'RUNTIME_ERROR' };
-            case 'CHALLENGED':
-            case 'SKIPPED':
-            case 'FAILED':
-            case 'SECURITY_VIOLATED':
-            case 'CRASHED':
-              return { status: 'FAILED' };
-            case 'TESTING':
-            case 'SUBMITTED':
-            case 'PENDING':
-              return { status: 'JUDGING' };
-            default:
-              return { status: 'JUDGING' };
-          }
-        }
+      const sub = data.status === 'OK' && Array.isArray(data.result) ? data.result.find((item: any) => String(item.id) === String(externalSubmissionId)) : undefined;
+      if (sub?.verdict) {
+        const verdicts: Record<string, any> = {
+          OK: 'ACCEPTED', WRONG_ANSWER: 'WRONG_ANSWER', TIME_LIMIT_EXCEEDED: 'TIME_LIMIT', MEMORY_LIMIT_EXCEEDED: 'MEMORY_LIMIT',
+          COMPILATION_ERROR: 'COMPILE_ERROR', RUNTIME_ERROR: 'RUNTIME_ERROR', CHALLENGED: 'FAILED', SKIPPED: 'FAILED', FAILED: 'FAILED',
+          SECURITY_VIOLATED: 'FAILED', CRASHED: 'FAILED'
+        };
+        return { status: verdicts[sub.verdict] || 'JUDGING' };
       }
     }
   } catch {}
 
-  // 2. Fallback to scraping Codeforces submission page
   try {
-    const res = await fetch(`https://codeforces.com/contest/${contestId}/submission/${externalSubmissionId}`, {
-      method: 'GET',
-      credentials: 'include'
-    });
-    if (res.ok) {
+    const urls = [`https://codeforces.com/contest/${contestId}/submission/${externalSubmissionId}`, `https://codeforces.com/problemset/submission/${contestId}/${externalSubmissionId}`];
+    for (const url of urls) {
+      const res = await fetch(url, { method: 'GET', credentials: 'include' });
+      if (res.status === 404 || !res.ok) continue;
       const html = await res.text();
-      if (html.includes('verdict-accepted') || html.includes('>Accepted<')) {
-        return { status: 'ACCEPTED' };
-      }
-      if (html.includes('verdict-rejected') || html.includes('Wrong answer')) {
-        return { status: 'WRONG_ANSWER' };
-      }
-      if (html.includes('Time limit exceeded')) {
-        return { status: 'TIME_LIMIT' };
-      }
-      if (html.includes('Memory limit exceeded')) {
-        return { status: 'MEMORY_LIMIT' };
-      }
-      if (html.includes('Runtime error')) {
-        return { status: 'RUNTIME_ERROR' };
-      }
-      if (html.includes('Compilation error')) {
-        return { status: 'COMPILE_ERROR' };
-      }
+      if (html.includes('verdict-accepted') || html.includes('>Accepted<')) return { status: 'ACCEPTED' };
+      if (html.includes('Compilation error') || html.includes('verdict-compilation-error')) return { status: 'COMPILE_ERROR' };
+      if (html.includes('Time limit exceeded')) return { status: 'TIME_LIMIT' };
+      if (html.includes('Memory limit exceeded')) return { status: 'MEMORY_LIMIT' };
+      if (html.includes('Runtime error')) return { status: 'RUNTIME_ERROR' };
+      if (html.includes('Wrong answer') || html.includes('verdict-rejected')) return { status: 'WRONG_ANSWER' };
+      if (html.includes('verdict-waiting') || html.includes('In queue') || html.includes('Running on test')) return { status: 'JUDGING' };
     }
   } catch {}
-
   return { status: 'JUDGING' };
 }

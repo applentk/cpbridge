@@ -57,3 +57,17 @@ func TestPlatformURLMatching(t *testing.T) {
 		}
 	}
 }
+
+func TestMockSubmissionIDsReturnFailed(t *testing.T) {
+	cf := codeforces.New()
+	cfStatus, err := cf.GetSubmission(t.Context(), "cf_123456789")
+	assert.NoError(t, err)
+	assert.NotNil(t, cfStatus)
+	assert.Equal(t, "FAILED", cfStatus.Status)
+
+	ac := atcoder.New()
+	acStatus, err := ac.GetSubmission(t.Context(), "ac_123456789")
+	assert.NoError(t, err)
+	assert.NotNil(t, acStatus)
+	assert.Equal(t, "FAILED", acStatus.Status)
+}

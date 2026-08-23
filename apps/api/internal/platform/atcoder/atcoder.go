@@ -3,6 +3,7 @@ package atcoder
 import (
 	"context"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"regexp"
@@ -13,8 +14,10 @@ import (
 )
 
 var (
-	urlPattern = regexp.MustCompile(`atcoder\.jp/contests/([a-zA-Z0-9_\-]+)/tasks/([a-zA-Z0-9_\-]+)`)
-	titleRegex = regexp.MustCompile(`<title>(.*?) - .*?</title>`)
+	urlPattern         = regexp.MustCompile(`atcoder\.jp/contests/([a-zA-Z0-9_\-]+)/tasks/([a-zA-Z0-9_\-]+)`)
+	titleRegex         = regexp.MustCompile(`(?is)<title>\s*(.*?)\s*</title>`)
+	titlePrefixRegex   = regexp.MustCompile(`(?i)^[a-z0-9]+\s*[-.:)]\s*`)
+	contestSuffixRegex = regexp.MustCompile(`(?i)\s+-\s+atcoder.*$`)
 
 	taskStatementRegex  = regexp.MustCompile(`(?s)<div id="task-statement">(.*?)</div>\s*<span class="center-block`)
 	taskStatementRegex2 = regexp.MustCompile(`(?s)<div id="task-statement">(.*)`)
@@ -69,7 +72,7 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 			defer resp.Body.Close()
 			bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*100))
 			if m := titleRegex.FindStringSubmatch(string(bodyBytes)); len(m) == 2 {
-				cleanTitle := strings.TrimSpace(m[1])
+				cleanTitle := normalizeProblemTitle(m[1])
 				if cleanTitle != "" {
 					title = cleanTitle
 				}
@@ -89,6 +92,13 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 			"taskId":    taskID,
 		},
 	}, nil
+}
+
+func normalizeProblemTitle(title string) string {
+	title = html.UnescapeString(strings.TrimSpace(title))
+	title = contestSuffixRegex.ReplaceAllString(title, "")
+	title = titlePrefixRegex.ReplaceAllString(title, "")
+	return strings.TrimSpace(title)
 }
 
 func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platform.ProblemStatement, error) {
@@ -175,7 +185,10 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 	if strings.HasPrefix(externalSubmissionID, "ac_") {
 		return &platform.SubmissionStatus{
 			ExternalSubmissionID: externalSubmissionID,
-			Status:               "JUDGING",
+			Status:               "FAILED",
+			RawPayload: map[string]interface{}{
+				"error": "Submission was never created on AtCoder (invalid or mock ID)",
+			},
 		}, nil
 	}
 
@@ -195,6 +208,17 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 			resp, err := a.client.Do(req)
 			if err == nil {
 				defer resp.Body.Close()
+
+				if resp.StatusCode == http.StatusNotFound {
+					return &platform.SubmissionStatus{
+						ExternalSubmissionID: externalSubmissionID,
+						Status:               "FAILED",
+						RawPayload: map[string]interface{}{
+							"error": "Submission not found on AtCoder (404 Not Found)",
+						},
+					}, nil
+				}
+
 				if resp.StatusCode == http.StatusOK {
 					bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
 					if err == nil {
@@ -233,6 +257,18 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 							return &platform.SubmissionStatus{
 								ExternalSubmissionID: externalSubmissionID,
 								Status:               "COMPILE_ERROR",
+							}, nil
+						}
+						if strings.Contains(htmlStr, ">OLE</span>") || strings.Contains(htmlStr, ">QLE</span>") {
+							return &platform.SubmissionStatus{
+								ExternalSubmissionID: externalSubmissionID,
+								Status:               "FAILED",
+							}, nil
+						}
+						if strings.Contains(htmlStr, ">WJ</span>") || strings.Contains(htmlStr, ">WR</span>") || strings.Contains(htmlStr, "label-default") {
+							return &platform.SubmissionStatus{
+								ExternalSubmissionID: externalSubmissionID,
+								Status:               "JUDGING",
 							}, nil
 						}
 					}

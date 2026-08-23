@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	htmllib "html"
 	"io"
 	"net/http"
 	"regexp"
@@ -15,17 +16,20 @@ import (
 )
 
 var (
-	urlPattern1 = regexp.MustCompile(`codeforces\.com/(?:problemset/)?problem/(\d+)/([A-Za-z0-9]+)`)
-	urlPattern2 = regexp.MustCompile(`codeforces\.com/contest/(\d+)/problem/([A-Za-z0-9]+)`)
-	urlPattern3 = regexp.MustCompile(`codeforces\.com/gym/(\d+)/problem/([A-Za-z0-9]+)`)
+	urlPattern1       = regexp.MustCompile(`codeforces\.com/(?:problemset/)?problem/(\d+)/([A-Za-z0-9]+)`)
+	urlPattern2       = regexp.MustCompile(`codeforces\.com/contest/(\d+)/problem/([A-Za-z0-9]+)`)
+	urlPattern3       = regexp.MustCompile(`codeforces\.com/gym/(\d+)/problem/([A-Za-z0-9]+)`)
+	titlePrefixRegex  = regexp.MustCompile(`(?i)^[a-z](?:\s*[.\-:]\s*|\s+)`)
+	problemTitleRegex = regexp.MustCompile(`(?is)<div[^>]*class=["']title["'][^>]*>(.*?)</div>`)
+	htmlTitleRegex    = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
-	statementRegex   = regexp.MustCompile(`(?s)<div class="problem-statement">(.*?)</div>\s*<!--\s*end problem statement`)
-	statementRegex2  = regexp.MustCompile(`(?s)<div class="problem-statement">(.*)`)
-	headerDivRegex   = regexp.MustCompile(`(?is)<div class="header">.*?</div>\s*</div>`)
-	sampleDivRegex   = regexp.MustCompile(`(?is)<div class="sample-tests?">.*?</div>\s*</div>`)
-	timeLimitRegex   = regexp.MustCompile(`(?s)<div class="time-limit"[^>]*>.*?<div class="property-title">time limit per test</div>(.*?)</div>`)
-	memoryLimitRegex = regexp.MustCompile(`(?s)<div class="memory-limit"[^>]*>.*?<div class="property-title">memory limit per test</div>(.*?)</div>`)
-	sampleInputRegex = regexp.MustCompile(`(?s)<div class="input"><div class="title">Input</div><pre>(.*?)</pre></div>`)
+	statementRegex    = regexp.MustCompile(`(?s)<div class="problem-statement">(.*?)</div>\s*<!--\s*end problem statement`)
+	statementRegex2   = regexp.MustCompile(`(?s)<div class="problem-statement">(.*)`)
+	headerDivRegex    = regexp.MustCompile(`(?is)<div class="header">.*?</div>\s*</div>`)
+	sampleDivRegex    = regexp.MustCompile(`(?is)<div class="sample-tests?">.*?</div>\s*</div>`)
+	timeLimitRegex    = regexp.MustCompile(`(?s)<div class="time-limit"[^>]*>.*?<div class="property-title">time limit per test</div>(.*?)</div>`)
+	memoryLimitRegex  = regexp.MustCompile(`(?s)<div class="memory-limit"[^>]*>.*?<div class="property-title">memory limit per test</div>(.*?)</div>`)
+	sampleInputRegex  = regexp.MustCompile(`(?s)<div class="input"><div class="title">Input</div><pre>(.*?)</pre></div>`)
 	sampleOutputRegex = regexp.MustCompile(`(?s)<div class="output"><div class="title">Output</div><pre>(.*?)</pre></div>`)
 )
 
@@ -95,7 +99,7 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 						return &platform.NormalizedProblem{
 							Platform:   platform.Codeforces,
 							ExternalID: externalID,
-							Title:      fmt.Sprintf("%s. %s", index, p.Name),
+							Title:      normalizeProblemTitle(p.Name),
 							URL:        officialURL,
 							Difficulty: p.Rating,
 							Tags:       p.Tags,
@@ -110,7 +114,24 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 		}
 	}
 
-	// Fallback when Codeforces API is slow/unavailable
+	// The public API can be unavailable or can omit a problem temporarily. Use
+	// the official problem page before falling back to a generic placeholder.
+	if title, ok := a.fetchProblemTitle(ctx, officialURL); ok {
+		return &platform.NormalizedProblem{
+			Platform:   platform.Codeforces,
+			ExternalID: externalID,
+			Title:      title,
+			URL:        officialURL,
+			Difficulty: nil,
+			Tags:       []string{"codeforces"},
+			Metadata: map[string]interface{}{
+				"contestId": contestIDStr,
+				"index":     index,
+			},
+		}, nil
+	}
+
+	// Final fallback when both Codeforces API and page scraping are unavailable.
 	contestIDNum, _ := strconv.Atoi(contestIDStr)
 	return &platform.NormalizedProblem{
 		Platform:   platform.Codeforces,
@@ -124,6 +145,49 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 			"index":     index,
 		},
 	}, nil
+}
+
+func (a *Adapter) fetchProblemTitle(ctx context.Context, officialURL string) (string, bool) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, officialURL, nil)
+	if err != nil {
+		return "", false
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 CPHub/1.0")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", false
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	if err != nil {
+		return "", false
+	}
+	return extractProblemTitle(string(body))
+}
+
+func extractProblemTitle(html string) (string, bool) {
+	if match := problemTitleRegex.FindStringSubmatch(html); len(match) > 1 {
+		if title := normalizeProblemTitle(htmllib.UnescapeString(cleanHTMLTags(match[1]))); title != "" {
+			return title, true
+		}
+	}
+	if match := htmlTitleRegex.FindStringSubmatch(html); len(match) > 1 {
+		title := strings.TrimSpace(htmllib.UnescapeString(cleanHTMLTags(match[1])))
+		title = strings.TrimSuffix(title, " - Codeforces")
+		if title := normalizeProblemTitle(title); title != "" && !strings.EqualFold(title, "problemset") {
+			return title, true
+		}
+	}
+	return "", false
+}
+
+func normalizeProblemTitle(title string) string {
+	return strings.TrimSpace(titlePrefixRegex.ReplaceAllString(strings.TrimSpace(title), ""))
 }
 
 func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platform.ProblemStatement, error) {
@@ -217,16 +281,19 @@ type cfSubmissionResult struct {
 }
 
 type cfStatusApiResponse struct {
-	Status string               `json:"status"`
-	Result []cfSubmissionResult `json:"result"`
-	Comment string              `json:"comment"`
+	Status  string               `json:"status"`
+	Result  []cfSubmissionResult `json:"result"`
+	Comment string               `json:"comment"`
 }
 
 func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string) (*platform.SubmissionStatus, error) {
 	if strings.HasPrefix(externalSubmissionID, "cf_") {
 		return &platform.SubmissionStatus{
 			ExternalSubmissionID: externalSubmissionID,
-			Status:               "JUDGING",
+			Status:               "FAILED",
+			RawPayload: map[string]interface{}{
+				"error": "Submission was never created on Codeforces (invalid or mock ID)",
+			},
 		}, nil
 	}
 
@@ -296,6 +363,16 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 			}
 			defer resp.Body.Close()
 
+			if resp.StatusCode == http.StatusNotFound {
+				return &platform.SubmissionStatus{
+					ExternalSubmissionID: externalSubmissionID,
+					Status:               "FAILED",
+					RawPayload: map[string]interface{}{
+						"error": "Submission not found on Codeforces (404 Not Found)",
+					},
+				}, nil
+			}
+
 			if resp.StatusCode == http.StatusOK {
 				bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
 				if err == nil {
@@ -306,10 +383,10 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 							Status:               "ACCEPTED",
 						}, nil
 					}
-					if strings.Contains(htmlStr, "verdict-rejected") || strings.Contains(htmlStr, "Wrong answer") {
+					if strings.Contains(htmlStr, "Compilation error") || strings.Contains(htmlStr, "verdict-compilation-error") {
 						return &platform.SubmissionStatus{
 							ExternalSubmissionID: externalSubmissionID,
-							Status:               "WRONG_ANSWER",
+							Status:               "COMPILE_ERROR",
 						}, nil
 					}
 					if strings.Contains(htmlStr, "Time limit exceeded") {
@@ -330,10 +407,16 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 							Status:               "RUNTIME_ERROR",
 						}, nil
 					}
-					if strings.Contains(htmlStr, "Compilation error") {
+					if strings.Contains(htmlStr, "Wrong answer") || strings.Contains(htmlStr, "verdict-rejected") {
 						return &platform.SubmissionStatus{
 							ExternalSubmissionID: externalSubmissionID,
-							Status:               "COMPILE_ERROR",
+							Status:               "WRONG_ANSWER",
+						}, nil
+					}
+					if strings.Contains(htmlStr, "verdict-waiting") || strings.Contains(htmlStr, "In queue") || strings.Contains(htmlStr, "Running on test") {
+						return &platform.SubmissionStatus{
+							ExternalSubmissionID: externalSubmissionID,
+							Status:               "JUDGING",
 						}, nil
 					}
 				}

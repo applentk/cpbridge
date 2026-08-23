@@ -1,107 +1,275 @@
 import type { LanguageId } from '@cp-hub/contracts';
 
+// Fallbacks only. AtCoder's language IDs change when compiler versions change;
+// submitAtCoder reads the current IDs from the submit form first.
 const AC_LANGUAGE_MAP: Record<LanguageId, string> = {
-  cpp23: '5001',   // C++ 23 GCC 12.2
-  python3: '5078', // Python 3.11.4
-  java21: '5005',  // Java 21 OpenJDK
-  go: '5025',      // Go 1.20.6
-  rust: '5054'     // Rust 1.70.0
+  cpp23: '5052', python3: '5078', java21: '5005', go: '5025', rust: '5054'
 };
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function cleanOptionText(value: string): string {
+  return value.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function getOptionValue(html: string, language: LanguageId): string | undefined {
+  const wanted: Record<LanguageId, RegExp[]> = {
+    cpp23: [/c\+\+\s*23/, /c\+\+\s*20/, /c\+\+/],
+    python3: [/python.*3/, /pypy.*3/], java21: [/java\s*21/, /java\s*17/, /java/],
+    go: [/\bgo\b.*1\./, /\bgo\b/], rust: [/\brust\b.*1\./, /\brust\b/]
+  };
+  const options = [...html.matchAll(/<option\b[^>]*value=["']([^"']+)["'][^>]*>([\s\S]*?)<\/option>/gi)];
+  for (const pattern of wanted[language]) {
+    const option = options.find((match) => pattern.test(cleanOptionText(match[2])));
+    if (option) return option[1];
+  }
+  return undefined;
+}
+
+function getCsrfToken(html: string): string | undefined {
+  return html.match(/name=["']csrf_token["'][^>]*value=["']([^"']+)["']/i)?.[1]
+    || html.match(/csrf_token\s*=\s*["']([^"']+)["']/i)?.[1];
+}
+
+function extractSubmissionIds(html: string, taskId?: string): string[] {
+  const rows = [...html.matchAll(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi)].map((match) => match[0]);
+  const candidates = rows.length > 0 ? rows : [html];
+  const escapedTask = taskId?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const taskPattern = escapedTask ? new RegExp(`(?:/tasks/|data-task-screen-name=["'])${escapedTask}(?:["'/?]|$)`, 'i') : undefined;
+  const ids: string[] = [];
+  for (const row of candidates) {
+    if (taskPattern && !taskPattern.test(row)) continue;
+    for (const match of row.matchAll(/\/submissions\/(\d+)/gi)) {
+      if (!ids.includes(match[1])) ids.push(match[1]);
+    }
+  }
+  return ids;
+}
+
+async function findLatestAtCoderSubmission(contestId: string, taskId: string, knownIds: Set<string>): Promise<string | undefined> {
+  try {
+    const response = await fetch(`https://atcoder.jp/contests/${contestId}/submissions/me`, { method: 'GET', credentials: 'include' });
+    if (!response.ok) return undefined;
+    const html = await response.text();
+    const taskIds = extractSubmissionIds(html, taskId);
+    // Some AtCoder table variants show only a short label (for example `A`) in
+    // the row text. If the task link is omitted as well, the newest unseen row
+    // is still the safest match immediately after our POST.
+    const ids = taskIds.length > 0 ? taskIds : extractSubmissionIds(html);
+    return ids.find((id) => !knownIds.has(id)) || (knownIds.size === 0 ? ids[0] : undefined);
+  } catch {
+    return undefined;
+  }
+}
+
+async function waitForAtCoderSubmission(contestId: string, taskId: string, knownIds: Set<string>): Promise<string | undefined> {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const id = await findLatestAtCoderSubmission(contestId, taskId, knownIds);
+    if (id) return id;
+    if (attempt < 7) await sleep(400);
+  }
+  return undefined;
+}
+
+function platformError(html: string): string | undefined {
+  const match = html.match(/<(?:div|span|p)[^>]*class=["'][^"']*(?:alert-danger|error)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|span|p)>/i);
+  const message = match?.[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return message || undefined;
+}
+
+type AtCoderPageSubmitResult = {
+  externalSubmissionId?: string;
+  error?: string;
+};
+
+async function submitAtCoderFromSameOriginPage(
+  contestId: string,
+  taskId: string,
+  languageId: string,
+  sourceCode: string,
+  knownIds: Set<string>
+): Promise<string> {
+  const tab = await chrome.tabs.create({
+    url: `https://atcoder.jp/contests/${contestId}/submit`,
+    active: false
+  });
+  if (!tab.id) throw new Error('AtCoder: could not open the submit page');
+
+  const tabId = tab.id;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      };
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        chrome.tabs.onUpdated.removeListener(listener);
+        reject(new Error('AtCoder: submit page did not finish loading'));
+      }, 10000);
+      const listener = (updatedTabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+        if (updatedTabId === tabId && changeInfo.status === 'complete') finish();
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+      chrome.tabs.get(tabId).then((currentTab) => {
+        if (currentTab.status === 'complete') finish();
+      }).catch(reject);
+    });
+
+    const [execution] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async (args): Promise<AtCoderPageSubmitResult> => {
+        const csrfToken = document.querySelector<HTMLInputElement>('input[name="csrf_token"]')?.value;
+        if (!csrfToken) return { error: 'NOT_LOGGED_IN' };
+
+        const body = new URLSearchParams({
+          'data.TaskScreenName': args.taskId,
+          'data.LanguageId': args.languageId,
+          sourceCode: args.sourceCode,
+          csrf_token: csrfToken
+        });
+        const response = await fetch(`/contests/${args.contestId}/submit`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body
+        });
+        const responseHtml = await response.text();
+        if (!response.ok) {
+          const message = responseHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240);
+          return { error: `AtCoder returned HTTP ${response.status}${message ? `: ${message}` : ''}` };
+        }
+
+        const responseDoc = new DOMParser().parseFromString(responseHtml, 'text/html');
+        const responseLink = [...responseDoc.querySelectorAll<HTMLAnchorElement>('a[href*="/submissions/"]')]
+          .map((link) => link.href.match(/\/submissions\/(\d+)/)?.[1])
+          .find((id): id is string => !!id && !args.knownIds.includes(id));
+        if (responseLink) return { externalSubmissionId: responseLink };
+
+        for (let attempt = 0; attempt < 8; attempt++) {
+          const submissionsResponse = await fetch(`/contests/${args.contestId}/submissions/me`, {
+            credentials: 'same-origin'
+          });
+          if (submissionsResponse.ok) {
+            const submissionsDoc = new DOMParser().parseFromString(await submissionsResponse.text(), 'text/html');
+            for (const row of [...submissionsDoc.querySelectorAll('tr')]) {
+              const rowText = row.textContent || '';
+              const taskLink = [...row.querySelectorAll<HTMLAnchorElement>('a[href*="/tasks/"]')]
+                .some((link) => link.href.includes(`/tasks/${args.taskId}`));
+              if (!rowText.includes(args.taskId) && !taskLink) continue;
+              const id = [...row.querySelectorAll<HTMLAnchorElement>('a[href*="/submissions/"]')]
+                .map((link) => link.href.match(/\/submissions\/(\d+)/)?.[1])
+                .find((candidate): candidate is string => !!candidate && !args.knownIds.includes(candidate));
+              if (id) return { externalSubmissionId: id };
+            }
+
+            // On older/compact layouts the task link is not present in the
+            // row. Submissions are newest-first, so use the newest unseen ID.
+            const newestUnseenId = [...submissionsDoc.querySelectorAll<HTMLAnchorElement>('a[href*="/submissions/"]')]
+              .map((link) => link.href.match(/\/submissions\/(\d+)/)?.[1])
+              .find((candidate): candidate is string => !!candidate && !args.knownIds.includes(candidate));
+            if (newestUnseenId) return { externalSubmissionId: newestUnseenId };
+          }
+          if (attempt < 7) await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+        return {};
+      },
+      args: [{ contestId, taskId, languageId, sourceCode, knownIds: [...knownIds] }]
+    });
+
+    const result = execution?.result as AtCoderPageSubmitResult | undefined;
+    if (result?.externalSubmissionId) return result.externalSubmissionId;
+    if (result?.error === 'NOT_LOGGED_IN') throw new Error('NOT_LOGGED_IN');
+    throw new Error(result?.error || 'AtCoder accepted the request but the new submission ID was not visible yet.');
+  } finally {
+    await chrome.tabs.remove(tabId).catch(() => undefined);
+  }
+}
 
 export async function checkAtCoderSession(): Promise<{ loggedIn: boolean; username?: string }> {
   try {
     const res = await fetch('https://atcoder.jp/home', { method: 'GET', credentials: 'include' });
     const text = await res.text();
     const userMatch = text.match(/\/users\/([a-zA-Z0-9_\-]+)/);
-    if (userMatch && !text.includes('Sign In')) {
-      return {
-        loggedIn: true,
-        username: userMatch[1]
-      };
-    }
-    return { loggedIn: false };
+    return { loggedIn: !!userMatch && !text.includes('Sign In'), username: userMatch?.[1] };
   } catch {
     return { loggedIn: false };
   }
 }
 
-export async function submitAtCoder(
-  contestId: string,
-  taskId: string,
-  language: LanguageId,
-  sourceCode: string
-): Promise<{ externalSubmissionId: string }> {
+export async function submitAtCoder(contestId: string, taskId: string, language: LanguageId, sourceCode: string): Promise<{ externalSubmissionId: string }> {
   const submitPageUrl = `https://atcoder.jp/contests/${contestId}/submit`;
-  const pageRes = await fetch(submitPageUrl, { method: 'GET', credentials: 'include' });
+  const pageRes = await fetch(submitPageUrl, {
+    method: 'GET',
+    credentials: 'include',
+    referrer: submitPageUrl,
+    referrerPolicy: 'strict-origin-when-cross-origin'
+  });
   const html = await pageRes.text();
+  const csrfToken = getCsrfToken(html);
+  if (!csrfToken || html.includes('Sign In')) throw new Error('NOT_LOGGED_IN');
 
-  const csrfMatch = html.match(/name="csrf_token"\s+value="([^"]+)"/);
-  if (!csrfMatch) {
-    throw new Error('NOT_LOGGED_IN');
-  }
-  const csrfToken = csrfMatch[1];
-  const langId = AC_LANGUAGE_MAP[language] || '5001';
-
-  const formData = new URLSearchParams();
-  formData.append('data.TaskScreenName', taskId);
-  formData.append('data.LanguageId', langId);
-  formData.append('sourceCode', sourceCode);
-  formData.append('csrf_token', csrfToken);
-
-  const submitRes = await fetch(`https://atcoder.jp/contests/${contestId}/submit`, {
+  const previousId = await findLatestAtCoderSubmission(contestId, taskId, new Set());
+  const knownIds = new Set(previousId ? [previousId] : []);
+  const formData = new URLSearchParams({
+    'data.TaskScreenName': taskId,
+    'data.LanguageId': getOptionValue(html, language) || AC_LANGUAGE_MAP[language] || '5052',
+    sourceCode,
+    csrf_token: csrfToken
+  });
+  const submitRes = await fetch(submitPageUrl, {
     method: 'POST',
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
+    referrer: submitPageUrl,
+    referrerPolicy: 'strict-origin-when-cross-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: formData.toString()
   });
-
-  if (submitRes.redirected && submitRes.url.includes('/submissions/me')) {
-    const subMatch = submitRes.url.match(/\/submissions\/(\d+)/);
-    if (subMatch) {
-      return { externalSubmissionId: subMatch[1] };
+  const responseHtml = await submitRes.text();
+  if (!submitRes.ok) {
+    if (submitRes.status === 403) {
+      return {
+        externalSubmissionId: await submitAtCoderFromSameOriginPage(
+          contestId,
+          taskId,
+          getOptionValue(html, language) || AC_LANGUAGE_MAP[language] || '5052',
+          sourceCode,
+          knownIds
+        )
+      };
     }
+    const detail = platformError(responseHtml);
+    throw new Error(`AtCoder returned HTTP ${submitRes.status}${detail ? `: ${detail}` : ''}`);
   }
+  const error = platformError(responseHtml);
+  if (error && !/success|submitted/i.test(error)) throw new Error(error);
 
-  return { externalSubmissionId: `ac_${Date.now()}` };
+  const immediateId = extractSubmissionIds(responseHtml, taskId)[0];
+  if (immediateId) return { externalSubmissionId: immediateId };
+  const id = await waitForAtCoderSubmission(contestId, taskId, knownIds);
+  if (id) return { externalSubmissionId: id };
+  throw new Error('AtCoder accepted the request but the new submission ID was not visible yet. Check the AtCoder submissions page.');
 }
 
-export async function pollAtCoderStatus(
-  contestId: string,
-  externalSubmissionId: string
-): Promise<{ status: 'JUDGING' | 'ACCEPTED' | 'WRONG_ANSWER' | 'TIME_LIMIT' | 'MEMORY_LIMIT' | 'RUNTIME_ERROR' | 'COMPILE_ERROR' | 'FAILED' }> {
-  if (externalSubmissionId.startsWith('ac_')) {
-    return { status: 'JUDGING' };
-  }
-
+export async function pollAtCoderStatus(contestId: string, externalSubmissionId: string): Promise<{ status: 'JUDGING' | 'ACCEPTED' | 'WRONG_ANSWER' | 'TIME_LIMIT' | 'MEMORY_LIMIT' | 'RUNTIME_ERROR' | 'COMPILE_ERROR' | 'FAILED' }> {
+  if (externalSubmissionId.startsWith('ac_')) return { status: 'FAILED' };
   try {
-    const res = await fetch(`https://atcoder.jp/contests/${contestId}/submissions/${externalSubmissionId}`, {
-      method: 'GET',
-      credentials: 'include'
-    });
-    if (res.ok) {
-      const html = await res.text();
-      if (html.includes('>AC</span>') || html.includes('label-success')) {
-        return { status: 'ACCEPTED' };
-      }
-      if (html.includes('>WA</span>')) {
-        return { status: 'WRONG_ANSWER' };
-      }
-      if (html.includes('>TLE</span>')) {
-        return { status: 'TIME_LIMIT' };
-      }
-      if (html.includes('>MLE</span>')) {
-        return { status: 'MEMORY_LIMIT' };
-      }
-      if (html.includes('>RE</span>')) {
-        return { status: 'RUNTIME_ERROR' };
-      }
-      if (html.includes('>CE</span>')) {
-        return { status: 'COMPILE_ERROR' };
-      }
-    }
+    const res = await fetch(`https://atcoder.jp/contests/${contestId}/submissions/${externalSubmissionId}`, { method: 'GET', credentials: 'include' });
+    if (res.status === 404 || !res.ok) return { status: 'JUDGING' };
+    const html = await res.text();
+    if (html.includes('>AC</span>') || html.includes('label-success')) return { status: 'ACCEPTED' };
+    if (html.includes('>WA</span>')) return { status: 'WRONG_ANSWER' };
+    if (html.includes('>TLE</span>')) return { status: 'TIME_LIMIT' };
+    if (html.includes('>MLE</span>')) return { status: 'MEMORY_LIMIT' };
+    if (html.includes('>RE</span>')) return { status: 'RUNTIME_ERROR' };
+    if (html.includes('>CE</span>')) return { status: 'COMPILE_ERROR' };
+    if (html.includes('>OLE</span>') || html.includes('>QLE</span>')) return { status: 'FAILED' };
+    if (html.includes('>WJ</span>') || html.includes('>WR</span>') || html.includes('label-default')) return { status: 'JUDGING' };
   } catch {}
-
   return { status: 'JUDGING' };
 }
