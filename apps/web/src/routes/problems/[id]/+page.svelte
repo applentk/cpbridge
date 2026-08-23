@@ -19,9 +19,7 @@
     Check,
     BookOpen,
     Terminal,
-    Globe,
-    RefreshCw,
-    Maximize2
+    RefreshCw
   } from 'lucide-svelte';
 
   let problemId = $page.params.id;
@@ -32,7 +30,7 @@
   let loading = true;
   let error = '';
 
-  let activeTab: 'statement' | 'iframe' | 'submissions' = 'statement';
+  let activeTab: 'statement' | 'submissions' = 'statement';
   let copiedCaseIndex: string | null = null;
 
   let language: LanguageId = 'cpp23';
@@ -74,13 +72,8 @@
       if (statement && statement.html) {
         renderedHtml = renderMathInHtml(statement.html);
       }
-      // If statement extraction returned empty/fallback or failed, switch default tab to iframe
-      if (!statement || !statement.html || statement.html.includes('Please refer to the official')) {
-        activeTab = 'iframe';
-      }
     } catch (err) {
-      console.error('Failed to load statement, using iframe fallback:', err);
-      activeTab = 'iframe';
+      console.error('Failed to load statement:', err);
     } finally {
       statementLoading = false;
     }
@@ -175,7 +168,7 @@
   </div>
 {:else}
   <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-140px)] min-h-[650px]">
-    <!-- Left Column: Rich Statement Reader, Iframe Embed & Submissions -->
+    <!-- Left Column: Rich Statement Reader & Submissions -->
     <div class="lg:col-span-6 flex flex-col space-y-3 h-full overflow-hidden">
       <!-- Problem Header Card -->
       <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/60 shrink-0 space-y-3">
@@ -201,7 +194,7 @@
             target="_blank"
             rel="noopener noreferrer"
             class="text-xs text-indigo-400 hover:text-indigo-300 flex items-center space-x-1 font-semibold"
-            title="Open official statement in new tab"
+            title="Open official statement on source website"
           >
             <span>Open Source</span>
             <ExternalLink class="w-3.5 h-3.5" />
@@ -234,27 +227,17 @@
         <div class="flex items-center space-x-2 pt-2">
           <button
             on:click={() => (activeTab = 'statement')}
-            class="px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 {
+            class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 {
               activeTab === 'statement' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
             }"
           >
             <BookOpen class="w-3.5 h-3.5" />
-            <span>Extracted Reader (LaTeX)</span>
-          </button>
-
-          <button
-            on:click={() => (activeTab = 'iframe')}
-            class="px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 {
-              activeTab === 'iframe' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
-            }"
-          >
-            <Globe class="w-3.5 h-3.5" />
-            <span>Live Embed (iframe)</span>
+            <span>Problem Statement</span>
           </button>
 
           <button
             on:click={() => (activeTab = 'submissions')}
-            class="px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 {
+            class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 {
               activeTab === 'submissions' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
             }"
           >
@@ -265,16 +248,15 @@
       </div>
 
       <!-- Tab Content Container -->
-      <div class="flex-1 overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-900/40 {activeTab === 'iframe' ? 'p-2 flex flex-col' : 'p-5 space-y-6'}">
+      <div class="flex-1 overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5 space-y-6">
         {#if activeTab === 'statement'}
-          <!-- 1. Extracted Reader View -->
           {#if statementLoading}
             <div class="space-y-3 py-6">
               <div class="h-4 bg-zinc-800/60 rounded w-3/4 animate-pulse"></div>
               <div class="h-4 bg-zinc-800/60 rounded w-5/6 animate-pulse"></div>
               <div class="h-4 bg-zinc-800/60 rounded w-2/3 animate-pulse"></div>
             </div>
-          {:else if renderedHtml && !renderedHtml.includes('Please refer to the official')}
+          {:else if renderedHtml}
             <!-- Statement Body HTML with KaTeX formulas -->
             <div class="statement-content text-sm text-zinc-300 leading-relaxed space-y-4">
               {@html renderedHtml}
@@ -340,80 +322,29 @@
               </div>
             {/if}
           {:else}
-            <!-- Fallback prompt to iframe -->
             <div class="p-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 text-center space-y-4">
               <div class="w-12 h-12 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 flex items-center justify-center mx-auto">
-                <Globe class="w-6 h-6" />
+                <BookOpen class="w-6 h-6" />
               </div>
               <div class="space-y-1">
-                <h3 class="font-bold text-white text-base">Direct Reader Unavailable</h3>
+                <h3 class="font-bold text-white text-base">Statement Available on Source Website</h3>
                 <p class="text-xs text-zinc-400 max-w-sm mx-auto">
-                  {problem.platform} blocks direct background scraping. Switch to the live iframe embed or open in a new tab.
+                  Click below to view the official statement on {problem.platform}.
                 </p>
               </div>
-              <div class="flex items-center justify-center space-x-3 pt-2">
-                <button
-                  on:click={() => (activeTab = 'iframe')}
-                  class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center space-x-1.5"
-                >
-                  <Globe class="w-3.5 h-3.5" />
-                  <span>View in Live Embed (iframe)</span>
-                </button>
-                <a
-                  href={problem.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="px-4 py-2 rounded-xl text-xs font-semibold border border-zinc-800 hover:bg-zinc-800 text-zinc-300 transition flex items-center space-x-1.5"
-                >
-                  <span>Open Tab</span>
-                  <ExternalLink class="w-3.5 h-3.5" />
-                </a>
-              </div>
+              <a
+                href={problem.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition inline-flex items-center space-x-1.5"
+              >
+                <span>Open {problem.platform} Statement</span>
+                <ExternalLink class="w-3.5 h-3.5" />
+              </a>
             </div>
           {/if}
-
-        {:else if activeTab === 'iframe'}
-          <!-- 2. Iframe Embed View -->
-          <div class="flex flex-col h-full space-y-2">
-            <!-- Iframe Toolbar -->
-            <div class="flex items-center justify-between px-3 py-2 rounded-xl bg-zinc-950/80 border border-zinc-800 text-xs">
-              <div class="flex items-center space-x-2 text-zinc-400 truncate">
-                <span class="font-mono text-zinc-500 truncate">{problem.url}</span>
-              </div>
-              <div class="flex items-center space-x-2 shrink-0">
-                <a
-                  href={problem.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition flex items-center space-x-1 text-[11px] font-semibold"
-                  title="Open in new window"
-                >
-                  <span>Pop out</span>
-                  <ExternalLink class="w-3 h-3" />
-                </a>
-              </div>
-            </div>
-
-            <!-- Iframe Frame -->
-            <div class="flex-1 relative rounded-xl overflow-hidden border border-zinc-800 bg-white">
-              <iframe
-                src={problem.url}
-                title={problem.title}
-                class="w-full h-full"
-                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                loading="lazy"
-              ></iframe>
-            </div>
-
-            <p class="text-[11px] text-zinc-500 text-center py-0.5">
-              If the platform blocks inline embedding, click
-              <a href={problem.url} target="_blank" class="text-indigo-400 underline ml-0.5">Pop out</a>
-              to view in a separate tab side-by-side.
-            </p>
-          </div>
-
         {:else}
-          <!-- 3. Submissions Tab -->
+          <!-- Submissions Tab -->
           {#if recentSubmissions.length === 0}
             <p class="text-xs text-zinc-500 py-8 text-center">No submissions yet for this problem.</p>
           {:else}
