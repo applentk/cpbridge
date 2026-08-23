@@ -3,15 +3,15 @@
   import { Trophy, Code2, Layers, Cpu, LogOut, LogIn, UserPlus, Puzzle } from 'lucide-svelte';
 </script>
 
-<nav class="border-b border-zinc-800 bg-zinc-900/60 backdrop-blur-md sticky top-0 z-50">
+<nav class="border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-50">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
     <!-- Brand / Logo -->
     <div class="flex items-center space-x-8">
-      <a href="/" class="flex items-center space-x-2 text-indigo-400 font-bold text-xl tracking-tight hover:opacity-90">
-        <div class="w-8 h-8 rounded-lg bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center">
-          <Code2 class="w-5 h-5 text-indigo-400" />
+      <a href="/" class="flex items-center space-x-2 text-white font-bold text-xl tracking-tight hover:opacity-90">
+        <div class="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center">
+          <Code2 class="w-5 h-5 text-white" />
         </div>
-        <span class="text-white">CP<span class="text-indigo-400">Hub</span></span>
+        <span class="text-white">CP<span class="text-zinc-400">Hub</span></span>
       </a>
 
       <div class="hidden md:flex items-center space-x-1">
@@ -36,7 +36,7 @@
 
     <!-- Right Side Actions -->
     <div class="flex items-center space-x-3">
-      <a href="/settings/integrations" class="p-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition" title="Platform Integrations">
+      <a href="/settings/integrations" class="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition" title="Platform Integrations">
         <Puzzle class="w-5 h-5" />
       </a>
 
@@ -45,14 +45,14 @@
       {:else if $auth.user}
         <div class="flex items-center space-x-3 pl-2 border-l border-zinc-800">
           <a href="/dashboard" class="flex items-center space-x-2 text-sm font-medium text-zinc-200 hover:text-white">
-            <div class="w-7 h-7 rounded-full bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-xs text-indigo-300 font-semibold uppercase">
+            <div class="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-600 flex items-center justify-center text-xs text-white font-semibold uppercase">
               {$auth.user.username.slice(0, 2)}
             </div>
             <span>{$auth.user.username}</span>
           </a>
           <button
             on:click={() => auth.logout()}
-            class="p-1.5 text-zinc-400 hover:text-red-400 rounded-md hover:bg-zinc-800/60 transition"
+            class="p-1.5 text-zinc-400 hover:text-white rounded-md hover:bg-zinc-800 transition"
             title="Log Out"
           >
             <LogOut class="w-4 h-4" />
@@ -64,7 +64,7 @@
             <LogIn class="w-4 h-4" />
             <span>Sign In</span>
           </a>
-          <a href="/register" class="px-3.5 py-1.5 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition flex items-center space-x-1.5">
+          <a href="/register" class="px-3.5 py-1.5 rounded-lg text-sm font-semibold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center space-x-1.5">
             <UserPlus class="w-4 h-4" />
             <span>Sign Up</span>
           </a>

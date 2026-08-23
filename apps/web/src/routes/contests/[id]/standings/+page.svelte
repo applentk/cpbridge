@@ -42,7 +42,7 @@
 {#if loading}
   <div class="h-96 rounded-2xl bg-zinc-900/40 border border-zinc-800 animate-pulse"></div>
 {:else if error || !contest || !standings}
-  <div class="p-8 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300">
+  <div class="p-8 rounded-2xl border border-zinc-700 bg-zinc-900 text-zinc-200">
     <h2 class="text-xl font-bold">Error</h2>
     <p class="text-sm">{error || 'Standings not available.'}</p>
   </div>
@@ -58,7 +58,7 @@
           </a>
         </div>
         <h1 class="text-3xl font-extrabold text-white flex items-center space-x-2">
-          <Trophy class="w-7 h-7 text-indigo-400" />
+          <Trophy class="w-7 h-7 text-white" />
           <span>{contest.name} — Standings</span>
         </h1>
       </div>
@@ -67,7 +67,7 @@
         <ContestTimer startAt={contest.startAt} endAt={contest.endAt} state={contest.state} />
         <button
           on:click={loadData}
-          class="p-2.5 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
+          class="p-2.5 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
           title="Refresh standings"
         >
           <RefreshCw class="w-4 h-4" />

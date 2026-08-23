@@ -40,7 +40,7 @@
     {#if $auth.user}
       <a
         href="/contests/new"
-        class="px-4 py-2.5 rounded-xl font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition flex items-center space-x-2 shrink-0 self-start sm:self-auto"
+        class="px-4 py-2.5 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center space-x-2 shrink-0 self-start sm:self-auto"
       >
         <Plus class="w-4 h-4" />
         <span>Create Virtual Contest</span>
@@ -54,7 +54,7 @@
       <button
         on:click={() => (filterState = s)}
         class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition {
-          filterState === s ? 'bg-indigo-600 text-white shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+          filterState === s ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
         }"
       >
         {s}
@@ -75,7 +75,7 @@
       {#if $auth.user}
         <a
           href="/contests/new"
-          class="px-4 py-2 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition inline-flex items-center space-x-1.5"
+          class="px-4 py-2 rounded-xl text-sm font-bold bg-white hover:bg-zinc-200 text-black transition inline-flex items-center space-x-1.5"
         >
           <Plus class="w-4 h-4" />
           <span>Host a Contest</span>
@@ -92,9 +92,9 @@
           <div class="space-y-3">
             <div class="flex items-center justify-between">
               <span class="text-xs px-2.5 py-0.5 rounded-full font-bold {
-                c.state === 'UPCOMING' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
-                c.state === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                c.state === 'ACTIVE' ? 'bg-white text-black border border-white' :
+                c.state === 'UPCOMING' ? 'bg-zinc-800 text-zinc-300 border border-zinc-700' :
+                'bg-zinc-950 text-zinc-500 border border-zinc-800'
               }">
                 {c.state}
               </span>
@@ -103,7 +103,7 @@
             </div>
 
             <div>
-              <h3 class="text-lg font-bold text-white group-hover:text-indigo-400 transition">{c.name}</h3>
+              <h3 class="text-lg font-bold text-white group-hover:text-zinc-300 transition">{c.name}</h3>
               <p class="text-xs text-zinc-400 line-clamp-2 mt-1">{c.description || 'No description.'}</p>
             </div>
 
@@ -121,7 +121,7 @@
 
           <div class="flex items-center justify-between pt-3 border-t border-zinc-800 text-xs">
             <span class="text-zinc-500">by {c.ownerUsername}</span>
-            <span class="text-indigo-400 font-semibold flex items-center space-x-1 group-hover:translate-x-0.5 transition">
+            <span class="text-zinc-300 font-semibold flex items-center space-x-1 group-hover:text-white group-hover:translate-x-0.5 transition">
               <span>Enter Contest</span>
               <ArrowRight class="w-3.5 h-3.5" />
             </span>

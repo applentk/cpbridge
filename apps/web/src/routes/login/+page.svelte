@@ -36,8 +36,8 @@
     </div>
 
     {#if error}
-      <div class="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm flex items-center space-x-2">
-        <AlertCircle class="w-4 h-4 shrink-0" />
+      <div class="p-3 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm flex items-center space-x-2">
+        <AlertCircle class="w-4 h-4 shrink-0 text-white" />
         <span>{error}</span>
       </div>
     {/if}
@@ -51,7 +51,7 @@
           bind:value={emailOrUsername}
           required
           placeholder="user@example.com or username"
-          class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 placeholder-zinc-600 text-sm transition"
+          class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 placeholder-zinc-600 text-sm transition"
         />
       </div>
 
@@ -63,14 +63,14 @@
           bind:value={password}
           required
           placeholder="••••••••"
-          class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 placeholder-zinc-600 text-sm transition"
+          class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 placeholder-zinc-600 text-sm transition"
         />
       </div>
 
       <button
         type="submit"
         disabled={loading}
-        class="w-full py-2.5 rounded-xl font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-lg shadow-indigo-600/30 transition flex items-center justify-center space-x-2"
+        class="w-full py-2.5 rounded-xl font-bold bg-white hover:bg-zinc-200 disabled:opacity-50 text-black shadow-sm transition flex items-center justify-center space-x-2"
       >
         <LogIn class="w-4 h-4" />
         <span>{loading ? 'Signing in...' : 'Sign In'}</span>
@@ -79,7 +79,7 @@
 
     <div class="text-center text-xs text-zinc-400 pt-2 border-t border-zinc-800">
       Don't have an account?
-      <a href="/register" class="text-indigo-400 hover:text-indigo-300 font-semibold ml-1">Create one</a>
+      <a href="/register" class="text-white hover:underline font-semibold ml-1">Create one</a>
     </div>
   </div>
 </div>

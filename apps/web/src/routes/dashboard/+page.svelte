@@ -35,11 +35,11 @@
       <p class="text-sm text-zinc-400">Welcome back, {$auth.user?.username || 'Guest'}!</p>
     </div>
     <div class="flex items-center space-x-3">
-      <a href="/contests/new" class="px-4 py-2 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center space-x-1.5 shadow-sm">
+      <a href="/contests/new" class="px-4 py-2 rounded-xl text-sm font-semibold bg-white hover:bg-zinc-200 text-black transition flex items-center space-x-1.5 shadow-sm">
         <Plus class="w-4 h-4" />
         <span>New Contest</span>
       </a>
-      <a href="/problem-sets" class="px-4 py-2 rounded-xl text-sm font-semibold border border-zinc-800 bg-zinc-900/60 hover:bg-zinc-800 text-zinc-200 transition flex items-center space-x-1.5">
+      <a href="/problem-sets" class="px-4 py-2 rounded-xl text-sm font-semibold border border-zinc-700 bg-zinc-900/80 hover:bg-zinc-800 text-white transition flex items-center space-x-1.5">
         <Layers class="w-4 h-4" />
         <span>Create Problem Set</span>
       </a>
@@ -57,10 +57,10 @@
     <div class="space-y-4">
       <div class="flex items-center justify-between">
         <h2 class="text-xl font-bold text-white flex items-center space-x-2">
-          <Trophy class="w-5 h-5 text-indigo-400" />
+          <Trophy class="w-5 h-5 text-white" />
           <span>Virtual Contests</span>
         </h2>
-        <a href="/contests" class="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center space-x-1">
+        <a href="/contests" class="text-xs font-semibold text-zinc-400 hover:text-white flex items-center space-x-1">
           <span>View all</span>
           <ArrowRight class="w-3.5 h-3.5" />
         </a>
@@ -69,7 +69,7 @@
       {#if contests.length === 0}
         <div class="p-8 rounded-2xl border border-zinc-800 bg-zinc-900/20 text-center space-y-3">
           <p class="text-sm text-zinc-400">No virtual contests created yet.</p>
-          <a href="/contests/new" class="inline-flex items-center space-x-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300">
+          <a href="/contests/new" class="inline-flex items-center space-x-1.5 text-xs font-semibold text-white hover:underline">
             <Plus class="w-3.5 h-3.5" />
             <span>Create your first contest</span>
           </a>
@@ -80,9 +80,9 @@
             <a href={`/contests/${c.id}`} class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/40 hover:bg-zinc-800/40 hover:border-zinc-700 transition space-y-3 block">
               <div class="flex items-center justify-between">
                 <span class="text-xs px-2 py-0.5 rounded-full font-bold {
-                  c.state === 'UPCOMING' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
-                  c.state === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                  'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                  c.state === 'ACTIVE' ? 'bg-white text-black border border-white' :
+                  c.state === 'UPCOMING' ? 'bg-zinc-800 text-zinc-300 border border-zinc-700' :
+                  'bg-zinc-950 text-zinc-500 border border-zinc-800'
                 }">
                   {c.state}
                 </span>
@@ -103,10 +103,10 @@
     <div class="space-y-4">
       <div class="flex items-center justify-between">
         <h2 class="text-xl font-bold text-white flex items-center space-x-2">
-          <Layers class="w-5 h-5 text-indigo-400" />
+          <Layers class="w-5 h-5 text-white" />
           <span>Curated Problem Sets</span>
         </h2>
-        <a href="/problem-sets" class="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center space-x-1">
+        <a href="/problem-sets" class="text-xs font-semibold text-zinc-400 hover:text-white flex items-center space-x-1">
           <span>View all</span>
           <ArrowRight class="w-3.5 h-3.5" />
         </a>
@@ -115,7 +115,7 @@
       {#if problemSets.length === 0}
         <div class="p-8 rounded-2xl border border-zinc-800 bg-zinc-900/20 text-center space-y-3">
           <p class="text-sm text-zinc-400">No problem sets available.</p>
-          <a href="/problem-sets" class="inline-flex items-center space-x-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300">
+          <a href="/problem-sets" class="inline-flex items-center space-x-1.5 text-xs font-semibold text-white hover:underline">
             <Plus class="w-3.5 h-3.5" />
             <span>Create a Problem Set</span>
           </a>
@@ -126,7 +126,7 @@
             <a href={`/problem-sets/${ps.id}`} class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/40 hover:bg-zinc-800/40 hover:border-zinc-700 transition space-y-2 block">
               <h3 class="font-bold text-white text-base truncate">{ps.name}</h3>
               <p class="text-xs text-zinc-400 line-clamp-2">{ps.description || 'No description provided.'}</p>
-              <div class="text-xs text-indigo-400 font-semibold pt-2">
+              <div class="text-xs text-zinc-300 font-semibold pt-2">
                 {ps.problemCount} problem{ps.problemCount === 1 ? '' : 's'}
               </div>
             </a>
@@ -139,10 +139,10 @@
     <div class="space-y-4">
       <div class="flex items-center justify-between">
         <h2 class="text-xl font-bold text-white flex items-center space-x-2">
-          <Cpu class="w-5 h-5 text-indigo-400" />
+          <Cpu class="w-5 h-5 text-white" />
           <span>Recent Submissions</span>
         </h2>
-        <a href="/submissions" class="text-xs font-semibold text-indigo-400 hover:text-indigo-300 flex items-center space-x-1">
+        <a href="/submissions" class="text-xs font-semibold text-zinc-400 hover:text-white flex items-center space-x-1">
           <span>View all</span>
           <ArrowRight class="w-3.5 h-3.5" />
         </a>
@@ -157,7 +157,7 @@
           {#each submissions as sub}
             <div class="p-4 flex items-center justify-between hover:bg-zinc-800/20 transition">
               <div class="space-y-1">
-                <a href={`/problems/${sub.problemId}`} class="font-semibold text-zinc-100 hover:text-indigo-400 text-sm">
+                <a href={`/problems/${sub.problemId}`} class="font-semibold text-zinc-100 hover:text-white text-sm">
                   {sub.problemTitle || sub.problemId}
                 </a>
                 <div class="flex items-center space-x-2 text-xs text-zinc-400">
@@ -170,10 +170,10 @@
               </div>
 
               <span class="text-xs px-2.5 py-1 rounded-lg font-bold font-mono {
-                sub.status === 'ACCEPTED' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                sub.status === 'WRONG_ANSWER' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
-                sub.status === 'JUDGING' || sub.status === 'PENDING' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
-                'bg-zinc-800 text-zinc-300 border border-zinc-700'
+                sub.status === 'ACCEPTED' ? 'bg-white text-black border border-white' :
+                sub.status === 'WRONG_ANSWER' ? 'bg-zinc-900 text-zinc-300 border border-zinc-600' :
+                sub.status === 'JUDGING' || sub.status === 'PENDING' ? 'bg-zinc-800 text-zinc-200 border border-zinc-700 font-medium' :
+                'bg-zinc-950 text-zinc-400 border border-zinc-800'
               }">
                 {sub.status}
               </span>

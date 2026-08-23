@@ -79,15 +79,15 @@
   <div class="p-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 shadow-xl space-y-6">
     <div class="space-y-1.5 border-b border-zinc-800 pb-4">
       <h1 class="text-2xl font-bold text-white flex items-center space-x-2">
-        <Trophy class="w-6 h-6 text-indigo-400" />
+        <Trophy class="w-6 h-6 text-white" />
         <span>Create Virtual Contest</span>
       </h1>
       <p class="text-sm text-zinc-400">Snapshot problems from a problem set into a timed competitive contest.</p>
     </div>
 
     {#if error}
-      <div class="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm flex items-center space-x-2">
-        <AlertCircle class="w-4 h-4 shrink-0" />
+      <div class="p-3.5 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm flex items-center space-x-2">
+        <AlertCircle class="w-4 h-4 shrink-0 text-white" />
         <span>{error}</span>
       </div>
     {/if}
@@ -100,7 +100,7 @@
           type="text"
           bind:value={name}
           placeholder="e.g. Weekly Algorithm Practice Round #1"
-          class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm placeholder-zinc-600 transition"
+          class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm placeholder-zinc-600 transition"
         />
       </div>
 
@@ -109,7 +109,7 @@
         <select
           id="source-set"
           bind:value={selectedSetId}
-          class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm transition"
+          class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm transition"
         >
           {#each problemSets as ps}
             <option value={ps.id}>{ps.name} ({ps.problemCount} problems)</option>
@@ -126,7 +126,7 @@
           <select
             id="start-timing"
             bind:value={startOption}
-            class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm transition"
+            class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm transition"
           >
             <option value="now">Immediately (10s countdown)</option>
             <option value="5m">In 5 minutes</option>
@@ -139,7 +139,7 @@
           <select
             id="contest-duration"
             bind:value={durationMinutes}
-            class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm transition"
+            class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm transition"
           >
             <option value={30}>30 minutes</option>
             <option value={60}>1 hour</option>
@@ -157,7 +157,7 @@
             id="custom-start-time"
             type="datetime-local"
             bind:value={customStart}
-            class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm transition"
+            class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm transition"
           />
         </div>
       {/if}
@@ -168,7 +168,7 @@
           <select
             id="scoring-engine"
             bind:value={scoringType}
-            class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm transition"
+            class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm transition"
           >
             <option value="ICPC">ICPC (Solved + 20m Penalties)</option>
             <option value="SIMPLE">SIMPLE (Solved Count Only)</option>
@@ -180,7 +180,7 @@
           <select
             id="contest-visibility"
             bind:value={visibility}
-            class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm transition"
+            class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm transition"
           >
             <option value="PUBLIC">PUBLIC</option>
             <option value="UNLISTED">UNLISTED</option>
@@ -196,7 +196,7 @@
           bind:value={description}
           rows="2"
           placeholder="Contest rules, invited participants..."
-          class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm placeholder-zinc-600 transition"
+          class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm placeholder-zinc-600 transition"
         ></textarea>
       </div>
     </div>
@@ -204,14 +204,14 @@
     <div class="flex items-center justify-end space-x-3 pt-4 border-t border-zinc-800">
       <a
         href="/contests"
-        class="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
+        class="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
       >
         Cancel
       </a>
       <button
         on:click={handleCreate}
         disabled={submitting || !name.trim() || !selectedSetId}
-        class="px-6 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white shadow-lg shadow-indigo-600/30 transition flex items-center space-x-2"
+        class="px-6 py-2.5 rounded-xl text-sm font-bold bg-white hover:bg-zinc-200 disabled:opacity-50 text-black shadow-sm transition flex items-center space-x-2"
       >
         <span>{submitting ? 'Creating...' : 'Start Contest'}</span>
       </button>

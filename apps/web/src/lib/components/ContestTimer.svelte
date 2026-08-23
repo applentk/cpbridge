@@ -46,28 +46,28 @@
   });
 </script>
 
-<div class="flex items-center space-x-3 px-4 py-2 rounded-xl border bg-zinc-900/80 backdrop-blur-md shadow-sm {
-  state === 'UPCOMING' ? 'border-amber-500/30 text-amber-300' :
-  state === 'ACTIVE' ? 'border-emerald-500/30 text-emerald-300' :
-  'border-zinc-700 text-zinc-400'
+<div class="flex items-center space-x-3 px-4 py-2 rounded-xl border backdrop-blur-md shadow-sm {
+  state === 'ACTIVE' ? 'border-zinc-500 text-white bg-zinc-900/90 shadow-sm' :
+  state === 'UPCOMING' ? 'border-zinc-700 text-zinc-200 bg-zinc-900/80' :
+  'border-zinc-800 text-zinc-500 bg-zinc-950'
 }">
   {#if state === 'UPCOMING'}
-    <Clock class="w-5 h-5 animate-pulse text-amber-400" />
+    <Clock class="w-5 h-5 animate-pulse text-zinc-300" />
     <div>
-      <div class="text-xs uppercase font-bold tracking-wider text-amber-500/90">Starts In</div>
-      <div class="text-lg font-mono font-bold tracking-tight">{remainingText}</div>
+      <div class="text-xs uppercase font-bold tracking-wider text-zinc-400">Starts In</div>
+      <div class="text-lg font-mono font-bold tracking-tight text-white">{remainingText}</div>
     </div>
   {:else if state === 'ACTIVE'}
-    <Play class="w-5 h-5 text-emerald-400" />
+    <Play class="w-5 h-5 text-white" />
     <div>
-      <div class="text-xs uppercase font-bold tracking-wider text-emerald-500/90">Time Remaining</div>
-      <div class="text-lg font-mono font-bold tracking-tight">{remainingText}</div>
+      <div class="text-xs uppercase font-bold tracking-wider text-zinc-300">Time Remaining</div>
+      <div class="text-lg font-mono font-bold tracking-tight text-white">{remainingText}</div>
     </div>
   {:else}
-    <CheckCircle class="w-5 h-5 text-zinc-400" />
+    <CheckCircle class="w-5 h-5 text-zinc-500" />
     <div>
       <div class="text-xs uppercase font-bold tracking-wider text-zinc-500">Status</div>
-      <div class="text-lg font-mono font-bold tracking-tight">Finished</div>
+      <div class="text-lg font-mono font-bold tracking-tight text-zinc-400">Finished</div>
     </div>
   {/if}
 </div>

@@ -62,7 +62,7 @@
     {#if $auth.user}
       <button
         on:click={() => (showCreateModal = true)}
-        class="px-4 py-2.5 rounded-xl font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition flex items-center space-x-2"
+        class="px-4 py-2.5 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center space-x-2"
       >
         <Plus class="w-4 h-4" />
         <span>New Problem Set</span>
@@ -82,7 +82,7 @@
       {#if $auth.user}
         <button
           on:click={() => (showCreateModal = true)}
-          class="px-4 py-2 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition inline-flex items-center space-x-1.5"
+          class="px-4 py-2 rounded-xl text-sm font-bold bg-white hover:bg-zinc-200 text-black transition inline-flex items-center space-x-1.5"
         >
           <Plus class="w-4 h-4" />
           <span>Create your first set</span>
@@ -99,9 +99,9 @@
           <div class="space-y-2">
             <div class="flex items-center justify-between">
               <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold flex items-center space-x-1 {
-                set.visibility === 'PUBLIC' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                set.visibility === 'PRIVATE' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
-                'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                set.visibility === 'PUBLIC' ? 'bg-zinc-800 text-zinc-200 border border-zinc-700' :
+                set.visibility === 'PRIVATE' ? 'bg-zinc-950 text-zinc-400 border border-zinc-800' :
+                'bg-zinc-900 text-zinc-300 border border-zinc-700'
               }">
                 {#if set.visibility === 'PUBLIC'}
                   <Globe class="w-3 h-3 inline mr-1" />
@@ -116,12 +116,12 @@
               <span class="text-xs text-zinc-500 font-mono">by {set.ownerUsername || 'User'}</span>
             </div>
 
-            <h3 class="text-lg font-bold text-white group-hover:text-indigo-400 transition">{set.name}</h3>
+            <h3 class="text-lg font-bold text-white group-hover:text-zinc-300 transition">{set.name}</h3>
             <p class="text-xs text-zinc-400 line-clamp-2">{set.description || 'No description provided.'}</p>
           </div>
 
           <div class="flex items-center justify-between pt-3 border-t border-zinc-800/80 text-xs">
-            <span class="font-semibold text-indigo-400">{set.problemCount} problem{set.problemCount === 1 ? '' : 's'}</span>
+            <span class="font-semibold text-zinc-300">{set.problemCount} problem{set.problemCount === 1 ? '' : 's'}</span>
             <span class="text-zinc-500 flex items-center space-x-1 group-hover:text-zinc-300 transition">
               <span>View Set</span>
               <ArrowRight class="w-3.5 h-3.5" />
@@ -134,7 +134,7 @@
 
   <!-- Create Modal -->
   {#if showCreateModal}
-    <div class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
       <div class="max-w-md w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl space-y-5">
         <div class="space-y-1">
           <h3 class="text-xl font-bold text-white">Create Problem Set</h3>
@@ -142,7 +142,7 @@
         </div>
 
         {#if createError}
-          <div class="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
+          <div class="p-3 rounded-xl bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm">
             {createError}
           </div>
         {/if}
@@ -155,7 +155,7 @@
               type="text"
               bind:value={name}
               placeholder="e.g. Dynamic Programming Practice"
-              class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm placeholder-zinc-600 transition"
+              class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm placeholder-zinc-600 transition"
             />
           </div>
 
@@ -166,7 +166,7 @@
               bind:value={description}
               rows="3"
               placeholder="Curated classic DP problems from Codeforces and AtCoder..."
-              class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm placeholder-zinc-600 transition"
+              class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm placeholder-zinc-600 transition"
             ></textarea>
           </div>
 
@@ -175,7 +175,7 @@
             <select
               id="set-vis"
               bind:value={visibility}
-              class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm transition"
+              class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm transition"
             >
               <option value="PUBLIC">PUBLIC</option>
               <option value="UNLISTED">UNLISTED</option>
@@ -187,14 +187,14 @@
         <div class="flex items-center justify-end space-x-3 pt-2">
           <button
             on:click={() => (showCreateModal = false)}
-            class="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
+            class="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
           >
             Cancel
           </button>
           <button
             on:click={handleCreate}
             disabled={createLoading || !name.trim()}
-            class="px-4 py-2 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white transition"
+            class="px-4 py-2 rounded-xl text-sm font-bold bg-white hover:bg-zinc-200 disabled:opacity-50 text-black transition"
           >
             {createLoading ? 'Creating...' : 'Create'}
           </button>

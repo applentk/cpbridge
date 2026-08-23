@@ -53,7 +53,7 @@
 {#if loading}
   <div class="h-96 rounded-2xl bg-zinc-900/40 border border-zinc-800 animate-pulse"></div>
 {:else if error || !contest}
-  <div class="p-8 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300">
+  <div class="p-8 rounded-2xl border border-zinc-700 bg-zinc-900 text-zinc-200">
     <h2 class="text-xl font-bold">Error</h2>
     <p class="text-sm">{error || 'Contest not found.'}</p>
   </div>
@@ -65,9 +65,9 @@
         <div class="space-y-2">
           <div class="flex items-center space-x-2.5">
             <span class="text-xs px-2.5 py-0.5 rounded-full font-bold {
-              contest.state === 'UPCOMING' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
-              contest.state === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-              'bg-zinc-800 text-zinc-400 border border-zinc-700'
+              contest.state === 'ACTIVE' ? 'bg-white text-black border border-white' :
+              contest.state === 'UPCOMING' ? 'bg-zinc-800 text-zinc-300 border border-zinc-700' :
+              'bg-zinc-950 text-zinc-500 border border-zinc-800'
             }">
               {contest.state}
             </span>
@@ -89,7 +89,7 @@
 
           <a
             href={`/contests/${contest.id}/standings`}
-            class="px-5 py-3 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition flex items-center justify-center space-x-2 text-sm"
+            class="px-5 py-3 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center justify-center space-x-2 text-sm"
           >
             <Trophy class="w-4 h-4" />
             <span>Scoreboard</span>
@@ -109,12 +109,12 @@
         {#if $auth.user && !contest.isParticipant && contest.state !== 'FINISHED'}
           <button
             on:click={handleJoin}
-            class="px-3.5 py-1.5 rounded-lg font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition text-xs"
+            class="px-3.5 py-1.5 rounded-lg font-bold bg-white hover:bg-zinc-200 text-black transition text-xs shadow-sm"
           >
             Join Contest
           </button>
         {:else if contest.isParticipant}
-          <span class="text-emerald-400 font-medium">✓ You are participating</span>
+          <span class="text-white font-medium">✓ You are participating</span>
         {/if}
       </div>
     </div>
@@ -129,7 +129,7 @@
 
         <button
           on:click={loadContest}
-          class="p-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
+          class="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
           title="Refresh"
         >
           <RefreshCw class="w-4 h-4" />
@@ -138,8 +138,8 @@
 
       {#if contest.state === 'UPCOMING'}
         <!-- Pre-contest problem lock screen -->
-        <div class="p-12 rounded-2xl border border-amber-500/20 bg-amber-500/5 text-center space-y-3">
-          <div class="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto">
+        <div class="p-12 rounded-2xl border border-zinc-800 bg-zinc-900/50 text-center space-y-3">
+          <div class="w-12 h-12 rounded-full bg-zinc-800 border border-zinc-700 text-white flex items-center justify-center mx-auto">
             <Lock class="w-6 h-6" />
           </div>
           <h3 class="text-lg font-bold text-white">Problems are Hidden</h3>
@@ -148,7 +148,7 @@
           </p>
           <div class="flex justify-center space-x-2 pt-2">
             {#each problems as p}
-              <div class="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center font-bold text-zinc-500 text-sm">
+              <div class="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center font-bold text-zinc-400 text-sm">
                 {p.label}
               </div>
             {/each}

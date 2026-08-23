@@ -101,7 +101,7 @@
 {#if loading}
   <div class="h-96 rounded-2xl bg-zinc-900/40 border border-zinc-800 animate-pulse"></div>
 {:else if error || !problemSet}
-  <div class="p-8 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300">
+  <div class="p-8 rounded-2xl border border-zinc-700 bg-zinc-900 text-zinc-200">
     <h2 class="text-xl font-bold">Error</h2>
     <p class="text-sm">{error || 'Problem set not found.'}</p>
   </div>
@@ -122,7 +122,7 @@
         <div class="flex items-center space-x-3 shrink-0">
           <a
             href={`/contests/new?setId=${problemSet.id}`}
-            class="px-4 py-2.5 rounded-xl font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition flex items-center space-x-2 text-sm"
+            class="px-4 py-2.5 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center space-x-2 text-sm"
           >
             <Trophy class="w-4 h-4" />
             <span>Host Virtual Contest</span>
@@ -131,7 +131,7 @@
           {#if $auth.user && $auth.user.id === problemSet.ownerId}
             <button
               on:click={handleDeleteSet}
-              class="p-2.5 rounded-xl border border-zinc-800 hover:border-red-500/50 hover:bg-red-500/10 text-zinc-400 hover:text-red-300 transition"
+              class="p-2.5 rounded-xl border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
               title="Delete Problem Set"
             >
               <Trash2 class="w-4 h-4" />
@@ -145,14 +145,14 @@
     <div class="space-y-4">
       <div class="flex items-center justify-between">
         <h2 class="text-xl font-bold text-white flex items-center space-x-2">
-          <Layers class="w-5 h-5 text-indigo-400" />
+          <Layers class="w-5 h-5 text-white" />
           <span>Problems ({problemSet.items?.length || 0})</span>
         </h2>
 
         {#if $auth.user && $auth.user.id === problemSet.ownerId}
           <button
             on:click={openAddModal}
-            class="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-white transition flex items-center space-x-1.5"
+            class="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700 transition flex items-center space-x-1.5"
           >
             <Plus class="w-3.5 h-3.5" />
             <span>Add Problem</span>
@@ -166,7 +166,7 @@
           {#if $auth.user && $auth.user.id === problemSet.ownerId}
             <button
               on:click={openAddModal}
-              class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition inline-flex items-center space-x-1.5"
+              class="px-4 py-2 rounded-xl text-xs font-bold bg-white hover:bg-zinc-200 text-black transition inline-flex items-center space-x-1.5"
             >
               <Plus class="w-4 h-4" />
               <span>Add your first problem</span>
@@ -202,7 +202,7 @@
                     </button>
                     <button
                       on:click={() => handleRemoveProblem(item.problemId)}
-                      class="p-1.5 rounded-lg border border-zinc-800 hover:bg-red-500/20 hover:border-red-500/40 text-zinc-500 hover:text-red-300 transition"
+                      class="p-1.5 rounded-lg border border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700 text-zinc-500 hover:text-white transition"
                       title="Remove"
                     >
                       <Trash2 class="w-3.5 h-3.5" />
@@ -219,7 +219,7 @@
 
   <!-- Add Problem Modal -->
   {#if showAddModal}
-    <div class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
       <div class="max-w-lg w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl space-y-5">
         <div class="space-y-1">
           <h3 class="text-xl font-bold text-white">Add Problem to Set</h3>
@@ -231,7 +231,7 @@
           <select
             id="select-prob"
             bind:value={selectedProblemId}
-            class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-indigo-500 focus:outline-none text-zinc-100 text-sm transition"
+            class="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm transition"
           >
             {#each allProblems as p}
               <option value={p.id}>[{p.platform}] {p.title}</option>
@@ -242,13 +242,13 @@
         <div class="flex items-center justify-end space-x-3 pt-2">
           <button
             on:click={() => (showAddModal = false)}
-            class="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
+            class="px-4 py-2 rounded-xl text-sm font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
           >
             Cancel
           </button>
           <button
             on:click={handleAddProblem}
-            class="px-4 py-2 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition"
+            class="px-4 py-2 rounded-xl text-sm font-bold bg-white hover:bg-zinc-200 text-black transition"
           >
             Add to Set
           </button>

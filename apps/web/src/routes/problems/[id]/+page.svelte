@@ -373,7 +373,7 @@
               <div class="h-4 bg-zinc-800/60 rounded w-2/3 animate-pulse"></div>
             </div>
           {:else if renderedHtml}
-            <div class="statement-content text-sm text-zinc-300 leading-relaxed space-y-4">
+            <div class="statement-content text-base sm:text-lg text-zinc-100 leading-relaxed sm:leading-8 space-y-5">
               {@html renderedHtml}
             </div>
 
@@ -523,7 +523,7 @@
                 <div class="h-4 bg-zinc-800/60 rounded w-2/3 animate-pulse"></div>
               </div>
             {:else if renderedHtml}
-              <div class="statement-content text-sm text-zinc-300 leading-relaxed space-y-4">
+              <div class="statement-content text-base sm:text-lg text-zinc-100 leading-relaxed sm:leading-8 space-y-5">
                 {@html renderedHtml}
               </div>
 
@@ -745,48 +745,67 @@
 
 <style>
   :global(.statement-content p) {
-    margin-bottom: 0.75rem;
+    margin-bottom: 1.25rem;
+    font-size: 1.075rem;
+    line-height: 1.85;
+    color: #e4e4e7;
   }
   :global(.statement-content ul) {
     list-style-type: disc;
-    margin-left: 1.25rem;
-    margin-bottom: 0.75rem;
+    margin-left: 1.5rem;
+    margin-bottom: 1.25rem;
+    font-size: 1.075rem;
+    line-height: 1.85;
+    color: #e4e4e7;
   }
   :global(.statement-content ol) {
     list-style-type: decimal;
-    margin-left: 1.25rem;
-    margin-bottom: 0.75rem;
+    margin-left: 1.5rem;
+    margin-bottom: 1.25rem;
+    font-size: 1.075rem;
+    line-height: 1.85;
+    color: #e4e4e7;
+  }
+  :global(.statement-content li) {
+    margin-bottom: 0.5rem;
   }
   :global(.statement-content code) {
     background-color: #27272a;
-    padding: 0.15rem 0.35rem;
-    border-radius: 0.25rem;
-    font-family: monospace;
-    font-size: 0.85em;
+    color: #a5b4fc;
+    padding: 0.2rem 0.45rem;
+    border-radius: 0.35rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.95em;
   }
   :global(.statement-content pre) {
     background-color: #18181b;
     border: 1px solid #27272a;
-    padding: 0.75rem;
-    border-radius: 0.5rem;
+    padding: 1rem;
+    border-radius: 0.75rem;
     overflow-x: auto;
-    margin-bottom: 0.75rem;
-  }
-  :global(.statement-content .section-title) {
-    font-weight: 700;
+    margin-bottom: 1.25rem;
     font-size: 1rem;
-    color: #f4f4f5;
-    margin-top: 1rem;
-    margin-bottom: 0.5rem;
+    line-height: 1.65;
+  }
+  :global(.statement-content h3),
+  :global(.statement-content h4),
+  :global(.statement-content .section-title) {
+    font-weight: 800;
+    font-size: 1.25rem;
+    color: #ffffff;
+    margin-top: 1.75rem;
+    margin-bottom: 0.75rem;
+    letter-spacing: -0.01em;
   }
   :global(.katex) {
-    font-size: 1.05em;
-    color: #e4e4e7;
+    font-size: 1.15em;
+    color: #f4f4f5;
   }
   :global(.katex-display) {
-    margin: 1em 0;
+    margin: 1.25em 0;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 0.5rem 0;
+    padding: 0.75rem 0;
+    font-size: 1.25em;
   }
 </style>
