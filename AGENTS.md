@@ -25,10 +25,10 @@ AI agents modifying this codebase **must** uphold the following invariants witho
    - **Never** store user external platform passwords, API keys, or session cookies on the backend.
    - Submissions are dispatched from the client side via the browser extension (`apps/extension`) using the user's active session, or via an official fallback link.
 
-2. **Strict Server-Side UTC Contest Time**:
+2. **Server-Authoritative UTC Contest Time**:
    - Never rely on client clocks for contest start, end, remaining time, or submission validation.
-   - Contest states (`UPCOMING`, `ACTIVE`, `FINISHED`) and problem statement reveals are strictly governed by PostgreSQL `NOW()` / UTC timestamps on the server.
-   - Problem details and statements for upcoming contests are redacted in API responses until `start_at <= now()`.
+   - `contest.GetByID` and `contest.GetProblems` prefer PostgreSQL `NOW()`; list and submission paths currently use injectable UTC service clocks. Keep every path server-side and UTC.
+   - Upcoming contest problem lists are withheld from non-owner/non-admin users. Direct problem routes are not a universal secrecy boundary, especially for public external-platform problems, so use contest-scoped reads as the reveal gate.
 
 3. **Deep Contest Problem Snapshotting**:
    - When a Virtual Contest is created from a Problem Set, always snapshot problem IDs, positions, and assigned labels (`A`, `B`, `C`, ...) into `contest_problems`.
@@ -43,7 +43,8 @@ AI agents modifying this codebase **must** uphold the following invariants witho
      - `sub_...` — Submissions (`internal/submission`)
 
 5. **Official Submission & Statement Fallback**:
-   - Every problem entity and submission response must include direct official platform statement and submission links as fallback options in case scraping or extension bridging encounters edge cases.
+   - Problem entities carry the official `url`, and statement parsing falls back to an official link. The web UI exposes that source link when scraping or extension bridging encounters edge cases.
+   - Admin submission responses may include `sourceUrl` for the official external submission page; regular-user responses do not currently expose that field.
 
 6. **Thin HTTP Handlers, Rich Domain Services**:
    - Handlers in `apps/api/internal/*` must only parse parameters, validate inputs, invoke the domain service, and serialize JSON responses.
@@ -58,17 +59,15 @@ Platform adapters live in `apps/api/internal/platform/` and must implement the `
 
 ```go
 type Platform interface {
-    Name() string
-    MatchesURL(rawURL string) bool
-    ParseProblemID(rawURL string) (string, error)
-    FetchProblem(ctx context.Context, externalID string) (*ProblemMetadata, error)
-    SupportedLanguages() []string
-    BuildSubmissionPayload(req *SubmissionRequest) (*SubmissionPayload, error)
-    OfficialProblemURL(externalID string) string
-    OfficialSubmitURL(externalID string) string
+    Type() Type
+    MatchURL(rawURL string) (externalID string, matched bool)
+    GetProblem(ctx context.Context, externalID string) (*NormalizedProblem, error)
+    GetStatement(ctx context.Context, externalID string) (*ProblemStatement, error)
+    GetSubmission(ctx context.Context, externalSubmissionID string) (*SubmissionStatus, error)
 }
 ```
 - When adding a new platform (e.g. LeetCode, CSES), register the adapter in `platRegistry.Register(...)` inside `apps/api/cmd/server/main.go`.
+- The currently supported submission language IDs are `cpp23`, `python3`, and `java21`. Submission itself remains an extension responsibility; Go platform adapters only normalize problems/statements and read verdicts.
 
 ### Database & Schema Migrations
 - Standard DDL migrations reside in `migrations/`.

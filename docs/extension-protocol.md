@@ -17,7 +17,7 @@ The web page sends a message with `source: CP_HUB_WEB` using `window.postMessage
 
 Allowed origins include the local development hosts and `https://cphub.dev` / `https://app.cphub.dev`.
 
-Each request has a generated ID. The web bridge keeps a callback map and times out a request after 10 seconds.
+Each request has a generated ID. The web bridge keeps a callback map. The default timeout is 10 seconds, submission dispatch uses 30 seconds, and recovery uses 20 seconds.
 
 ## Messages
 
@@ -34,13 +34,15 @@ Checks Codeforces and AtCoder sessions.
 ```json
 {
   "type": "PONG",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "platforms": {
     "CODEFORCES": { "loggedIn": true, "username": "tourist" },
     "ATCODER": { "loggedIn": false }
   }
 }
 ```
+
+The response version comes from `chrome.runtime.getManifest()`. The example above matches the current manifest.
 
 ### `SUBMIT` → `SUBMISSION_CREATED` or `SUBMISSION_FAILED`
 
@@ -70,7 +72,53 @@ On success, the extension returns the external judge submission ID:
 }
 ```
 
-On failure, it returns an error code such as `NOT_LOGGED_IN`, `SUBMISSION_FAILED`, or `PLATFORM_UNAVAILABLE`.
+On failure, it returns one of the shared error codes: `NOT_LOGGED_IN`, `PLATFORM_UNAVAILABLE`, `RATE_LIMITED`, `UNSUPPORTED_LANGUAGE`, `PROBLEM_NOT_FOUND`, `SUBMISSION_FAILED`, or `UNKNOWN`. Current platform-dispatch failures are generally mapped to `NOT_LOGGED_IN` or `SUBMISSION_FAILED`; bridge/runtime failures use `PLATFORM_UNAVAILABLE` or `UNKNOWN`.
+
+The background worker deduplicates concurrent `SUBMIT` messages by cpbridge submission ID. It also persists a compact handoff record under `cp_hub_dispatch:{submissionId}` in `chrome.storage.local`. The stored record contains the cpbridge ID, state, and external ID or error; it does not contain source code or platform credentials.
+
+### `RECOVER_SUBMISSIONS` → `RECOVER_SUBMISSIONS_RESULT`
+
+After a reload, the web app asks for dispatches whose API handoff may not have completed:
+
+```json
+{
+  "type": "RECOVER_SUBMISSIONS"
+}
+```
+
+```json
+{
+  "type": "RECOVER_SUBMISSIONS_RESULT",
+  "submissions": [
+    {
+      "submissionId": "sub_018f9...",
+      "state": "CREATED",
+      "externalSubmissionId": "234891238"
+    }
+  ]
+}
+```
+
+States are `DISPATCHING`, `CREATED`, or `FAILED`. If the original in-memory dispatch is still running, recovery waits up to 15 seconds for that same operation; it never starts a duplicate platform submission.
+
+### `ACK_SUBMISSION` → `ACK_SUBMISSION_RESULT`
+
+After the web app successfully applies a recovered result to the API, it acknowledges the record so the extension can remove it:
+
+```json
+{
+  "type": "ACK_SUBMISSION",
+  "submissionId": "sub_018f9..."
+}
+```
+
+```json
+{
+  "type": "ACK_SUBMISSION_RESULT",
+  "submissionId": "sub_018f9...",
+  "acknowledged": true
+}
+```
 
 ### `POLL_STATUS` → `POLL_STATUS_RESULT`
 
@@ -92,8 +140,16 @@ The response normalizes platform verdicts to `JUDGING`, `ACCEPTED`, `WRONG_ANSWE
 
 ## Submission lifecycle
 
-The API creates the database row first. After the extension returns an external ID, the web app calls `/api/submissions/{id}/dispatched`. The API changes the row to `JUDGING` and enqueues an Asynq polling task. The web page also polls while the submission is active and may request an extension-side status check.
+The API creates the database row first. The web app then sends `SUBMIT`, retrying the same submission ID up to three times if the bridge itself times out. Because the extension deduplicates by ID and retains a successful result, those retries do not intentionally resubmit the source.
+
+After the extension returns an external ID, the web app calls `/api/submissions/{id}/dispatched`. The API changes the row to `JUDGING` and enqueues an Asynq polling task. The web page also polls while the submission is active and may request an extension-side status check.
+
+On page startup and before submission-history loads, the web app runs the recovery handshake. A recovered `CREATED` result completes the `/dispatched` call; a recovered `FAILED` result updates `/result`; acknowledgement happens only after the API call succeeds.
+
+Codeforces submits directly from the service worker and identifies the new ID from the signed-in user's `/my` page. AtCoder normally submits directly too, but browser verification can require an inactive same-origin submit tab. That tab may briefly appear and is always closed after the attempt.
 
 ## Required Chrome permissions
 
-The manifest requests `cookies`, `activeTab`, and `scripting`, plus host permissions for Codeforces, AtCoder, local cpbridge development hosts, and the production cpbridge hosts. These permissions are what allow the extension to use the user's existing platform session and, for AtCoder fallback submission, open a same-origin submit page and execute the form request there.
+The manifest requests `cookies`, `activeTab`, `scripting`, and `storage`, plus host permissions for Codeforces, AtCoder, local cpbridge development hosts, and the production cpbridge hosts. These permissions allow the extension to use the user's existing platform session, retain recoverable handoff state, and, for AtCoder fallback submission, open a same-origin submit page and execute the form request there.
+
+`pnpm --filter @cpbridge/extension build` writes the two scripts under `apps/extension/dist` and packages the manifest plus `dist/` into ZIP files for local installation and web download.

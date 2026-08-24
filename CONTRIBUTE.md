@@ -50,8 +50,8 @@ Before setting up the repository, ensure you have the following installed:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/cpbridge/apple-icpc.git
-cd apple-icpc
+git clone https://github.com/applentk/cpbridge.git
+cd cpbridge
 ```
 
 ### 2. Install JavaScript/TypeScript Dependencies
@@ -60,9 +60,9 @@ cd apple-icpc
 pnpm install
 ```
 
-### 3. Start PostgreSQL Database
+### 3. Start PostgreSQL and Redis
 
-Start the PostgreSQL 16 container via Docker Compose:
+Start the PostgreSQL 16 and Redis 7 containers used by the API and verdict worker:
 
 ```bash
 docker-compose up -d
@@ -72,6 +72,8 @@ PostgreSQL will be available on `localhost:5432` with:
 - **Database**: `cphub_db`
 - **Username**: `cphub`
 - **Password**: `cphub_password`
+
+Redis will be available on `localhost:6379` without a password in the local Compose configuration.
 
 ### 4. Run the Go API Server
 
@@ -111,12 +113,14 @@ Then in Google Chrome:
 2. Toggle on **Developer mode** (top right).
 3. Click **Load unpacked** and select the `apps/extension/` directory.
 
+`dev:ext` rebuilds `apps/extension/dist` in watch mode. Use `pnpm package:ext` when you also need the installable ZIP copied to `apps/extension/cpbridge-extension.zip` and `apps/web/static/downloads/cpbridge-extension.zip`.
+
 ---
 
 ## Monorepo Structure
 
 ```text
-apple-icpc/
+cpbridge/
 ├── apps/
 │   ├── api/             # Go 1.26+ modular monolith backend REST API
 │   │   ├── cmd/server/  # API entrypoint and route mounting
@@ -127,7 +131,7 @@ apple-icpc/
 │   └── contracts/       # Shared TypeScript schemas, DTOs, and protocol definitions
 ├── migrations/          # PostgreSQL DDL migrations
 ├── docs/                # Architectural, database, and protocol specifications
-├── docker-compose.yml   # Local development PostgreSQL 16 container definition
+├── docker-compose.yml   # Local PostgreSQL 16 and Redis 7 services
 ├── package.json         # Monorepo root scripts and dev tooling
 └── AGENTS.md            # Guidelines and invariants for AI agents and contributors
 ```
@@ -139,7 +143,7 @@ apple-icpc/
 When working on any part of cpbridge, always ensure these rules are preserved:
 
 1. **Zero External Credentials on Backend**: Never store user external platform passwords, API secrets, or session cookies in the database.
-2. **Strict Server-Side UTC Contest Timing**: All contest status transitions (`UPCOMING` -> `ACTIVE` -> `FINISHED`), problem statement visibility, and ICPC penalty calculations are determined strictly by server UTC timestamps (`NOW()`).
+2. **Server-Authoritative UTC Contest Timing**: Never trust client clocks. Contest detail/problem reads prefer PostgreSQL `NOW()`, while list and submission paths currently use server-side UTC service clocks.
 3. **Deep Contest Problem Snapshotting**: When creating a contest from a problem set, problems and labels are snapshotted into `contest_problems` so subsequent modifications to problem sets do not alter active/past contests.
 4. **Prefixed Entity IDs**: All entity IDs must use consistent domain prefixes:
    - `usr_...` — Users
@@ -160,14 +164,11 @@ To support a new competitive programming platform (e.g., LeetCode, CSES, SPOJ):
 2. Implement the `platform.Platform` interface defined in `apps/api/internal/platform/platform.go`:
    ```go
    type Platform interface {
-       Name() string
-       MatchesURL(rawURL string) bool
-       ParseProblemID(rawURL string) (string, error)
-       FetchProblem(ctx context.Context, externalID string) (*ProblemMetadata, error)
-       SupportedLanguages() []string
-       BuildSubmissionPayload(req *SubmissionRequest) (*SubmissionPayload, error)
-       OfficialProblemURL(externalID string) string
-       OfficialSubmitURL(externalID string) string
+       Type() Type
+       MatchURL(rawURL string) (externalID string, matched bool)
+       GetProblem(ctx context.Context, externalID string) (*NormalizedProblem, error)
+       GetStatement(ctx context.Context, externalID string) (*ProblemStatement, error)
+       GetSubmission(ctx context.Context, externalSubmissionID string) (*SubmissionStatus, error)
    }
    ```
 3. Register the new adapter in `apps/api/cmd/server/main.go`:
@@ -175,6 +176,8 @@ To support a new competitive programming platform (e.g., LeetCode, CSES, SPOJ):
    platRegistry.Register(newplatform.New())
    ```
 4. Add unit tests for URL matching and problem ID parsing in `apps/api/internal/platform/platform_test.go`.
+
+The Go adapters normalize problem data and poll verdicts; they do not submit source code. Browser-side submission support also requires updates to the shared contracts and extension adapter. The currently supported language IDs are `cpp23`, `python3`, and `java21`.
 
 ### Database Migrations
 
@@ -202,7 +205,9 @@ When adding new DTOs or modifying payload schemas:
 ### Extension Development (Manifest V3)
 
 - The browser extension communicates with the web app using `window.postMessage` and the bridge script (`src/bridge.ts`).
-- Ensure no persistent secret storage is used in the extension.
+- The background worker persists only submission handoff state in `chrome.storage.local`, allowing a page reload to recover the external submission ID without resubmitting source code.
+- Keep submission dispatch idempotent by cpbridge submission ID and preserve the `RECOVER_SUBMISSIONS` / `ACK_SUBMISSION` handshake.
+- Ensure no external credentials, cookies, or source code are written to persistent extension storage.
 
 ---
 

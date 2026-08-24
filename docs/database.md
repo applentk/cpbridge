@@ -30,7 +30,7 @@ All timestamps are `TIMESTAMPTZ`. Application-generated IDs are opaque, prefixed
 - `id`: primary key, normally `set_...`
 - `owner_id`: user foreign key with cascade delete
 - `name`, `description`
-- `visibility`: `PUBLIC`, `UNLISTED`, or `PRIVATE`
+- `visibility`: `PUBLIC`, `UNLISTED`, or `PRIVATE`; unlisted sets are available by direct ID but omitted from public listings
 - `created_at`, `updated_at`
 
 ### `problem_set_items`
@@ -43,7 +43,7 @@ Join table between sets and problems. It stores `position` and has a composite p
 - `owner_id`: contest owner
 - `name`, `description`
 - `start_at`, `end_at`
-- `visibility`: `PUBLIC` or `PRIVATE` in the current Go constants; the TypeScript contract also names `UNLISTED`
+- `visibility`: the web/contracts use `PUBLIC`, `UNLISTED`, or `PRIVATE`; list queries expose only public contests to unrelated users, while an unlisted contest remains available by direct ID
 - `scoring_type`: `ICPC` or `SIMPLE`
 - `publication_status`: `DRAFT` or `PUBLISHED`
 - `created_at`, `updated_at`
@@ -61,10 +61,13 @@ Join table between contests and users. It stores `joined_at` and has a composite
 - `id`: primary key, normally `sub_...`
 - `user_id`, `problem_id`, optional `contest_id`
 - `platform`, `language`, `source_code`
+- optional `source_hash`: SHA-256 digest used to prevent the same user from submitting identical source in the same language for the same problem
 - `status`: normally `PENDING`, `DISPATCHING`, `JUDGING`, `ACCEPTED`, `WRONG_ANSWER`, `TIME_LIMIT`, `MEMORY_LIMIT`, `RUNTIME_ERROR`, `COMPILE_ERROR`, or `FAILED`
 - optional `external_submission_id`
 - `submitted_at`, optional `judged_at`
 - `metadata`: JSONB for errors, execution time, memory, failed testcase, and raw platform data
+
+A partial unique index on `(user_id, problem_id, language, source_hash)` enforces duplicate prevention for rows that have a digest. The service also compares exact source text so legacy rows created before `source_hash` was added are covered.
 
 ### `integrations`
 

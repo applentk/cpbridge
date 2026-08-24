@@ -6,26 +6,29 @@ Unified web platform for **Codeforces** and **AtCoder**.
 
 ## Features
 
-- 👤 **Single Unified Account**: Browse, practice, and compete with one unified profile.
-- 🌐 **Multi-Platform Problem Ingestion**: Paste any URL from Codeforces or AtCoder to normalize and import problem metadata and statement text.
-- 📚 **Reusable Problem Sets**: Curate training sets, reorder problems, and share collections.
-- 🏆 **Virtual Contests & ICPC Scoring**: Host virtual contests with snapshot problem isolation, automatic problem reveal at start time, and accurate ICPC penalty calculations.
-- 💻 **Monaco Code Editor & KaTeX Reader**: Integrated editor supporting C++23, Python 3, and Java 21 with file upload and auto-language detection.
-- 🛡️ **Zero-Cookie Browser Extension Bridge**: Uses local browser sessions to dispatch submissions safely without sending passwords or cookies to the server.
+- **Single Unified Account**: Browse, practice, and compete with one unified profile.
+- **Multi-Platform Problem Ingestion**: Paste a Codeforces or AtCoder problem URL to normalize and import its metadata; statements are loaded from stored custom content or fetched from the platform adapter when opened.
+- **Reusable Problem Sets**: Curate training sets, reorder problems, and share collections.
+- **Virtual Contests & ICPC Scoring**: Host virtual contests with snapshot problem isolation, automatic problem reveal at start time, and accurate ICPC penalty calculations.
+- **Monaco Code Editor & KaTeX Reader**: Integrated editor supporting C++23, Python 3, and Java 21 with file upload and auto-language detection.
+- **Zero-Cookie Browser Extension Bridge**: Uses local browser sessions to dispatch submissions safely without sending passwords or cookies to the server.
 
 ---
 
 ## Quickstart
 
 ```bash
-# 1. Start PostgreSQL and Redis
+# 1. Install workspace dependencies
+pnpm install
+
+# 2. Start PostgreSQL and Redis
 docker-compose up -d
 
-# 2. Run Go Backend API
+# 3. Run the Go API (includes the Asynq verdict worker)
 cd apps/api
 go run cmd/server/main.go
 
-# 3. In another terminal, run Web Frontend
+# 4. In another terminal, run the web app
 pnpm --filter @cpbridge/web dev
 ```
 
@@ -39,7 +42,9 @@ The web app can browse without the extension, but submitting to Codeforces or At
 pnpm --filter @cpbridge/extension build
 ```
 
-Load `apps/extension` as an unpacked extension in Chrome after the build. The manifest points to the generated `dist/background.js` and `dist/bridge.js` files.
+The build writes `dist/background.js` and `dist/bridge.js`, then packages `cpbridge-extension.zip` both in `apps/extension/` and in the web app's downloads directory. Either load `apps/extension` as an unpacked extension, or extract the ZIP and load the extracted folder in a Chromium browser.
+
+The extension uses the active Codeforces and AtCoder browser sessions. Sign in to the target platform before submitting. The supported submission languages are C++23 (GCC), Python 3, and Java 21; the extension reads the current compiler options from each platform's submit form and uses version-specific IDs only as fallbacks.
 
 ### Seed a local test contest
 

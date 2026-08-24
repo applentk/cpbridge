@@ -28,10 +28,10 @@ This skill provides step-by-step procedures, architectural patterns, and validat
 
 When writing or modifying code, always verify:
 - [ ] **Zero External Cookies Stored**: Backend never receives or stores external passwords, session cookies, or platform tokens.
-- [ ] **Authoritative UTC Clocks**: Contest start, end, remaining time, problem statement reveals, and submission validity are determined strictly by PostgreSQL `NOW()` in UTC.
+- [ ] **Authoritative UTC Clocks**: Never use client clocks. Contest detail/problem reads prefer PostgreSQL `NOW()`; list and submission paths use injectable UTC service clocks.
 - [ ] **Deep Contest Snapshotting**: When creating a contest from a problem set, snapshot problem IDs, positions, and labels (`A`, `B`, `C`, ...) into `contest_problems`.
 - [ ] **Prefixed Entity IDs**: `usr_` (user), `prb_` (problem), `set_` (problem set), `con_` (contest), `sub_` (submission) via `internal/idgen`.
-- [ ] **Official Link Fallbacks**: Every problem metadata object and submission response must include direct official platform statement and submission URLs.
+- [ ] **Official Link Fallbacks**: Problem metadata and statement fallbacks expose the official problem URL. Admin submission responses may additionally expose the official external submission URL.
 - [ ] **Thin HTTP Handlers**: Handlers only parse input, call domain services, and return JSON responses.
 
 ---
@@ -54,14 +54,11 @@ When writing or modifying code, always verify:
 
    func New() *Platform { return &Platform{} }
 
-   func (p *Platform) Name() string { return "MYPLATFORM" }
-   func (p *Platform) MatchesURL(rawURL string) bool { /* check regex or domain */ }
-   func (p *Platform) ParseProblemID(rawURL string) (string, error) { /* return unique externalId */ }
-   func (p *Platform) FetchProblem(ctx context.Context, externalID string) (*platform.ProblemMetadata, error) { /* scrape/fetch */ }
-   func (p *Platform) SupportedLanguages() []string { return []string{"cpp23", "python3", "java21", "go", "rust"} }
-   func (p *Platform) BuildSubmissionPayload(req *platform.SubmissionRequest) (*platform.SubmissionPayload, error) { /* build payload */ }
-   func (p *Platform) OfficialProblemURL(externalID string) string { /* return URL */ }
-   func (p *Platform) OfficialSubmitURL(externalID string) string { /* return submit URL */ }
+   func (p *Platform) Type() platform.Type { return platform.Type("MYPLATFORM") }
+   func (p *Platform) MatchURL(rawURL string) (string, bool) { /* return externalId and whether it matched */ }
+   func (p *Platform) GetProblem(ctx context.Context, externalID string) (*platform.NormalizedProblem, error) { /* fetch metadata */ }
+   func (p *Platform) GetStatement(ctx context.Context, externalID string) (*platform.ProblemStatement, error) { /* fetch statement */ }
+   func (p *Platform) GetSubmission(ctx context.Context, externalSubmissionID string) (*platform.SubmissionStatus, error) { /* poll verdict */ }
    ```
 
 2. **Register Platform**:
@@ -69,6 +66,8 @@ When writing or modifying code, always verify:
    ```go
    platRegistry.Register(myplatform.New())
    ```
+
+   Go adapters do not submit source code. If the new platform supports browser-side submissions, update the shared protocol and extension separately. Current language IDs are `cpp23`, `python3`, and `java21`.
 
 3. **Update Contracts**:
    In `packages/contracts/src/problem.ts`:
@@ -100,15 +99,15 @@ When writing or modifying code, always verify:
 
 When implementing contest or scoreboard features:
 1. **Contest States**:
-   - `UPCOMING`: `NOW() < start_at`. Problem statements are redacted (`statement = ""` or empty in API response).
-   - `ACTIVE`: `start_at <= NOW() <= end_at`. Statements and submission submissions are active.
-   - `FINISHED`: `NOW() > end_at`. Contest is over, standings finalized.
+   - `UPCOMING`: `now < start_at`. Contest-scoped problem reads return `CONTEST_NOT_STARTED` to non-owner/non-admin users.
+   - `ACTIVE`: `start_at <= now < end_at`.
+   - `FINISHED`: `now >= end_at`. Standings include only submissions with `start_at <= submitted_at < end_at`.
 2. **ICPC Penalty Scoring**:
-   - Penalty time for problem \(i\) solved at time \(T_i\) (minutes from contest start) with \(W_i\) failed attempts prior to first AC:
+   - Penalty time for problem \(i\) solved at time \(T_i\) (minutes from contest start) with \(W_i\) earlier recorded submissions prior to first AC:
      $$\text{Penalty}_i = T_i + 20 \times W_i$$
    - Total score = Number of solved problems.
    - Tie-breaker = Lowest total penalty time.
-   - Submissions after first AC do not increase penalty.
+   - The current implementation counts every earlier non-accepted record toward \(W_i\), not only wrong-answer verdicts. Submissions after first AC do not increase penalty.
    - Unsolved problems do not contribute to penalty time.
 
 ---

@@ -61,12 +61,26 @@ AtCoder submission status is read from the individual submission page. IDs with 
 
 The Go adapters do not submit code. They only fetch metadata/statements and poll verdicts. Actual submission is implemented in the Chrome extension because the extension can use the user's active browser session.
 
+The API, shared contracts, web editor, and extension support these language IDs:
+
+| ID | Display name |
+| --- | --- |
+| `cpp23` | C++23 (GCC) |
+| `python3` | Python 3 |
+| `java21` | Java 21 |
+
+The extension parses the current platform submit form to choose a compiler. Its numeric Codeforces and AtCoder language maps are fallbacks because judge compiler IDs can change.
+
+Before submitting, the extension snapshots the authenticated user's matching submissions. Codeforces uses `/contest/{contest}/my`; AtCoder uses `/contests/{contest}/submissions/me`. After the form request it accepts an ID only when one new submission can be identified, avoiding accidental association with another concurrent submission.
+
+AtCoder's submit form can include browser-generated verification data. When that protection is present (or a direct form POST returns HTTP 403), the extension opens an inactive, short-lived AtCoder submit tab, serializes the real same-origin form after verification completes, submits it, and closes the tab in a `finally` path.
+
 ## Adding another platform
 
 1. Add a package under `apps/api/internal/platform/<name>` implementing the interface above.
 2. Add a new `Type` constant in `platform.go`.
-3. Register the adapter in `apps/api/cmd/server/main.go` and `apps/api/cmd/seed-demo/main.go` if the demo should use it.
-4. Update `packages/contracts/src/problem.ts` and the extension protocol if the web client can submit to the platform.
+3. Register the adapter in `apps/api/cmd/server/main.go` and `apps/api/cmd/seed-demo/main.go` if the demo should import it.
+4. Update `packages/contracts/src/problem.ts` and the extension protocol/adapter if the web client can submit to the platform.
 5. Add URL, normalization, statement, and verdict tests.
 
-The web client and extension currently support only the languages and platform values declared in `packages/contracts/src/problem.ts` and `packages/contracts/src/protocol.ts`.
+The web client and extension currently support only the language and platform values declared in `packages/contracts/src/problem.ts`; `packages/contracts/src/protocol.ts` builds its messages from those shared types.
