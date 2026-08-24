@@ -46,12 +46,27 @@ function extractSubmissionIds(html: string, taskId?: string): string[] {
   return ids;
 }
 
-async function snapshotMyAtCoderSubmissionIds(contestId: string, taskId: string): Promise<Set<string> | undefined> {
+type AtCoderSubmissionSnapshot = {
+  allIds: Set<string>;
+  taskIds: Set<string>;
+};
+
+function submissionSnapshot(html: string, taskId: string): AtCoderSubmissionSnapshot {
+  return {
+    allIds: new Set(extractSubmissionIds(html)),
+    taskIds: new Set(extractSubmissionIds(html, taskId))
+  };
+}
+
+async function snapshotMyAtCoderSubmissions(contestId: string, taskId: string): Promise<AtCoderSubmissionSnapshot | undefined> {
   try {
-    const response = await fetch(`https://atcoder.jp/contests/${contestId}/submissions/me`, { method: 'GET', credentials: 'include' });
+    const response = await fetch(`https://atcoder.jp/contests/${contestId}/submissions/me?cpbridge_ts=${Date.now()}`, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store'
+    });
     if (!response.ok) return undefined;
-    const html = await response.text();
-    return new Set(extractSubmissionIds(html, taskId));
+    return submissionSnapshot(await response.text(), taskId);
   } catch {
     return undefined;
   }
@@ -63,12 +78,27 @@ function singleNewSubmissionId(knownIds: Set<string>, currentIds: Set<string>): 
   return newIds.length === 1 ? newIds[0] : undefined;
 }
 
-async function waitForAtCoderSubmission(contestId: string, taskId: string, knownIds: Set<string>): Promise<string | undefined> {
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const currentIds = await snapshotMyAtCoderSubmissionIds(contestId, taskId);
-    const id = currentIds && singleNewSubmissionId(knownIds, currentIds);
+function identifyNewAtCoderSubmission(
+  known: AtCoderSubmissionSnapshot,
+  current: AtCoderSubmissionSnapshot
+): string | undefined {
+  // The complete account-scoped list is robust to AtCoder layouts that omit
+  // task links. If another submission appeared concurrently, use the
+  // task-scoped rows only when they still identify exactly one new ID.
+  return singleNewSubmissionId(known.allIds, current.allIds)
+    || singleNewSubmissionId(known.taskIds, current.taskIds);
+}
+
+async function waitForAtCoderSubmission(
+  contestId: string,
+  taskId: string,
+  known: AtCoderSubmissionSnapshot
+): Promise<string | undefined> {
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const current = await snapshotMyAtCoderSubmissions(contestId, taskId);
+    const id = current && identifyNewAtCoderSubmission(known, current);
     if (id) return id;
-    if (attempt < 7) await sleep(400);
+    if (attempt < 15) await sleep(500);
   }
   return undefined;
 }
@@ -87,9 +117,9 @@ type AtCoderPageSubmitResult = {
 async function submitAtCoderFromSameOriginPage(
   contestId: string,
   taskId: string,
-  languageId: string,
+  language: LanguageId,
   sourceCode: string,
-  knownIds: Set<string>
+  known: AtCoderSubmissionSnapshot
 ): Promise<string> {
   const tab = await chrome.tabs.create({
     url: `https://atcoder.jp/contests/${contestId}/submit`,
@@ -126,15 +156,58 @@ async function submitAtCoderFromSameOriginPage(
     const [execution] = await chrome.scripting.executeScript({
       target: { tabId },
       func: async (args): Promise<AtCoderPageSubmitResult> => {
-        const csrfToken = document.querySelector<HTMLInputElement>('input[name="csrf_token"]')?.value;
+        const submitForm = document.querySelector<HTMLFormElement>(
+          `form[action$="/contests/${args.contestId}/submit"]`
+        );
+        if (!submitForm) return { error: 'AtCoder submission form was not found.' };
+
+        const csrfToken = submitForm.querySelector<HTMLInputElement>('input[name="csrf_token"]')?.value;
         if (!csrfToken) return { error: 'NOT_LOGGED_IN' };
 
-        const body = new URLSearchParams({
-          'data.TaskScreenName': args.taskId,
-          'data.LanguageId': args.languageId,
-          sourceCode: args.sourceCode,
-          csrf_token: csrfToken
-        });
+        const languagePatterns: Record<string, RegExp[]> = {
+          cpp23: [/c\+\+\s*23.*gcc/i, /c\+\+\s*20.*gcc/i, /c\+\+/i],
+          python3: [/python.*cpython.*3/i, /python.*3/i, /pypy.*3/i],
+          java21: [/java\s*21/i, /java\s*17/i, /java/i],
+          go: [/\bgo\b.*1\./i, /\bgo\b/i],
+          rust: [/\brust\b.*1\./i, /\brust\b/i]
+        };
+        const taskLanguageSelect = document
+          .getElementById(`select-lang-${args.taskId}`)
+          ?.querySelector<HTMLSelectElement>('select');
+        const languageSelect = taskLanguageSelect
+          || submitForm.querySelector<HTMLSelectElement>('select[name="data.LanguageId"]');
+        const languageOptions = languageSelect ? [...languageSelect.options] : [];
+        let selectedLanguageId = '';
+        for (const pattern of languagePatterns[args.language] || []) {
+          const option = languageOptions.find((candidate) => pattern.test(candidate.textContent || ''));
+          if (option?.value) {
+            selectedLanguageId = option.value;
+            break;
+          }
+        }
+        if (!selectedLanguageId) {
+          return { error: `AtCoder does not offer the selected ${args.language} compiler for this task.` };
+        }
+
+        // AtCoder can add browser-generated validation fields (currently a
+        // Cloudflare Turnstile response) after the page loads. Wait briefly
+        // for those fields, then serialize the real form so they are retained.
+        const turnstileInput = submitForm.querySelector<HTMLInputElement>('input[name="cf-turnstile-response"]');
+        for (let attempt = 0; turnstileInput && !turnstileInput.value && attempt < 20; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        if (turnstileInput && !turnstileInput.value) {
+          return { error: 'AtCoder browser verification did not finish. Open AtCoder, complete any verification prompt, and retry.' };
+        }
+
+        const body = new URLSearchParams();
+        for (const [name, value] of new FormData(submitForm).entries()) {
+          if (typeof value === 'string') body.append(name, value);
+        }
+        body.set('data.TaskScreenName', args.taskId);
+        body.set('data.LanguageId', selectedLanguageId);
+        body.set('sourceCode', args.sourceCode);
+        body.set('csrf_token', csrfToken);
         const response = await fetch(`/contests/${args.contestId}/submit`, {
           method: 'POST',
           credentials: 'same-origin',
@@ -147,30 +220,70 @@ async function submitAtCoderFromSameOriginPage(
           return { error: `AtCoder returned HTTP ${response.status}${message ? `: ${message}` : ''}` };
         }
 
-        for (let attempt = 0; attempt < 8; attempt++) {
-          const submissionsResponse = await fetch(`/contests/${args.contestId}/submissions/me`, {
-            credentials: 'same-origin'
+        const responseDoc = new DOMParser().parseFromString(responseHtml, 'text/html');
+        const responseError = [
+          ...responseDoc.querySelectorAll<HTMLElement>('.alert-danger, .error, .has-error .help-block, .text-danger')
+        ]
+          .map((element) => (element.textContent || '').replace(/^\s*[×x]\s*/i, '').replace(/\s+/g, ' ').trim())
+          .filter((message) => message && !/^error\.?$/i.test(message))
+          .join(' ');
+        if (responseError) return { error: responseError };
+
+        const genericError = responseDoc.querySelector<HTMLElement>('.alert-danger, .error')?.textContent || '';
+        if (/\berror\.?\s*$/i.test(genericError.trim())) {
+          return { error: 'AtCoder rejected the submission form. Reload the AtCoder page, complete any browser verification, and retry.' };
+        }
+
+        const snapshotFromDocument = (doc: Document) => {
+          const allIds = new Set<string>();
+          const taskIds = new Set<string>();
+          for (const row of [...doc.querySelectorAll('tr')]) {
+            const rowIds = [...row.querySelectorAll<HTMLAnchorElement>('a[href*="/submissions/"]')]
+              .map((link) => link.href.match(/\/submissions\/(\d+)/)?.[1])
+              .filter((id): id is string => !!id);
+            for (const id of rowIds) allIds.add(id);
+
+            const matchesTask = [...row.querySelectorAll<HTMLAnchorElement>('a[href*="/tasks/"]')]
+              .some((link) => link.href.includes(`/tasks/${args.taskId}`));
+            if (matchesTask) {
+              for (const id of rowIds) taskIds.add(id);
+            }
+          }
+          return { allIds, taskIds };
+        };
+
+        const identifyNewId = (current: { allIds: Set<string>; taskIds: Set<string> }) => {
+          const newAllIds = [...current.allIds].filter((id) => !args.knownAllIds.includes(id));
+          if (newAllIds.length === 1) return newAllIds[0];
+          const newTaskIds = [...current.taskIds].filter((id) => !args.knownTaskIds.includes(id));
+          return newTaskIds.length === 1 ? newTaskIds[0] : undefined;
+        };
+
+        const immediateId = identifyNewId(snapshotFromDocument(responseDoc));
+        if (immediateId) return { externalSubmissionId: immediateId };
+
+        for (let attempt = 0; attempt < 16; attempt++) {
+          const submissionsResponse = await fetch(`/contests/${args.contestId}/submissions/me?cpbridge_ts=${Date.now()}`, {
+            credentials: 'same-origin',
+            cache: 'no-store'
           });
           if (submissionsResponse.ok) {
             const submissionsDoc = new DOMParser().parseFromString(await submissionsResponse.text(), 'text/html');
-            const currentIds = new Set<string>();
-            for (const row of [...submissionsDoc.querySelectorAll('tr')]) {
-              const taskLink = [...row.querySelectorAll<HTMLAnchorElement>('a[href*="/tasks/"]')]
-                .some((link) => link.href.includes(`/tasks/${args.taskId}`));
-              if (!taskLink) continue;
-              for (const candidate of [...row.querySelectorAll<HTMLAnchorElement>('a[href*="/submissions/"]')]
-                .map((link) => link.href.match(/\/submissions\/(\d+)/)?.[1])) {
-                if (candidate) currentIds.add(candidate);
-              }
-            }
-            const newIds = [...currentIds].filter((id) => !args.knownIds.includes(id));
-            if (newIds.length === 1) return { externalSubmissionId: newIds[0] };
+            const id = identifyNewId(snapshotFromDocument(submissionsDoc));
+            if (id) return { externalSubmissionId: id };
           }
-          if (attempt < 7) await new Promise((resolve) => setTimeout(resolve, 400));
+          if (attempt < 15) await new Promise((resolve) => setTimeout(resolve, 500));
         }
         return {};
       },
-      args: [{ contestId, taskId, languageId, sourceCode, knownIds: [...knownIds] }]
+      args: [{
+        contestId,
+        taskId,
+        language,
+        sourceCode,
+        knownAllIds: [...known.allIds],
+        knownTaskIds: [...known.taskIds]
+      }]
     });
 
     const result = execution?.result as AtCoderPageSubmitResult | undefined;
@@ -205,13 +318,30 @@ export async function submitAtCoder(contestId: string, taskId: string, language:
   const csrfToken = getCsrfToken(html);
   if (!csrfToken || html.includes('Sign In')) throw new Error('NOT_LOGGED_IN');
 
-  const knownIds = await snapshotMyAtCoderSubmissionIds(contestId, taskId);
-  if (!knownIds) {
+  const known = await snapshotMyAtCoderSubmissions(contestId, taskId);
+  if (!known) {
     throw new Error('Could not read your AtCoder submissions before submitting; refusing to match a verdict unsafely.');
   }
+  const languageId = getOptionValue(html, language) || AC_LANGUAGE_MAP[language] || '5052';
+
+  // AtCoder's current submit form is protected by a browser-generated
+  // Turnstile value, which is unavailable to a service-worker fetch. Use the
+  // same-origin page path immediately when that protection is present.
+  if (/challenges\.cloudflare\.com\/turnstile|\bcf-challenge\b|\bdata-sitekey=/i.test(html)) {
+    return {
+      externalSubmissionId: await submitAtCoderFromSameOriginPage(
+        contestId,
+        taskId,
+        language,
+        sourceCode,
+        known
+      )
+    };
+  }
+
   const formData = new URLSearchParams({
     'data.TaskScreenName': taskId,
-    'data.LanguageId': getOptionValue(html, language) || AC_LANGUAGE_MAP[language] || '5052',
+    'data.LanguageId': languageId,
     sourceCode,
     csrf_token: csrfToken
   });
@@ -230,9 +360,9 @@ export async function submitAtCoder(contestId: string, taskId: string, language:
         externalSubmissionId: await submitAtCoderFromSameOriginPage(
           contestId,
           taskId,
-          getOptionValue(html, language) || AC_LANGUAGE_MAP[language] || '5052',
+          language,
           sourceCode,
-          knownIds
+          known
         )
       };
     }
@@ -242,7 +372,10 @@ export async function submitAtCoder(contestId: string, taskId: string, language:
   const error = platformError(responseHtml);
   if (error && !/success|submitted/i.test(error)) throw new Error(error);
 
-  const id = await waitForAtCoderSubmission(contestId, taskId, knownIds);
+  const immediateId = identifyNewAtCoderSubmission(known, submissionSnapshot(responseHtml, taskId));
+  if (immediateId) return { externalSubmissionId: immediateId };
+
+  const id = await waitForAtCoderSubmission(contestId, taskId, known);
   if (id) return { externalSubmissionId: id };
   throw new Error('AtCoder accepted the request, but it could not uniquely identify your new submission. Check the AtCoder submissions page.');
 }

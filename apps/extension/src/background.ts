@@ -123,7 +123,7 @@ async function handleMessage(message: ExtensionMessage): Promise<any> {
 
     const res: ExtensionPingResponse = {
       type: 'PONG',
-      version: '1.0.0',
+      version: chrome.runtime.getManifest().version,
       platforms: {
         CODEFORCES: cf,
         ATCODER: ac

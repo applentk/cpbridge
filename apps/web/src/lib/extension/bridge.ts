@@ -90,7 +90,7 @@ export async function submitViaExtension(
     problem: { externalId, url },
     language,
     source,
-  });
+  }, 30000);
 }
 
 export async function pollStatusViaExtension(
