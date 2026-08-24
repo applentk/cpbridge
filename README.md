@@ -10,7 +10,7 @@ Unified web platform for **Codeforces** and **AtCoder**.
 - 🌐 **Multi-Platform Problem Ingestion**: Paste any URL from Codeforces or AtCoder to normalize and import problem metadata and statement text.
 - 📚 **Reusable Problem Sets**: Curate training sets, reorder problems, and share collections.
 - 🏆 **Virtual Contests & ICPC Scoring**: Host virtual contests with snapshot problem isolation, automatic problem reveal at start time, and accurate ICPC penalty calculations.
-- 💻 **Monaco Code Editor & KaTeX Reader**: Integrated editor supporting C++23, Python 3, Java 21, Go, and Rust with file upload and auto-language detection.
+- 💻 **Monaco Code Editor & KaTeX Reader**: Integrated editor supporting C++23, Python 3, and Java 21 with file upload and auto-language detection.
 - 🛡️ **Zero-Cookie Browser Extension Bridge**: Uses local browser sessions to dispatch submissions safely without sending passwords or cookies to the server.
 
 ---

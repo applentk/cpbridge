@@ -97,7 +97,7 @@
         </div>
         <div class="space-y-1">
           <h4 class="font-semibold text-white">In-Browser Monaco Editor</h4>
-          <p class="text-sm text-zinc-400">Full syntax highlighting for C++23, Python 3, Java, Go, and Rust with side-by-side problem details.</p>
+          <p class="text-sm text-zinc-400">Full syntax highlighting for C++23, Python 3, and Java with side-by-side problem details.</p>
         </div>
       </div>
 

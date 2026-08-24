@@ -138,6 +138,12 @@ func TestContestEndedSubmissionAndScoreboardRules(t *testing.T) {
 
 	now := time.Now().UTC()
 
+	for _, removedLanguage := range []string{"go", "rust"} {
+		removed, err := subSvc.Create(ctx, user1.ID, false, p1.ID, nil, removedLanguage, "removed language")
+		assert.Nil(t, removed)
+		assert.ErrorContains(t, err, "unsupported submission language")
+	}
+
 	// 1. Upcoming contest -> submission rejected
 	cUpcoming, err := contestSvc.Create(ctx, contest.CreateContestParams{
 		OwnerID:           owner.ID,

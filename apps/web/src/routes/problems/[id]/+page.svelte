@@ -85,17 +85,13 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
   const starterTemplates: Record<LanguageId, string> = {
     cpp23: `#include <iostream>\nusing namespace std;\n\nint main() {\n    ios_base::sync_with_stdio(false);\n    cin.tie(NULL);\n    \n    // Solve problem\n    \n    return 0;\n}\n`,
     python3: `import sys\n\ndef main():\n    input = sys.stdin.read\n    # Solve problem\n\nif __name__ == "__main__":\n    main()\n`,
-    java21: `import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        // Solve problem\n    }\n}\n`,
-    go: `package main\n\nimport "fmt"\n\nfunc main() {\n    // Solve problem\n    fmt.Println("Hello")\n}\n`,
-    rust: `use std::io::{self, Read};\n\nfn main() {\n    // Solve problem\n}\n`
+    java21: `import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        // Solve problem\n    }\n}\n`
   };
 
   const languageLabels: Record<LanguageId, string> = {
     cpp23: 'C++23 (GCC)',
     python3: 'Python 3',
-    java21: 'Java 21',
-    go: 'Go',
-    rust: 'Rust'
+    java21: 'Java 21'
   };
 
   $: currentContestProblem = contestProblems.find(cp => cp.problemId === problemId);
@@ -161,11 +157,6 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
       case 'java':
       case 'java21':
         return 'java21';
-      case 'go':
-        return 'go';
-      case 'rs':
-      case 'rust':
-        return 'rust';
       default:
         return null;
     }
@@ -846,7 +837,7 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
       type="file"
       bind:this={fileInputElement}
       on:change={handleFileUpload}
-      accept=".cpp,.cc,.cxx,.c++,.cp,.py,.py3,.python,.java,.go,.rs,.rust,.txt"
+      accept=".cpp,.cc,.cxx,.c++,.cp,.py,.py3,.python,.java,.txt"
       class="hidden"
     />
 
@@ -943,8 +934,6 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
                 <option value="cpp23">C++23 (GCC)</option>
                 <option value="python3">Python 3</option>
                 <option value="java21">Java 21</option>
-                <option value="go">Go</option>
-                <option value="rust">Rust</option>
               </select>
 
               <!-- Upload File Button with Auto-Detect -->
@@ -952,7 +941,7 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
                 type="button"
                 on:click={() => fileInputElement.click()}
                 class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center space-x-1.5"
-                title="Upload code file (.cpp, .py, .java, .go, .rs) with auto-detected language"
+                title="Upload code file (.cpp, .py, .java) with auto-detected language"
               >
                 <Upload class="w-3.5 h-3.5 text-white" />
                 <span>Upload File</span>
@@ -1124,8 +1113,6 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
                     <option value="cpp23">C++23 (GCC)</option>
                     <option value="python3">Python 3</option>
                     <option value="java21">Java 21</option>
-                    <option value="go">Go</option>
-                    <option value="rust">Rust</option>
                   </select>
                 </div>
 
@@ -1134,7 +1121,7 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
                   type="button"
                   on:click={() => fileInputElement.click()}
                   class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center space-x-1.5 shadow-sm"
-                  title="Upload code file (.cpp, .py, .java, .go, .rs) to automatically set source code and detect language"
+                  title="Upload code file (.cpp, .py, .java) to automatically set source code and detect language"
                 >
                   <Upload class="w-3.5 h-3.5 text-white" />
                   <span>Upload File (Auto-Detect)</span>

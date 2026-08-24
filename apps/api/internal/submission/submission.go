@@ -34,6 +34,17 @@ type Status string
 // problem. The web client therefore never dispatches it to an external judge.
 var ErrDuplicateSource = errors.New("an identical solution was already submitted for this problem")
 
+var supportedLanguages = map[string]struct{}{
+	"cpp23":   {},
+	"python3": {},
+	"java21":  {},
+}
+
+func isSupportedLanguage(language string) bool {
+	_, supported := supportedLanguages[language]
+	return supported
+}
+
 const (
 	Pending      Status = "PENDING"
 	Dispatching  Status = "DISPATCHING"
@@ -159,6 +170,11 @@ func (s *Service) SetAsynqClient(client *asynq.Client) {
 }
 
 func (s *Service) Create(ctx context.Context, userID string, isAdmin bool, problemID string, contestID *string, language, sourceCode string) (*Submission, error) {
+	language = strings.TrimSpace(language)
+	if !isSupportedLanguage(language) {
+		return nil, fmt.Errorf("unsupported submission language: %s", language)
+	}
+
 	prob, err := s.probSvc.GetByID(ctx, problemID)
 	if err != nil {
 		return nil, fmt.Errorf("problem not found: %w", err)

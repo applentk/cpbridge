@@ -12,9 +12,7 @@
   const monacoLanguageMap: Record<LanguageId, string> = {
     cpp23: 'cpp',
     python3: 'python',
-    java21: 'java',
-    go: 'go',
-    rust: 'rust'
+    java21: 'java'
   };
 
   onMount(async () => {
