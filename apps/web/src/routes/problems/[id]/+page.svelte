@@ -76,6 +76,7 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
   let activeSubmission: Submission | null = null;
   let recentSubmissions: Submission[] = [];
   let submissionsLoading = false;
+  let submissionsInitialized = false;
   let viewingSubmission: Submission | null = null;
   let pollInterval: any = null;
 
@@ -201,6 +202,9 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
     stopSubmissionPolling();
     activeSubmission = null;
     submitStatus = '';
+    recentSubmissions = [];
+    submissionsInitialized = false;
+    submissionsLoading = false;
 
     try {
       const pId = problemId;
@@ -296,7 +300,11 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
   }
 
   async function loadSubmissions(pId: string, cId: string | null) {
-    submissionsLoading = true;
+    // The skeleton is only for the first history load. Submission dispatch
+    // and verdict polling refresh this list in the background, so preserve the
+    // already rendered history while those requests are in flight.
+    const showSkeleton = !submissionsInitialized;
+    if (showSkeleton) submissionsLoading = true;
     try {
       await reconcileExtensionSubmissions();
       const query = cId ? `/submissions?problemId=${pId}&contestId=${cId}` : `/submissions?problemId=${pId}`;
@@ -312,7 +320,8 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
       return [];
     } finally {
       if (pId === problemId && cId === contestId) {
-        submissionsLoading = false;
+        submissionsInitialized = true;
+        if (showSkeleton) submissionsLoading = false;
       }
     }
   }
