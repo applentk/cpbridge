@@ -22,7 +22,7 @@
   let visibility = 'PUBLIC';
   let publicationStatus: ContestPublicationStatus = 'PUBLISHED';
 
-  let loading = true;
+  let _loading = true;
   let submitting = false;
   let error = '';
 
@@ -38,10 +38,10 @@
       if (problemSets.length > 0 && !selectedSetId) {
         selectedSetId = problemSets[0].id;
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      error = err.message || 'Failed to load problem sets';
     } finally {
-      loading = false;
+      _loading = false;
     }
   });
 

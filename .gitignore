@@ -2,9 +2,19 @@ node_modules/
 .svelte-kit/
 build/
 dist/
+coverage/
 .env
 .env.local
 *.log
 apps/api/bin/
 apps/extension/dist/
 .DS_Store
+
+# Playwright Test Artifacts & Reports
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+# IDE & Editor Local Config
+.kilocode/

@@ -5,12 +5,13 @@
   import type { AuthResponse } from '@cpbridge/contracts';
   import { LogIn, AlertCircle } from 'lucide-svelte';
 
-  let emailOrUsername = '';
-  let password = '';
-  let error = '';
-  let loading = false;
+  let emailOrUsername = $state('');
+  let password = $state('');
+  let error = $state('');
+  let loading = $state(false);
 
-  async function handleSubmit() {
+  async function handleSubmit(event?: SubmitEvent) {
+    if (event) event.preventDefault();
     error = '';
     loading = true;
     try {
@@ -19,7 +20,7 @@
         password
       });
       auth.setAuth(res.user, res.token);
-      goto(res.user.role === 'ADMIN' ? '/admin' : '/dashboard');
+      await goto(res.user.role === 'ADMIN' ? '/admin' : '/dashboard');
     } catch (err: any) {
       error = err.message || 'Login failed';
     } finally {
@@ -42,11 +43,11 @@
       </div>
     {/if}
 
-    <form on:submit|preventDefault={handleSubmit} class="space-y-4">
+    <form onsubmit={handleSubmit} class="space-y-4">
       <div>
-        <label for="email" class="block text-xs font-semibold uppercase text-zinc-400 mb-1.5">Email or Username</label>
+        <label for="login-email" class="block text-xs font-semibold uppercase text-zinc-400 mb-1.5">Email or Username</label>
         <input
-          id="email"
+          id="login-email"
           type="text"
           bind:value={emailOrUsername}
           required
@@ -56,9 +57,9 @@
       </div>
 
       <div>
-        <label for="password" class="block text-xs font-semibold uppercase text-zinc-400 mb-1.5">Password</label>
+        <label for="login-password" class="block text-xs font-semibold uppercase text-zinc-400 mb-1.5">Password</label>
         <input
-          id="password"
+          id="login-password"
           type="password"
           bind:value={password}
           required

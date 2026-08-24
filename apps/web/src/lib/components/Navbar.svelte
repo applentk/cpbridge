@@ -1,6 +1,6 @@
 <script lang="ts">
   import { auth } from '$lib/stores/auth';
-  import { Trophy, Code2, Layers, Cpu, LogOut, LogIn, UserPlus, Puzzle, ShieldCheck, LayoutDashboard, BookOpen } from 'lucide-svelte';
+  import { Trophy, Code2, Layers, Cpu, LogOut, LogIn, UserPlus, Puzzle, LayoutDashboard, BookOpen } from 'lucide-svelte';
 </script>
 
 <nav class="border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-50">

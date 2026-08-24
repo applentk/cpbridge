@@ -5,13 +5,14 @@
   import type { AuthResponse } from '@cpbridge/contracts';
   import { UserPlus, AlertCircle } from 'lucide-svelte';
 
-  let email = '';
-  let username = '';
-  let password = '';
-  let error = '';
-  let loading = false;
+  let email = $state('');
+  let username = $state('');
+  let password = $state('');
+  let error = $state('');
+  let loading = $state(false);
 
-  async function handleSubmit() {
+  async function handleSubmit(event?: SubmitEvent) {
+    if (event) event.preventDefault();
     error = '';
     loading = true;
     try {
@@ -21,7 +22,7 @@
         password
       });
       auth.setAuth(res.user, res.token);
-      goto(res.user.role === 'ADMIN' ? '/admin' : '/dashboard');
+      await goto(res.user.role === 'ADMIN' ? '/admin' : '/dashboard');
     } catch (err: any) {
       error = err.message || 'Registration failed';
     } finally {
@@ -44,7 +45,7 @@
       </div>
     {/if}
 
-    <form on:submit|preventDefault={handleSubmit} class="space-y-4">
+    <form onsubmit={handleSubmit} class="space-y-4">
       <div>
         <label for="reg-email" class="block text-xs font-semibold uppercase text-zinc-400 mb-1.5">Email Address</label>
         <input

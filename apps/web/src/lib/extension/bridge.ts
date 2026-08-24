@@ -1,5 +1,4 @@
 import type {
-  ExtensionErrorCode,
   ExtensionMessage,
   ExtensionPingResponse,
   ExtensionRecoverSubmissionsResponse,
