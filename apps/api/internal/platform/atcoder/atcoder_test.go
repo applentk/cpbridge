@@ -1,6 +1,9 @@
 package atcoder
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNormalizeProblemTitle(t *testing.T) {
 	tests := []struct {
@@ -23,5 +26,41 @@ func TestNormalizeProblemTitle(t *testing.T) {
 				t.Fatalf("normalizeProblemTitle(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCleanStatementHTML(t *testing.T) {
+	input := `<div class="part"><section><h3>Score : 100 points</h3><h3>Problem Statement</h3><p>Solve the problem.</p></section></div>`
+	got := cleanStatementHTML(input)
+
+	if strings.Contains(got, "Score : 100 points") {
+		t.Fatalf("cleanStatementHTML() kept score heading: %q", got)
+	}
+	if strings.Contains(got, "Problem Statement") {
+		t.Fatalf("cleanStatementHTML() kept problem statement heading: %q", got)
+	}
+	if !strings.Contains(got, "Solve the problem.") {
+		t.Fatalf("cleanStatementHTML() removed statement content: %q", got)
+	}
+}
+
+func TestCleanStatementHTMLRemovesScoreParagraphWithMath(t *testing.T) {
+	input := `<p>Score : <span class="katex"><span class="katex-html">300</span></span> points</p><p>Solve the problem.</p>`
+	got := cleanStatementHTML(input)
+
+	if strings.Contains(got, "Score") || strings.Contains(got, "katex-html") {
+		t.Fatalf("cleanStatementHTML() kept score paragraph: %q", got)
+	}
+	if !strings.Contains(got, "Solve the problem.") {
+		t.Fatalf("cleanStatementHTML() removed statement content: %q", got)
+	}
+}
+
+func TestCleanStatementTextHeadings(t *testing.T) {
+	input := "Score : 100 points\n### Problem Statement\n\nSolve the problem."
+	got := cleanStatementHTML(input)
+
+	if got != "Solve the problem." {
+		t.Fatalf("cleanStatementHTML(%q) = %q, want %q", input, got, "Solve the problem.")
 	}
 }

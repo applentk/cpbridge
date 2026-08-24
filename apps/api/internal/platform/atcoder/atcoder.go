@@ -29,7 +29,12 @@ var (
 	sampleOutputRegex   = regexp.MustCompile(`(?s)<h3>\s*Sample Output\s*\d*\s*</h3>\s*<pre>(.*?)</pre>`)
 
 	// Cleaners for footer and duplicate sample blocks in statement html
-	sampleSectionRegex = regexp.MustCompile(`(?is)<hr\s*/?>\s*<div class="part">\s*<section>\s*<h3>\s*Sample (?:Input|Output).*`)
+	sampleSectionRegex           = regexp.MustCompile(`(?is)<hr\s*/?>\s*<div class="part">\s*<section>\s*<h3>\s*Sample (?:Input|Output).*`)
+	atcoderScoreHeadingRegex     = regexp.MustCompile(`(?is)<h[1-6][^>]*>\s*Score\s*:\s*.*?</h[1-6]>`)
+	atcoderScoreParagraphRegex   = regexp.MustCompile(`(?is)<p[^>]*>\s*Score\s*:.*?</p>`)
+	atcoderStatementHeadingRegex = regexp.MustCompile(`(?is)<h[1-6][^>]*>\s*(?:###\s*)?Problem Statement\s*</h[1-6]>`)
+	atcoderScoreTextRegex        = regexp.MustCompile(`(?im)^\s*Score\s*:\s*[^<\r\n]+\s*(?:\r?\n|$)`)
+	atcoderStatementTextRegex    = regexp.MustCompile(`(?im)^\s*###\s*Problem Statement\s*(?:\r?\n|$)`)
 )
 
 type Adapter struct {
@@ -66,7 +71,7 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 	title := fmt.Sprintf("%s (%s)", taskID, contestID)
 	req, err := http.NewRequestWithContext(ctx, "GET", officialURL, nil)
 	if err == nil {
-	req.Header.Set("User-Agent", "Mozilla/5.0 cpbridge/1.0")
+		req.Header.Set("User-Agent", "Mozilla/5.0 cpbridge/1.0")
 		resp, err := a.client.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			defer resp.Body.Close()
@@ -163,6 +168,7 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 	// Clean statement HTML
 	if statementHTML != "" {
 		statementHTML = langJaRegex.ReplaceAllString(statementHTML, "")
+		statementHTML = cleanStatementHTML(statementHTML)
 		statementHTML = sampleSectionRegex.ReplaceAllString(statementHTML, "")
 	}
 
@@ -176,6 +182,15 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 		MemoryLimit: memoryLimit,
 		SampleCases: sampleCases,
 	}, nil
+}
+
+func cleanStatementHTML(statementHTML string) string {
+	statementHTML = atcoderScoreHeadingRegex.ReplaceAllString(statementHTML, "")
+	statementHTML = atcoderScoreParagraphRegex.ReplaceAllString(statementHTML, "")
+	statementHTML = atcoderStatementHeadingRegex.ReplaceAllString(statementHTML, "")
+	statementHTML = atcoderScoreTextRegex.ReplaceAllString(statementHTML, "")
+	statementHTML = atcoderStatementTextRegex.ReplaceAllString(statementHTML, "")
+	return strings.TrimSpace(statementHTML)
 }
 
 func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string) (*platform.SubmissionStatus, error) {

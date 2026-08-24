@@ -83,6 +83,7 @@ export function cleanBoilerplate(html: string): string {
   cleaned = cleaned.replace(/\[?Privacy Policy\]?\s*\|?\s*\[?Terms and Conditions\]?.*/gis, '');
 
   // 5. AtCoder footer & Japanese section
+  cleaned = cleaned.replace(/<p[^>]*>\s*Score\s*:.*?<\/p>/gis, '');
   cleaned = cleaned.replace(/(?:Copyright\s*\d+-\d+\s*AtCoder Inc\.|AtCoder is a trademark).*/gis, '');
   cleaned = cleaned.replace(/<span class="lang-ja">.*?<\/span>/gis, '');
 
