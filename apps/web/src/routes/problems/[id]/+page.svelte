@@ -678,7 +678,7 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
             </div>
           </div>
 
-          <div class="h-[520px] rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 animate-pulse space-y-4">
+          <div class="h-130 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 animate-pulse space-y-4">
             <div class="h-6 w-1/4 bg-zinc-800 rounded-lg"></div>
             <div class="space-y-2.5 pt-3">
               <div class="h-4 w-full bg-zinc-800/60 rounded"></div>
@@ -853,7 +853,7 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
     <!-- Layout Container -->
     {#if viewMode === 'split'}
       <!-- Split View Layout -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-220px)] min-h-[650px]">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-220px)] min-h-162.5">
         <!-- Left: Statement -->
         <div class="lg:col-span-6 overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 space-y-6">
           {#if statementLoading}
@@ -977,7 +977,7 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
           {/if}
 
           <!-- Editor -->
-          <div class="flex-1 min-h-[350px]">
+          <div class="flex-1 min-h-87.5">
             <MonacoEditor bind:value={sourceCode} {language} />
           </div>
 
@@ -1004,7 +1004,7 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
 
     {:else}
       <!-- Tabbed View Layout -->
-      <div class="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 min-h-[550px]">
+      <div class="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 min-h-137.5">
         {#if activeTab === 'statement'}
           <!-- 1. Full-Width Statement Tab -->
           <div class="max-w-4xl mx-auto space-y-6">
@@ -1162,7 +1162,7 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
             {/if}
 
             <!-- Monaco Editor -->
-            <div class="h-[550px] rounded-2xl overflow-hidden border border-zinc-800">
+            <div class="h-137.5 rounded-2xl overflow-hidden border border-zinc-800">
               <MonacoEditor bind:value={sourceCode} {language} />
             </div>
 

@@ -11,6 +11,7 @@
     "build": "pnpm --recursive run build",
     "test:api": "cd apps/api && go test -v ./...",
     "test:web": "pnpm --filter @cpbridge/web test",
+    "lint": "pnpm --recursive run check",
     "check": "pnpm --recursive run check"
   },
   "devDependencies": {

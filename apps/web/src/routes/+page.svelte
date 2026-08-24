@@ -13,7 +13,7 @@
 
     <h1 class="text-5xl sm:text-6xl font-extrabold tracking-tight text-white leading-tight">
       Competitive Programming, <br />
-      <span class="text-transparent bg-clip-text bg-gradient-to-r from-white via-zinc-200 to-zinc-400">
+      <span class="text-transparent bg-clip-text bg-linear-to-r from-white via-zinc-200 to-zinc-400">
         Unified & Simplified.
       </span>
     </h1>

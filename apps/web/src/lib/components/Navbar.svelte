@@ -34,7 +34,7 @@
             <Trophy class="w-4 h-4 text-zinc-400" />
             <span>Contests</span>
           </a>
-          <a href="/contests" class="px-3 py-1.5 rounded-md text-xs font-medium text-zinc-400 hover:text-zinc-200 border border-zinc-800 rounded-lg hover:bg-zinc-800 transition">
+          <a href="/contests" class="px-3 py-1.5 rounded-md text-xs font-medium text-zinc-400 hover:text-zinc-200 border border-zinc-800 hover:bg-zinc-800 transition">
             <span>View User Site</span>
           </a>
         {:else}
