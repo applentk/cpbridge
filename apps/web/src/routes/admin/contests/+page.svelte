@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import type { Contest } from '@cpbridge/contracts';
-  import { Trophy, Plus, Trash2, Edit3, ExternalLink, Clock, Users, Eye, EyeOff, Check } from 'lucide-svelte';
+  import { Plus, Trash2, Edit3, ExternalLink, Eye, EyeOff, Check, Users } from 'lucide-svelte';
 
   let contests: Contest[] = [];
   let loading = true;

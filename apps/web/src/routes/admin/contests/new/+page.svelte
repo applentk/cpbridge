@@ -3,8 +3,8 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { api } from '$lib/api/client';
-  import type { ProblemSet, Problem, ScoringType, Contest, ContestPublicationStatus } from '@cpbridge/contracts';
-  import { Trophy, Clock, AlertCircle, ArrowLeft, Layers, Check } from 'lucide-svelte';
+  import type { ProblemSet, Problem, ScoringType, ContestPublicationStatus } from '@cpbridge/contracts';
+  import { Trophy, ArrowLeft, Layers, AlertCircle } from 'lucide-svelte';
 
   let problemSets: ProblemSet[] = [];
   let allProblems: Problem[] = [];
@@ -96,7 +96,7 @@
         payload.problemIds = selectedProblemIds;
       }
 
-      const contest = await api.post<Contest>('/admin/contests', payload);
+      await api.post('/admin/contests', payload);
       goto('/admin/contests');
     } catch (err: any) {
       error = err.message || 'Failed to create contest';

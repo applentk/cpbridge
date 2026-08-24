@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import type { ProblemSet } from '@cpbridge/contracts';
-  import { Layers, Plus, Trash2, Edit3, ArrowRight, X, Check } from 'lucide-svelte';
+  import { Plus, Trash2, ArrowRight, X, Check } from 'lucide-svelte';
 
   let problemSets: ProblemSet[] = [];
   let loading = true;

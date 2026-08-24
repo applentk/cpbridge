@@ -18,7 +18,7 @@ export interface ExtensionBridgeStatus {
   platforms: Record<PlatformType, { loggedIn: boolean; username?: string }>;
 }
 
-let pendingCallbacks = new Map<string, (response: any) => void>();
+const pendingCallbacks = new Map<string, (response: any) => void>();
 
 if (typeof window !== 'undefined') {
   window.addEventListener('message', (event) => {

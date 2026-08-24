@@ -2,10 +2,10 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import type { Problem, PlatformType } from '@cpbridge/contracts';
-  import { Code2, Plus, Upload, Search, Trash2, Edit3, ExternalLink, Eye, X, AlertCircle, Check } from 'lucide-svelte';
+  import { Plus, Upload, Search, Trash2, ExternalLink, Eye, X, Edit3, Check } from 'lucide-svelte';
 
   let problems: Problem[] = [];
-  let total = 0;
+  let _total = 0;
   let loading = true;
   let error = '';
   let successMsg = '';
@@ -58,7 +58,7 @@
 
       const res = await api.get<{ problems: Problem[]; total: number }>(url);
       problems = res.problems;
-      total = res.total;
+      _total = res.total;
     } catch (err: any) {
       error = err.message || 'Failed to load problems';
     } finally {

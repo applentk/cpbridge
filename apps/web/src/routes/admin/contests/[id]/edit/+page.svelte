@@ -3,7 +3,7 @@
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
   import type { Contest, Problem, ContestProblem } from '@cpbridge/contracts';
-  import { Trophy, ArrowLeft, Save, Plus, Trash2, ArrowUp, ArrowDown, Lock, AlertCircle, Check, Search, X } from 'lucide-svelte';
+  import { ArrowLeft, Save, Plus, Trash2, ArrowUp, ArrowDown, Search, X, Check, Lock } from 'lucide-svelte';
 
   let contestId = $page.params.id;
   let contest: Contest | null = null;

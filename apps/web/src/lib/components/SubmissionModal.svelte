@@ -44,7 +44,6 @@
 <svelte:window on:keydown={handleKeydown} />
 
 {#if open && submission}
-  <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
   <div
     class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-6"
     on:click|self={onClose}

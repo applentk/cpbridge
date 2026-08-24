@@ -7,7 +7,11 @@
     "dev": "vite dev --port 3000",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test:e2e": "playwright test",
+    "test": "playwright test"
   },
   "dependencies": {
     "@cpbridge/contracts": "workspace:*",
@@ -17,6 +21,7 @@
     "monaco-editor": "^0.52.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@sveltejs/adapter-auto": "^4.0.0",
     "@sveltejs/adapter-node": "^5.5.7",
     "@sveltejs/kit": "^2.17.2",

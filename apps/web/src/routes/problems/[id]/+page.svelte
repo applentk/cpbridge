@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
-import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendingSubmissions, acknowledgeRecoveredSubmission } from '$lib/extension/bridge';
+  import { submitViaExtension, pollStatusViaExtension, recoverPendingSubmissions, acknowledgeRecoveredSubmission } from '$lib/extension/bridge';
   import { reconcileExtensionSubmissions } from '$lib/extension/reconcile';
   import { renderMathInHtml } from '$lib/utils/math';
   import {
@@ -23,7 +23,6 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
   import {
     ExternalLink,
     Send,
-    AlertCircle,
     CheckCircle2,
     Clock,
     Cpu,
@@ -33,7 +32,6 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
     Code2,
     Terminal,
     Upload,
-    FileCode,
     Columns,
     ArrowLeft,
     Trophy,
@@ -50,7 +48,7 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
   let contestProblems: ContestProblem[] = [];
   let contestSolvedProblemIds: Set<string> = new Set();
   let contestWrongProblemIds: Set<string> = new Set();
-  let contestLoading = false;
+  let _contestLoading = false;
 
   let currentLoadedProblemId: string = '';
   let currentLoadedContestId: string | null | undefined = undefined;
@@ -244,7 +242,7 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
   }
 
   async function loadContestData(cId: string) {
-    contestLoading = true;
+    _contestLoading = true;
     try {
       const cRes = await api.get<Contest>(`/contests/${cId}`);
       if (cId !== contestId) return;
@@ -257,7 +255,7 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
     } catch (err) {
       console.error('Failed to load contest context:', err);
     } finally {
-      contestLoading = false;
+      _contestLoading = false;
     }
   }
 

@@ -6,7 +6,7 @@
   import type { Contest, ContestProblem } from '@cpbridge/contracts';
   import ContestTimer from '$lib/components/ContestTimer.svelte';
   import ProblemCard from '$lib/components/ProblemCard.svelte';
-  import { Trophy, Users, Shield, ArrowRight, Lock, Play, AlertCircle, RefreshCw, Edit3 } from 'lucide-svelte';
+  import { Trophy, Users, Lock, RefreshCw, Edit3 } from 'lucide-svelte';
 
   let contestId = $page.params.id;
   let contest: Contest | null = null;

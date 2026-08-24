@@ -109,7 +109,7 @@ export async function checkCodeforcesSession(): Promise<{ loggedIn: boolean; use
   try {
     const res = await fetch('https://codeforces.com/enter', { method: 'GET', credentials: 'include' });
     const text = await res.text();
-    const handleMatch = text.match(/handle\s*=\s*["']([^"']+)["']/) || text.match(/\/profile\/([a-zA-Z0-9_\-]+)/);
+    const handleMatch = text.match(/handle\s*=\s*["']([^"']+)["']/) || text.match(/\/profile\/([a-zA-Z0-9_-]+)/);
     return { loggedIn: !text.includes('Enter Codeforces') || !!handleMatch, username: handleMatch?.[1] };
   } catch {
     return { loggedIn: false };
@@ -173,7 +173,7 @@ export async function submitCodeforces(contestId: string, index: string, languag
       // thrown as strings). Never surface a blank "Codeforces: " error.
       const errorText = typeof err === 'string' ? err.trim() : String(err?.message || '').trim();
       lastError = errorText || `Request failed while ${postSent ? 'sending the submission to' : 'opening'} Codeforces`;
-      if (postSent) throw new Error(`Codeforces: ${lastError}`);
+      if (postSent) throw new Error(`Codeforces: ${lastError}`, { cause: err });
     }
   }
   throw new Error(`Codeforces: ${lastError || 'Failed to open the submission form.'}`);

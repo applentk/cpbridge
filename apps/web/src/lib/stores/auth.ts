@@ -9,7 +9,7 @@ export interface AuthState {
 }
 
 function createAuthStore() {
-  const { subscribe, set, update } = writable<AuthState>({
+  const { subscribe, set } = writable<AuthState>({
     user: null,
     token: null,
     loading: true,

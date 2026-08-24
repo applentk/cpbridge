@@ -100,7 +100,7 @@ async function dispatchSubmission(message: ExtensionSubmitRequest): Promise<Exte
   }
 }
 
-chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
   handleMessage(message)
     .then(sendResponse)
     .catch((err) => {

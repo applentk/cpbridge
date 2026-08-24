@@ -5,7 +5,7 @@
   import { reconcileExtensionSubmissions } from '$lib/extension/reconcile';
   import { type Submission, formatLanguageName } from '@cpbridge/contracts';
   import SubmissionModal from '$lib/components/SubmissionModal.svelte';
-  import { Cpu, RefreshCw, Filter, ExternalLink, Code2 } from 'lucide-svelte';
+  import { Cpu, RefreshCw, ExternalLink, Code2 } from 'lucide-svelte';
 
   let submissions: Submission[] = [];
   let loading = true;

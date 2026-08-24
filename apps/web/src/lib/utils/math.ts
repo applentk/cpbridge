@@ -53,7 +53,7 @@ export function sanitizeHtml(html: string): string {
       'href', 'src', 'alt', 'title', 'class', 'style', 'target', 'rel', 'id',
       'aria-hidden', 'aria-label', 'role', 'tabindex', 'xmlns', 'display', 'width', 'height'
     ],
-    ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+    ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.:]|$))/i,
     ALLOW_DATA_ATTR: false
   });
 }
@@ -74,7 +74,7 @@ export function cleanBoilerplate(html: string): string {
   cleaned = cleaned.replace(/<div class="sample-tests?">.*?<\/div>\s*<\/div>/gis, '');
 
   // 3. Plain text headers (e.g. C. Rabbits\ntime limit per test\n2 seconds\n...)
-  cleaned = cleaned.replace(/^[A-Z0-9\.\s\-]+\n(?:time limit(?:\s+per test)?\n[^\n]+\n)?(?:memory limit(?:\s+per test)?\n[^\n]+\n)?(?:input\n[^\n]+\n)?(?:output\n[^\n]+\n)?/gis, '');
+  cleaned = cleaned.replace(/^[A-Z0-9.\s-]+\n(?:time limit(?:\s+per test)?\n[^\n]+\n)?(?:memory limit(?:\s+per test)?\n[^\n]+\n)?(?:input\n[^\n]+\n)?(?:output\n[^\n]+\n)?/gis, '');
 
   // 4. Codeforces footer (copyright, server time, mobile version, terms)
   cleaned = cleaned.replace(/(?:\[?Codeforces\]?|\(c\)\s*Copyright).*?(?:Mike Mirzayanov|Server time:|Desktop version|Privacy Policy|Supported by).*/gis, '');
@@ -117,7 +117,7 @@ export function renderMathInHtml(html: string): string {
     return renderKatexSafe(math, true);
   });
 
-  output = output.replace(/\$\$([^\$]+?)\$\$/gs, (_, math) => {
+  output = output.replace(/\$\$([^$]+?)\$\$/gs, (_, math) => {
     return renderKatexSafe(math, true);
   });
 
@@ -127,7 +127,7 @@ export function renderMathInHtml(html: string): string {
   });
 
   // 5. Single dollar math: $...$
-  output = output.replace(/(^|[^\$])\$([^\$\n\r]+?)\$(?!\$)/g, (match, prefix, math) => {
+  output = output.replace(/(^|[^$])\$([^$\n\r]+?)\$(?!\$)/g, (match, prefix, math) => {
     const trimmed = math.trim();
     if (/^[0-9]+(\.[0-9]+)?$/.test(trimmed) || !trimmed) {
       return match;

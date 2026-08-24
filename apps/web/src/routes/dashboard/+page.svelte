@@ -1,16 +1,23 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
   import { type Contest, type Submission, formatLanguageName } from '@cpbridge/contracts';
   import SubmissionModal from '$lib/components/SubmissionModal.svelte';
-  import { Trophy, Cpu, ArrowRight, Clock, ShieldCheck, LayoutDashboard, Code2 } from 'lucide-svelte';
+  import { Trophy, Cpu, ArrowRight, Clock, LayoutDashboard, Code2 } from 'lucide-svelte';
 
   let contests: Contest[] = [];
   let submissions: Submission[] = [];
   let loading = true;
   let viewingSubmission: Submission | null = null;
+
+  $: {
+    if (browser && !$auth.loading && $auth.user?.role === 'ADMIN') {
+      goto('/admin');
+    }
+  }
 
   onMount(async () => {
     if ($auth.user?.role === 'ADMIN') {

@@ -3,7 +3,7 @@
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
   import type { ProblemSet, Problem, ProblemSetItem } from '@cpbridge/contracts';
-  import { Layers, Plus, Trash2, ArrowUp, ArrowDown, ArrowLeft, Trophy, Search, X, Check, Save } from 'lucide-svelte';
+  import { Plus, Trash2, ArrowUp, ArrowDown, ArrowLeft, Trophy, Search, X, Save, Check } from 'lucide-svelte';
 
   let setId = $page.params.id;
   let set: ProblemSet | null = null;

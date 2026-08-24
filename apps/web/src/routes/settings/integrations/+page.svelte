@@ -1,24 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api } from '$lib/api/client';
-  import { auth } from '$lib/stores/auth';
   import { pingExtension } from '$lib/extension/bridge';
-  import type { ExtensionPingResponse, PlatformType } from '@cpbridge/contracts';
+  import type { ExtensionPingResponse } from '@cpbridge/contracts';
   import {
     Puzzle,
     ShieldCheck,
     CheckCircle2,
-    XCircle,
     ExternalLink,
     RefreshCw,
     AlertTriangle,
     Download,
-    Terminal,
     Copy,
     Check,
-    FolderArchive,
-    Laptop,
-    CheckCheck,
     Info
   } from 'lucide-svelte';
 

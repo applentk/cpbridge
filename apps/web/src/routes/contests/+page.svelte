@@ -3,7 +3,7 @@
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
   import type { Contest } from '@cpbridge/contracts';
-  import { Trophy, Clock, Users, ArrowRight, ShieldCheck, Plus } from 'lucide-svelte';
+  import { Clock, Users, ArrowRight, Plus } from 'lucide-svelte';
 
   let contests: Contest[] = [];
   let loading = true;
