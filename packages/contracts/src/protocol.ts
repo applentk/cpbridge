@@ -52,6 +52,35 @@ export interface ExtensionSubmissionFailedResponse {
   message?: string;
 }
 
+export type StoredSubmissionDispatchState = 'DISPATCHING' | 'CREATED' | 'FAILED';
+
+export interface ExtensionRecoverSubmissionsRequest {
+  type: 'RECOVER_SUBMISSIONS';
+}
+
+export interface ExtensionRecoveredSubmission {
+  submissionId: string;
+  state: StoredSubmissionDispatchState;
+  externalSubmissionId?: string;
+  error?: string;
+}
+
+export interface ExtensionRecoverSubmissionsResponse {
+  type: 'RECOVER_SUBMISSIONS_RESULT';
+  submissions: ExtensionRecoveredSubmission[];
+}
+
+export interface ExtensionAcknowledgeSubmissionRequest {
+  type: 'ACK_SUBMISSION';
+  submissionId: string;
+}
+
+export interface ExtensionAcknowledgeSubmissionResponse {
+  type: 'ACK_SUBMISSION_RESULT';
+  submissionId: string;
+  acknowledged: boolean;
+}
+
 export interface ExtensionStatusPollRequest {
   type: 'POLL_STATUS';
   platform: PlatformType;
@@ -74,5 +103,9 @@ export type ExtensionMessage =
   | ExtensionSubmitRequest
   | ExtensionSubmissionCreatedResponse
   | ExtensionSubmissionFailedResponse
+  | ExtensionRecoverSubmissionsRequest
+  | ExtensionRecoverSubmissionsResponse
+  | ExtensionAcknowledgeSubmissionRequest
+  | ExtensionAcknowledgeSubmissionResponse
   | ExtensionStatusPollRequest
   | ExtensionStatusPollResponse;

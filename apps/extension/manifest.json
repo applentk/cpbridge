@@ -6,7 +6,8 @@
   "permissions": [
     "cookies",
     "activeTab",
-    "scripting"
+    "scripting",
+    "storage"
   ],
   "host_permissions": [
     "https://codeforces.com/*",
@@ -39,4 +40,3 @@
     }
   ]
 }
-

@@ -46,25 +46,27 @@ function extractSubmissionIds(html: string, taskId?: string): string[] {
   return ids;
 }
 
-async function findLatestAtCoderSubmission(contestId: string, taskId: string, knownIds: Set<string>): Promise<string | undefined> {
+async function snapshotMyAtCoderSubmissionIds(contestId: string, taskId: string): Promise<Set<string> | undefined> {
   try {
     const response = await fetch(`https://atcoder.jp/contests/${contestId}/submissions/me`, { method: 'GET', credentials: 'include' });
     if (!response.ok) return undefined;
     const html = await response.text();
-    const taskIds = extractSubmissionIds(html, taskId);
-    // Some AtCoder table variants show only a short label (for example `A`) in
-    // the row text. If the task link is omitted as well, the newest unseen row
-    // is still the safest match immediately after our POST.
-    const ids = taskIds.length > 0 ? taskIds : extractSubmissionIds(html);
-    return ids.find((id) => !knownIds.has(id)) || (knownIds.size === 0 ? ids[0] : undefined);
+    return new Set(extractSubmissionIds(html, taskId));
   } catch {
     return undefined;
   }
 }
 
+function singleNewSubmissionId(knownIds: Set<string>, currentIds: Set<string>): string | undefined {
+  const newIds = [...currentIds].filter((id) => !knownIds.has(id));
+  // Do not guess when a second submission appeared concurrently.
+  return newIds.length === 1 ? newIds[0] : undefined;
+}
+
 async function waitForAtCoderSubmission(contestId: string, taskId: string, knownIds: Set<string>): Promise<string | undefined> {
   for (let attempt = 0; attempt < 8; attempt++) {
-    const id = await findLatestAtCoderSubmission(contestId, taskId, knownIds);
+    const currentIds = await snapshotMyAtCoderSubmissionIds(contestId, taskId);
+    const id = currentIds && singleNewSubmissionId(knownIds, currentIds);
     if (id) return id;
     if (attempt < 7) await sleep(400);
   }
@@ -145,35 +147,24 @@ async function submitAtCoderFromSameOriginPage(
           return { error: `AtCoder returned HTTP ${response.status}${message ? `: ${message}` : ''}` };
         }
 
-        const responseDoc = new DOMParser().parseFromString(responseHtml, 'text/html');
-        const responseLink = [...responseDoc.querySelectorAll<HTMLAnchorElement>('a[href*="/submissions/"]')]
-          .map((link) => link.href.match(/\/submissions\/(\d+)/)?.[1])
-          .find((id): id is string => !!id && !args.knownIds.includes(id));
-        if (responseLink) return { externalSubmissionId: responseLink };
-
         for (let attempt = 0; attempt < 8; attempt++) {
           const submissionsResponse = await fetch(`/contests/${args.contestId}/submissions/me`, {
             credentials: 'same-origin'
           });
           if (submissionsResponse.ok) {
             const submissionsDoc = new DOMParser().parseFromString(await submissionsResponse.text(), 'text/html');
+            const currentIds = new Set<string>();
             for (const row of [...submissionsDoc.querySelectorAll('tr')]) {
-              const rowText = row.textContent || '';
               const taskLink = [...row.querySelectorAll<HTMLAnchorElement>('a[href*="/tasks/"]')]
                 .some((link) => link.href.includes(`/tasks/${args.taskId}`));
-              if (!rowText.includes(args.taskId) && !taskLink) continue;
-              const id = [...row.querySelectorAll<HTMLAnchorElement>('a[href*="/submissions/"]')]
-                .map((link) => link.href.match(/\/submissions\/(\d+)/)?.[1])
-                .find((candidate): candidate is string => !!candidate && !args.knownIds.includes(candidate));
-              if (id) return { externalSubmissionId: id };
+              if (!taskLink) continue;
+              for (const candidate of [...row.querySelectorAll<HTMLAnchorElement>('a[href*="/submissions/"]')]
+                .map((link) => link.href.match(/\/submissions\/(\d+)/)?.[1])) {
+                if (candidate) currentIds.add(candidate);
+              }
             }
-
-            // On older/compact layouts the task link is not present in the
-            // row. Submissions are newest-first, so use the newest unseen ID.
-            const newestUnseenId = [...submissionsDoc.querySelectorAll<HTMLAnchorElement>('a[href*="/submissions/"]')]
-              .map((link) => link.href.match(/\/submissions\/(\d+)/)?.[1])
-              .find((candidate): candidate is string => !!candidate && !args.knownIds.includes(candidate));
-            if (newestUnseenId) return { externalSubmissionId: newestUnseenId };
+            const newIds = [...currentIds].filter((id) => !args.knownIds.includes(id));
+            if (newIds.length === 1) return { externalSubmissionId: newIds[0] };
           }
           if (attempt < 7) await new Promise((resolve) => setTimeout(resolve, 400));
         }
@@ -214,8 +205,10 @@ export async function submitAtCoder(contestId: string, taskId: string, language:
   const csrfToken = getCsrfToken(html);
   if (!csrfToken || html.includes('Sign In')) throw new Error('NOT_LOGGED_IN');
 
-  const previousId = await findLatestAtCoderSubmission(contestId, taskId, new Set());
-  const knownIds = new Set(previousId ? [previousId] : []);
+  const knownIds = await snapshotMyAtCoderSubmissionIds(contestId, taskId);
+  if (!knownIds) {
+    throw new Error('Could not read your AtCoder submissions before submitting; refusing to match a verdict unsafely.');
+  }
   const formData = new URLSearchParams({
     'data.TaskScreenName': taskId,
     'data.LanguageId': getOptionValue(html, language) || AC_LANGUAGE_MAP[language] || '5052',
@@ -249,11 +242,9 @@ export async function submitAtCoder(contestId: string, taskId: string, language:
   const error = platformError(responseHtml);
   if (error && !/success|submitted/i.test(error)) throw new Error(error);
 
-  const immediateId = extractSubmissionIds(responseHtml, taskId)[0];
-  if (immediateId) return { externalSubmissionId: immediateId };
   const id = await waitForAtCoderSubmission(contestId, taskId, knownIds);
   if (id) return { externalSubmissionId: id };
-  throw new Error('AtCoder accepted the request but the new submission ID was not visible yet. Check the AtCoder submissions page.');
+  throw new Error('AtCoder accepted the request, but it could not uniquely identify your new submission. Check the AtCoder submissions page.');
 }
 
 export async function pollAtCoderStatus(contestId: string, externalSubmissionId: string): Promise<{ status: 'JUDGING' | 'ACCEPTED' | 'WRONG_ANSWER' | 'TIME_LIMIT' | 'MEMORY_LIMIT' | 'RUNTIME_ERROR' | 'COMPILE_ERROR' | 'FAILED' }> {

@@ -9,7 +9,20 @@ const CF_LANGUAGE_MAP: Record<LanguageId, string> = {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function cleanOptionText(value: string): string {
-  return value.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim().toLowerCase();
+  return htmlText(value).toLowerCase();
+}
+
+function htmlText(value: string): string {
+  return value
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/(?:&nbsp;?|&#160;?|&#x0*a0;?)(?=\s|$|<)/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#(?:39|x0*27);/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function getOptionValue(html: string, language: LanguageId): string | undefined {
@@ -52,28 +65,35 @@ function extractSubmissionIds(html: string, problemIndex?: string): string[] {
   return ids;
 }
 
-async function findLatestCodeforcesSubmission(contestId: string, problemIndex: string, knownIds: Set<string>): Promise<string | undefined> {
-  const urls = [
-    `https://codeforces.com/contest/${contestId}/status?my=on`,
-    `https://codeforces.com/contest/${contestId}/my`,
-    `https://codeforces.com/problemset/status?my=on`
-  ];
-  for (const url of urls) {
-    try {
-      const response = await fetch(url, { method: 'GET', credentials: 'include' });
-      if (!response.ok) continue;
-      const ids = extractSubmissionIds(await response.text(), problemIndex);
-      const newId = ids.find((id) => !knownIds.has(id));
-      if (newId) return newId;
-      if (ids[0] && knownIds.size === 0) return ids[0];
-    } catch {}
+/**
+ * Codeforces' `/my` page is scoped to the authenticated browser account.
+ * Never identify a submission from the public contest-status page: its first
+ * row can belong to an unrelated competitor.
+ */
+async function snapshotMyCodeforcesSubmissionIds(contestId: string, problemIndex: string): Promise<Set<string> | undefined> {
+  try {
+    const response = await fetch(`https://codeforces.com/contest/${contestId}/my`, {
+      method: 'GET',
+      credentials: 'include'
+    });
+    if (!response.ok) return undefined;
+    return new Set(extractSubmissionIds(await response.text(), problemIndex));
+  } catch {
+    return undefined;
   }
-  return undefined;
+}
+
+function singleNewSubmissionId(knownIds: Set<string>, currentIds: Set<string>): string | undefined {
+  const newIds = [...currentIds].filter((id) => !knownIds.has(id));
+  // Several new rows mean another submission happened concurrently. Failing
+  // the handoff is preferable to attaching a verdict to the wrong solution.
+  return newIds.length === 1 ? newIds[0] : undefined;
 }
 
 async function waitForCodeforcesSubmission(contestId: string, problemIndex: string, knownIds: Set<string>): Promise<string | undefined> {
   for (let attempt = 0; attempt < 6; attempt++) {
-    const id = await findLatestCodeforcesSubmission(contestId, problemIndex, knownIds);
+    const currentIds = await snapshotMyCodeforcesSubmissionIds(contestId, problemIndex);
+    const id = currentIds && singleNewSubmissionId(knownIds, currentIds);
     if (id) return id;
     if (attempt < 5) await sleep(500);
   }
@@ -82,7 +102,7 @@ async function waitForCodeforcesSubmission(contestId: string, problemIndex: stri
 
 function platformError(html: string): string | undefined {
   const match = html.match(/<(?:span|div|p)[^>]*class=["'][^"']*(?:error|alert-danger)[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|div|p)>/i);
-  const message = match?.[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const message = match?.[1] ? htmlText(match[1]) : '';
   return message || undefined;
 }
 
@@ -127,8 +147,10 @@ export async function submitCodeforces(contestId: string, index: string, languag
         continue;
       }
 
-      const previousId = await findLatestCodeforcesSubmission(contestId, index, new Set());
-      const knownIds = new Set(previousId ? [previousId] : []);
+      const knownIds = await snapshotMyCodeforcesSubmissionIds(contestId, index);
+      if (!knownIds) {
+        throw new Error('Could not read your Codeforces submissions before submitting; refusing to match a verdict unsafely.');
+      }
       const formData = new URLSearchParams({
         csrf_token: csrfToken, action: 'submitSolutionFormSubmitted', submittedProblemIndex: index,
         submittedProblemCode: `${contestId}${index}`, programTypeId: getOptionValue(html, language) || CF_LANGUAGE_MAP[language] || '89',
@@ -143,14 +165,15 @@ export async function submitCodeforces(contestId: string, index: string, languag
       const error = platformError(responseHtml);
       if (error && !/has been submitted|success/i.test(error)) throw new Error(error);
 
-      const immediateId = extractSubmissionIds(responseHtml)[0];
-      if (immediateId) return { externalSubmissionId: immediateId };
       const id = await waitForCodeforcesSubmission(contestId, index, knownIds);
       if (id) return { externalSubmissionId: id };
-      throw new Error('Codeforces accepted the request but the new submission ID was not visible yet. Check the Codeforces submissions page.');
+      throw new Error('Codeforces accepted the request, but it could not uniquely identify your new submission. Check the Codeforces submissions page.');
     } catch (err: any) {
       if (err.message === 'NOT_LOGGED_IN') throw err;
-      lastError = err.message || 'Unknown Codeforces submission error';
+      // Some browser/network exceptions have an empty `message` (or are
+      // thrown as strings). Never surface a blank "Codeforces: " error.
+      const errorText = typeof err === 'string' ? err.trim() : String(err?.message || '').trim();
+      lastError = errorText || `Request failed while ${postSent ? 'sending the submission to' : 'opening'} Codeforces`;
       if (postSent) throw new Error(`Codeforces: ${lastError}`);
     }
   }
