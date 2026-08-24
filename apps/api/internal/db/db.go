@@ -150,6 +150,7 @@ func EnsureSchema(db *sql.DB) error {
 		platform VARCHAR(32) NOT NULL,
 		language VARCHAR(32) NOT NULL,
 		source_code TEXT NOT NULL,
+		source_hash VARCHAR(64),
 		status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
 		external_submission_id VARCHAR(128),
 		submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -160,6 +161,10 @@ func EnsureSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_submissions_contest ON submissions(contest_id);
 	CREATE INDEX IF NOT EXISTS idx_submissions_problem ON submissions(problem_id);
 	CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status);
+	ALTER TABLE submissions ADD COLUMN IF NOT EXISTS source_hash VARCHAR(64);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_submissions_unique_source
+		ON submissions(user_id, problem_id, language, source_hash)
+		WHERE source_hash IS NOT NULL;
 
 	CREATE TABLE IF NOT EXISTS integrations (
 		user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,

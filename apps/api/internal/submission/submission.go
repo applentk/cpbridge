@@ -2,7 +2,9 @@ package submission
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"maps"
 	"math"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +28,11 @@ import (
 )
 
 type Status string
+
+// ErrDuplicateSource is returned before a submission is created when this
+// user already submitted the exact same source in the same language for the
+// problem. The web client therefore never dispatches it to an external judge.
+var ErrDuplicateSource = errors.New("an identical solution was already submitted for this problem")
 
 const (
 	Pending      Status = "PENDING"
@@ -44,6 +52,7 @@ type Submission struct {
 	UserID               string         `json:"userId"`
 	Username             string         `json:"username,omitempty"`
 	ProblemID            string         `json:"problemId"`
+	ProblemExternalID    string         `json:"-"`
 	ProblemTitle         string         `json:"problemTitle,omitempty"`
 	ContestID            *string        `json:"contestId,omitempty"`
 	Platform             platform.Type  `json:"platform"`
@@ -51,9 +60,38 @@ type Submission struct {
 	SourceCode           string         `json:"sourceCode"`
 	Status               Status         `json:"status"`
 	ExternalSubmissionID *string        `json:"externalSubmissionId,omitempty"`
+	SourceURL            *string        `json:"sourceUrl,omitempty"`
 	SubmittedAt          time.Time      `json:"submittedAt"`
 	JudgedAt             *time.Time     `json:"judgedAt,omitempty"`
 	Metadata             map[string]any `json:"metadata"`
+}
+
+func attachAdminSourceURL(sub *Submission, isAdmin bool) {
+	if !isAdmin || sub == nil || sub.ExternalSubmissionID == nil {
+		return
+	}
+
+	externalSubmissionID := strings.TrimSpace(*sub.ExternalSubmissionID)
+	problemParts := strings.Split(strings.TrimSpace(sub.ProblemExternalID), "/")
+	if externalSubmissionID == "" || len(problemParts) < 1 || problemParts[0] == "" {
+		return
+	}
+	if submissionParts := strings.Split(externalSubmissionID, "/"); len(submissionParts) > 1 {
+		externalSubmissionID = submissionParts[len(submissionParts)-1]
+	}
+
+	contestID := url.PathEscape(problemParts[0])
+	submissionID := url.PathEscape(externalSubmissionID)
+	var sourceURL string
+	switch sub.Platform {
+	case platform.Codeforces:
+		sourceURL = fmt.Sprintf("https://codeforces.com/contest/%s/submission/%s", contestID, submissionID)
+	case platform.AtCoder:
+		sourceURL = fmt.Sprintf("https://atcoder.jp/contests/%s/submissions/%s", contestID, submissionID)
+	default:
+		return
+	}
+	sub.SourceURL = &sourceURL
 }
 
 type ProblemScore struct {
@@ -138,17 +176,37 @@ func (s *Service) Create(ctx context.Context, userID string, isAdmin bool, probl
 		if now.Before(c.StartAt) {
 			return nil, errors.New("contest has not started yet")
 		}
-		if !now.Before(c.EndAt) {
-			return nil, errors.New("contest has ended")
-		}
 
-		// Ensure user joined contest
-		if err := s.contestSvc.Join(ctx, *contestID, userID); err != nil {
-			if !c.IsParticipant && c.OwnerID != userID && !isAdmin {
-				return nil, fmt.Errorf("failed to join contest: %w", err)
+		// Ensure user joined contest if contest is currently active
+		if now.Before(c.EndAt) {
+			if err := s.contestSvc.Join(ctx, *contestID, userID); err != nil {
+				if !c.IsParticipant && c.OwnerID != userID && !isAdmin {
+					return nil, fmt.Errorf("failed to join contest: %w", err)
+				}
 			}
 		}
 	}
+
+	// Check legacy records too: source_hash was introduced after submissions
+	// already existed, so its database uniqueness guarantee only covers newer
+	// rows. Exact source and language are intentional—formatting or changing
+	// language remains a distinct submission.
+	var existingID string
+	err = s.db.QueryRowContext(ctx, `
+		SELECT id
+		FROM submissions
+		WHERE user_id = $1 AND problem_id = $2 AND language = $3 AND source_code = $4
+		LIMIT 1
+	`, userID, problemID, language, sourceCode).Scan(&existingID)
+	if err == nil {
+		return nil, ErrDuplicateSource
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("failed to check for duplicate submission: %w", err)
+	}
+
+	sourceDigest := sha256.Sum256([]byte(sourceCode))
+	sourceHash := hex.EncodeToString(sourceDigest[:])
 
 	sub := &Submission{
 		ID:          idgen.New(idgen.PrefixSubmission),
@@ -164,10 +222,15 @@ func (s *Service) Create(ctx context.Context, userID string, isAdmin bool, probl
 	}
 
 	query := `
-		INSERT INTO submissions (id, user_id, problem_id, contest_id, platform, language, source_code, status, submitted_at, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO submissions (id, user_id, problem_id, contest_id, platform, language, source_code, source_hash, status, submitted_at, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		ON CONFLICT (user_id, problem_id, language, source_hash) WHERE source_hash IS NOT NULL DO NOTHING
+		RETURNING id
 	`
-	_, err = s.db.ExecContext(ctx, query, sub.ID, sub.UserID, sub.ProblemID, sub.ContestID, sub.Platform, sub.Language, sub.SourceCode, sub.Status, sub.SubmittedAt, "{}")
+	err = s.db.QueryRowContext(ctx, query, sub.ID, sub.UserID, sub.ProblemID, sub.ContestID, sub.Platform, sub.Language, sub.SourceCode, sourceHash, sub.Status, sub.SubmittedAt, "{}").Scan(&sub.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrDuplicateSource
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create submission: %w", err)
 	}
@@ -206,23 +269,25 @@ func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submi
 		return sub, nil
 	}
 
-	// 2. If submission is PENDING or DISPATCHING without an external ID for >2 minutes, mark as FAILED
+	// 2. If the browser bridge has not confirmed the handoff yet, keep the
+	// submission recoverable. The extension persists its result and the web
+	// client can safely retry the handoff by submission ID; turning this into a
+	// terminal failure would make a successful external submission look lost.
 	if (sub.Status == Pending || sub.Status == Dispatching) && (sub.ExternalSubmissionID == nil || *sub.ExternalSubmissionID == "") {
 		if now.Sub(sub.SubmittedAt) > 2*time.Minute {
 			metadata := sub.Metadata
 			if metadata == nil {
 				metadata = make(map[string]any)
 			}
-			metadata["error"] = "Submission dispatch timed out; no external submission was created"
+			metadata["dispatchRetryable"] = true
+			metadata["dispatchMessage"] = "Dispatch confirmation is delayed; retrying the browser handoff is safe"
 			metaJSON, _ := json.Marshal(metadata)
 			_, updateErr := s.db.ExecContext(ctx, `
 				UPDATE submissions
-				SET status = $1, judged_at = $2, metadata = $3
-				WHERE id = $4
-			`, Failed, now, metaJSON, sub.ID)
+				SET metadata = $1
+				WHERE id = $2
+			`, metaJSON, sub.ID)
 			if updateErr == nil {
-				sub.Status = Failed
-				sub.JudgedAt = &now
 				sub.Metadata = metadata
 			}
 		}
@@ -305,7 +370,7 @@ func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submi
 
 func (s *Service) SyncStatus(ctx context.Context, id, requestingUserID string, isAdmin bool) (*Submission, error) {
 	query := `
-		SELECT s.id, s.user_id, u.username, s.problem_id, p.title, s.contest_id, s.platform, s.language,
+		SELECT s.id, s.user_id, u.username, s.problem_id, p.external_id, p.title, s.contest_id, s.platform, s.language,
 		       s.source_code, s.status, s.external_submission_id, s.submitted_at, s.judged_at, s.metadata
 		FROM submissions s
 		JOIN users u ON s.user_id = u.id
@@ -316,7 +381,7 @@ func (s *Service) SyncStatus(ctx context.Context, id, requestingUserID string, i
 	var metaJSON []byte
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&sub.ID, &sub.UserID, &sub.Username, &sub.ProblemID, &sub.ProblemTitle, &sub.ContestID,
+		&sub.ID, &sub.UserID, &sub.Username, &sub.ProblemID, &sub.ProblemExternalID, &sub.ProblemTitle, &sub.ContestID,
 		&sub.Platform, &sub.Language, &sub.SourceCode, &sub.Status, &sub.ExternalSubmissionID,
 		&sub.SubmittedAt, &sub.JudgedAt, &metaJSON,
 	)
@@ -334,15 +399,20 @@ func (s *Service) SyncStatus(ctx context.Context, id, requestingUserID string, i
 	_ = json.Unmarshal(metaJSON, &sub.Metadata)
 
 	if sub.Status == Judging || sub.Status == Pending || sub.Status == Dispatching {
-		return s.syncStatusDirect(ctx, &sub)
+		if synced, syncErr := s.syncStatusDirect(ctx, &sub); syncErr == nil && synced != nil {
+			sub = *synced
+		} else if syncErr != nil {
+			return nil, syncErr
+		}
 	}
 
+	attachAdminSourceURL(&sub, isAdmin)
 	return &sub, nil
 }
 
 func (s *Service) GetByID(ctx context.Context, id, requestingUserID string, isAdmin bool) (*Submission, error) {
 	query := `
-		SELECT s.id, s.user_id, u.username, s.problem_id, p.title, s.contest_id, s.platform, s.language,
+		SELECT s.id, s.user_id, u.username, s.problem_id, p.external_id, p.title, s.contest_id, s.platform, s.language,
 		       s.source_code, s.status, s.external_submission_id, s.submitted_at, s.judged_at, s.metadata
 		FROM submissions s
 		JOIN users u ON s.user_id = u.id
@@ -353,7 +423,7 @@ func (s *Service) GetByID(ctx context.Context, id, requestingUserID string, isAd
 	var metaJSON []byte
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&sub.ID, &sub.UserID, &sub.Username, &sub.ProblemID, &sub.ProblemTitle, &sub.ContestID,
+		&sub.ID, &sub.UserID, &sub.Username, &sub.ProblemID, &sub.ProblemExternalID, &sub.ProblemTitle, &sub.ContestID,
 		&sub.Platform, &sub.Language, &sub.SourceCode, &sub.Status, &sub.ExternalSubmissionID,
 		&sub.SubmittedAt, &sub.JudgedAt, &metaJSON,
 	)
@@ -372,14 +442,23 @@ func (s *Service) GetByID(ctx context.Context, id, requestingUserID string, isAd
 
 	if sub.Status == Judging || sub.Status == Pending || sub.Status == Dispatching {
 		if synced, err := s.syncStatusDirect(ctx, &sub); err == nil && synced != nil {
-			return synced, nil
+			sub = *synced
 		}
 	}
 
+	attachAdminSourceURL(&sub, isAdmin)
 	return &sub, nil
 }
 
 func (s *Service) List(ctx context.Context, userID, contestID, problemID string, limit, offset int) ([]Submission, error) {
+	return s.list(ctx, userID, contestID, problemID, limit, offset, false)
+}
+
+func (s *Service) ListForViewer(ctx context.Context, userID, contestID, problemID string, limit, offset int, isAdmin bool) ([]Submission, error) {
+	return s.list(ctx, userID, contestID, problemID, limit, offset, isAdmin)
+}
+
+func (s *Service) list(ctx context.Context, userID, contestID, problemID string, limit, offset int, isAdmin bool) ([]Submission, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
@@ -413,7 +492,7 @@ func (s *Service) List(ctx context.Context, userID, contestID, problemID string,
 	}
 
 	query := fmt.Sprintf(`
-		SELECT s.id, s.user_id, u.username, s.problem_id, p.title, s.contest_id, s.platform, s.language,
+		SELECT s.id, s.user_id, u.username, s.problem_id, p.external_id, p.title, s.contest_id, s.platform, s.language,
 		       s.source_code, s.status, s.external_submission_id, s.submitted_at, s.judged_at, s.metadata
 		FROM submissions s
 		JOIN users u ON s.user_id = u.id
@@ -436,7 +515,7 @@ func (s *Service) List(ctx context.Context, userID, contestID, problemID string,
 		var sub Submission
 		var metaJSON []byte
 		err := rows.Scan(
-			&sub.ID, &sub.UserID, &sub.Username, &sub.ProblemID, &sub.ProblemTitle, &sub.ContestID,
+			&sub.ID, &sub.UserID, &sub.Username, &sub.ProblemID, &sub.ProblemExternalID, &sub.ProblemTitle, &sub.ContestID,
 			&sub.Platform, &sub.Language, &sub.SourceCode, &sub.Status, &sub.ExternalSubmissionID,
 			&sub.SubmittedAt, &sub.JudgedAt, &metaJSON,
 		)
@@ -456,6 +535,7 @@ func (s *Service) List(ctx context.Context, userID, contestID, problemID string,
 				subs[i] = *synced
 			}
 		}
+		attachAdminSourceURL(&subs[i], isAdmin)
 	}
 
 	if subs == nil {
@@ -481,11 +561,20 @@ func (s *Service) UpdateDispatched(ctx context.Context, id, userID string, isAdm
 	query := `
 		UPDATE submissions
 		SET status = $1, external_submission_id = $2
-		WHERE id = $3
+		WHERE id = $3 AND status IN ($4, $5)
 	`
-	_, err = s.db.ExecContext(ctx, query, Judging, externalSubmissionID, id)
+	result, err := s.db.ExecContext(ctx, query, Judging, externalSubmissionID, id, Pending, Dispatching)
 	if err != nil {
 		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		// A recovery retry can arrive after the worker has already finalized the
+		// submission. Keep the terminal verdict and avoid enqueueing a duplicate.
+		return nil
 	}
 
 	log.Printf("[Submission:Dispatched] %s marked as JUDGING with external ID %s", sub.ID, externalSubmissionID)
@@ -519,6 +608,14 @@ func (s *Service) UpdateResult(ctx context.Context, id, userID string, isAdmin b
 	// Regular users are only allowed to mark client-dispatch failures (FAILED)
 	if !isAdmin && status != Failed {
 		return errors.New("only admins or platform workers can finalize verdicts")
+	}
+	if status == Failed {
+		if metadata == nil {
+			metadata = make(map[string]any)
+		}
+		if message, ok := metadata["error"].(string); !ok || strings.TrimSpace(message) == "" || strings.EqualFold(strings.TrimSpace(message), "Codeforces:") {
+			metadata["error"] = "Codeforces submission failed before a submission ID was returned. Check the Codeforces submissions page."
+		}
 	}
 
 	metaJSON, err := json.Marshal(metadata)
@@ -739,7 +836,11 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	sub, err := h.service.Create(r.Context(), claims.UserID, isAdmin, req.ProblemID, req.ContestID, req.Language, req.SourceCode)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
+		if errors.Is(err, ErrDuplicateSource) {
+			w.WriteHeader(http.StatusConflict)
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
@@ -804,7 +905,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	cid := q.Get("contestId")
 	pid := q.Get("problemId")
 
-	subs, err := h.service.List(r.Context(), uid, cid, pid, 50, 0)
+	subs, err := h.service.ListForViewer(r.Context(), uid, cid, pid, 50, 0, isAdmin)
 	if err != nil {
 		http.Error(w, `{"error":"failed to list submissions"}`, http.StatusInternalServerError)
 		return
