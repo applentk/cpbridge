@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
   import { type Contest, type Submission, formatLanguageName } from '@cpbridge/contracts';
@@ -12,6 +13,11 @@
   let viewingSubmission: Submission | null = null;
 
   onMount(async () => {
+    if ($auth.user?.role === 'ADMIN') {
+      await goto('/admin');
+      return;
+    }
+
     try {
       const [cRes, sRes] = await Promise.all([
         api.get<Contest[]>('/contests'),

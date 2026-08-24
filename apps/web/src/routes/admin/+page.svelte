@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import type { Contest } from '@cpbridge/contracts';
-  import { Trophy, Code2, Layers, Users, Plus, Upload, ArrowRight, Clock, ShieldAlert } from 'lucide-svelte';
+  import { Trophy, Code2, Layers, Users, Plus, ArrowRight } from 'lucide-svelte';
 
   interface AdminStats {
     totalProblems: number;
@@ -59,8 +59,8 @@
         href="/admin/problems"
         class="px-4 py-2 rounded-xl text-sm font-semibold border border-zinc-700 bg-zinc-900/80 hover:bg-zinc-800 text-white transition flex items-center space-x-1.5"
       >
-        <Upload class="w-4 h-4" />
-        <span>Import Problem</span>
+        <Code2 class="w-4 h-4" />
+        <span>View Problems</span>
       </a>
     </div>
   </div>
@@ -91,14 +91,14 @@
         </div>
       </div>
 
-      <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/50 space-y-2">
+      <a href="/admin/problems" class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800/40 hover:border-zinc-700 transition space-y-2 block group">
         <div class="flex items-center justify-between text-zinc-400">
           <span class="text-xs font-semibold uppercase tracking-wider">Problems</span>
-          <Code2 class="w-4 h-4 text-zinc-400" />
+          <Code2 class="w-4 h-4 text-zinc-400 group-hover:text-white" />
         </div>
         <div class="text-3xl font-extrabold text-white">{stats.totalProblems}</div>
-        <p class="text-xs text-zinc-400">In problem bank</p>
-      </div>
+        <p class="text-xs text-zinc-400 group-hover:text-zinc-300">View problem library</p>
+      </a>
 
       <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/50 space-y-2">
         <div class="flex items-center justify-between text-zinc-400">
@@ -137,8 +137,8 @@
         class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/30 hover:bg-zinc-800/40 hover:border-zinc-700 transition flex items-center justify-between group"
       >
         <div class="space-y-1">
-          <div class="font-bold text-white text-base">Import Problem</div>
-          <p class="text-xs text-zinc-400">Import Codeforces or AtCoder problems via URL</p>
+          <div class="font-bold text-white text-base">View Problems</div>
+          <p class="text-xs text-zinc-400">Browse, import, and manage Codeforces or AtCoder problems</p>
         </div>
         <ArrowRight class="w-5 h-5 text-zinc-500 group-hover:text-white group-hover:translate-x-0.5 transition shrink-0" />
       </a>

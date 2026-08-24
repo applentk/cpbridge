@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import type { Problem, PlatformType } from '@cpbridge/contracts';
-  import { Code2, Plus, Upload, Search, Trash2, Edit3, ExternalLink, X, AlertCircle, Check } from 'lucide-svelte';
+  import { Code2, Plus, Upload, Search, Trash2, Edit3, ExternalLink, Eye, X, AlertCircle, Check } from 'lucide-svelte';
 
   let problems: Problem[] = [];
   let total = 0;
@@ -308,6 +308,13 @@
               </td>
               <td class="px-5 py-3.5 text-right whitespace-nowrap">
                 <div class="flex items-center justify-end space-x-2">
+                  <a
+                    href={`/problems/${p.id}`}
+                    class="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
+                    title="View Problem"
+                  >
+                    <Eye class="w-4 h-4" />
+                  </a>
                   <button
                     on:click={() => openEdit(p)}
                     class="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition"

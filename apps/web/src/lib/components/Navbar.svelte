@@ -1,13 +1,13 @@
 <script lang="ts">
   import { auth } from '$lib/stores/auth';
-  import { Trophy, Code2, Layers, Cpu, LogOut, LogIn, UserPlus, Puzzle, ShieldCheck, LayoutDashboard } from 'lucide-svelte';
+  import { Trophy, Code2, Layers, Cpu, LogOut, LogIn, UserPlus, Puzzle, ShieldCheck, LayoutDashboard, BookOpen } from 'lucide-svelte';
 </script>
 
 <nav class="border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-50">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
     <!-- Brand / Logo -->
     <div class="flex items-center space-x-8">
-      <a href="/" class="flex items-center space-x-2 text-white font-bold text-xl tracking-tight hover:opacity-90">
+      <a href={$auth.user?.role === 'ADMIN' ? '/admin' : '/dashboard'} class="flex items-center space-x-2 text-white font-bold text-xl tracking-tight hover:opacity-90">
         <div class="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center">
           <Code2 class="w-5 h-5 text-white" />
         </div>
@@ -39,6 +39,14 @@
           </a>
         {:else}
           <!-- Regular USER / Guest Navigation -->
+          <a href="/dashboard" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
+            <LayoutDashboard class="w-4 h-4 text-zinc-400" />
+            <span>Dashboard</span>
+          </a>
+          <a href="/problems" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
+            <BookOpen class="w-4 h-4 text-zinc-400" />
+            <span>Problems</span>
+          </a>
           <a href="/contests" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
             <Trophy class="w-4 h-4 text-zinc-400" />
             <span>Contests</span>

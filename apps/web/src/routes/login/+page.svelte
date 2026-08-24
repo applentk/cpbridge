@@ -19,7 +19,7 @@
         password
       });
       auth.setAuth(res.user, res.token);
-      goto('/dashboard');
+      goto(res.user.role === 'ADMIN' ? '/admin' : '/dashboard');
     } catch (err: any) {
       error = err.message || 'Login failed';
     } finally {
