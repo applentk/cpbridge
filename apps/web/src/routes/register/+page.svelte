@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
-  import type { AuthResponse } from '@cp-hub/contracts';
+  import type { AuthResponse } from '@cpbridge/contracts';
   import { UserPlus, AlertCircle } from 'lucide-svelte';
 
   let email = '';
@@ -34,7 +34,7 @@
   <div class="p-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 shadow-xl space-y-6">
     <div class="text-center space-y-1.5">
       <h1 class="text-2xl font-bold text-white">Create Account</h1>
-      <p class="text-sm text-zinc-400">Join CP Hub with a single unified account</p>
+      <p class="text-sm text-zinc-400">Join cpbridge with a single unified account</p>
     </div>
 
     {#if error}

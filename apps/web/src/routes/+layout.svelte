@@ -18,6 +18,6 @@
     <slot />
   </main>
   <footer class="border-t border-zinc-900 bg-zinc-950/80 py-6 text-center text-xs text-zinc-500">
-    <p>CP Hub &copy; 2026 — Unified Competitive Programming Interface</p>
+    <p>cpbridge &copy; 2026 — Unified Competitive Programming Interface</p>
   </footer>
 </div>

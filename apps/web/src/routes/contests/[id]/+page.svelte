@@ -3,7 +3,7 @@
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
-  import type { Contest, ContestProblem } from '@cp-hub/contracts';
+  import type { Contest, ContestProblem } from '@cpbridge/contracts';
   import ContestTimer from '$lib/components/ContestTimer.svelte';
   import ProblemCard from '$lib/components/ProblemCard.svelte';
   import { Trophy, Users, Shield, ArrowRight, Lock, Play, AlertCircle, RefreshCw, Edit3 } from 'lucide-svelte';

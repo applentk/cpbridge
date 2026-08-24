@@ -7,7 +7,7 @@ import type {
   ExtensionSubmissionFailedResponse,
   LanguageId,
   PlatformType,
-} from '@cp-hub/contracts';
+} from '@cpbridge/contracts';
 
 const EXTENSION_ORIGIN = 'CP_HUB_EXTENSION';
 const WEB_APP_ORIGIN = 'CP_HUB_WEB';

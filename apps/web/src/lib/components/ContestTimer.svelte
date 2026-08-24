@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import type { ContestState } from '@cp-hub/contracts';
+  import type { ContestState } from '@cpbridge/contracts';
   import { Clock, Play, CheckCircle } from 'lucide-svelte';
 
   export let startAt: string;

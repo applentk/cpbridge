@@ -1,6 +1,6 @@
-# CP Hub — Current Database Schema
+# cpbridge — Current Database Schema
 
-CP Hub uses PostgreSQL 16. The server currently calls `apps/api/internal/db.EnsureSchema`, which applies idempotent `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, and index statements at startup. SQL files in `migrations/` describe the schema history, but the running server does not contain a separate migration-runner.
+cpbridge uses PostgreSQL 16. The server currently calls `apps/api/internal/db.EnsureSchema`, which applies idempotent `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, and index statements at startup. SQL files in `migrations/` describe the schema history, but the running server does not contain a separate migration-runner.
 
 All timestamps are `TIMESTAMPTZ`. Application-generated IDs are opaque, prefixed values such as `usr_...`, `prb_...`, `set_...`, `con_...`, and `sub_...`.
 

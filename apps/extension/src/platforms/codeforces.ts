@@ -1,4 +1,4 @@
-import type { LanguageId } from '@cp-hub/contracts';
+import type { LanguageId } from '@cpbridge/contracts';
 
 // Fallbacks only: Codeforces changes compiler IDs periodically. The submit form
 // is the source of truth whenever it is available.

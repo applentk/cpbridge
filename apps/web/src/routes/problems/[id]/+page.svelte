@@ -16,7 +16,7 @@ import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendi
     type Contest,
     type ContestProblem,
     formatLanguageName
-  } from '@cp-hub/contracts';
+  } from '@cpbridge/contracts';
   import MonacoEditor from '$lib/components/MonacoEditor.svelte';
   import SubmissionModal from '$lib/components/SubmissionModal.svelte';
   import ContestTimer from '$lib/components/ContestTimer.svelte';

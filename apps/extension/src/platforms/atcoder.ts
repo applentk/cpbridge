@@ -1,4 +1,4 @@
-import type { LanguageId } from '@cp-hub/contracts';
+import type { LanguageId } from '@cpbridge/contracts';
 
 // Fallbacks only. AtCoder's language IDs change when compiler versions change;
 // submitAtCoder reads the current IDs from the submit form first.

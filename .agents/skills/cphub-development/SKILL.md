@@ -2,13 +2,13 @@
 name: cphub-development
 description: >-
   Comprehensive guide and step-by-step procedures for implementing features, platform adapters,
-  database migrations, contest scoring logic, web components, and extension bridges in CP Hub.
+  database migrations, contest scoring logic, web components, and extension bridges in cpbridge.
   Use this skill whenever building, refactoring, or verifying features in this codebase.
 ---
 
-# CP Hub Development & Implementation Skill
+# cpbridge Development & Implementation Skill
 
-This skill provides step-by-step procedures, architectural patterns, and validation checklists for implementing features across the CP Hub monorepo.
+This skill provides step-by-step procedures, architectural patterns, and validation checklists for implementing features across the cpbridge monorepo.
 
 ---
 
@@ -47,7 +47,7 @@ When writing or modifying code, always verify:
 
    import (
        "context"
-       "github.com/cp-hub/api/internal/platform"
+       "github.com/cpbridge/api/internal/platform"
    )
 
    type Platform struct{}
@@ -124,7 +124,7 @@ When implementing contest or scoreboard features:
    - Monaco must be dynamically imported on the client side (`onMount` or dynamic `import()`).
    - Use KaTeX for rendering mathematical formulas in problem statements (`$ ... $` or `$$ ... $$`).
 3. **Contracts Usage**:
-   - Import all types from `@cp-hub/contracts`.
+   - Import all types from `@cpbridge/contracts`.
 
 ---
 
@@ -137,12 +137,12 @@ Before marking any task as complete, execute this verification run:
 cd apps/api && go test -v ./...
 
 # 2. Check TypeScript contracts
-pnpm --filter @cp-hub/contracts check
+pnpm --filter @cpbridge/contracts check
 
 # 3. Build Extension
-pnpm --filter @cp-hub/extension build
+pnpm --filter @cpbridge/extension build
 
 # 4. Check & build Frontend Web
-pnpm --filter @cp-hub/web check
-pnpm --filter @cp-hub/web build
+pnpm --filter @cpbridge/web check
+pnpm --filter @cpbridge/web build
 ```

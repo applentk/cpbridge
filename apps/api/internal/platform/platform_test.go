@@ -3,9 +3,9 @@ package platform_test
 import (
 	"testing"
 
-	"github.com/cp-hub/api/internal/platform"
-	"github.com/cp-hub/api/internal/platform/atcoder"
-	"github.com/cp-hub/api/internal/platform/codeforces"
+	"github.com/cpbridge/api/internal/platform"
+	"github.com/cpbridge/api/internal/platform/atcoder"
+	"github.com/cpbridge/api/internal/platform/codeforces"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -1,5 +1,5 @@
-// Bridge script injected into CP Hub web application pages.
-// Facilitates message passing between the CP Hub Web App and the Chrome Extension background worker.
+// Bridge script injected into cpbridge web application pages.
+// Facilitates message passing between the cpbridge Web App and the Chrome Extension background worker.
 
 const EXTENSION_ORIGIN = 'CP_HUB_EXTENSION';
 const WEB_APP_ORIGIN = 'CP_HUB_WEB';
@@ -34,7 +34,7 @@ window.addEventListener('message', async (event) => {
   const currentOrigin = window.location.origin;
   // Enforce allowed origin validation
   if (!isAllowedOrigin(event.origin || currentOrigin) || !isAllowedOrigin(currentOrigin)) {
-    console.warn('[CP Hub Extension] Message ignored from unauthorized origin:', event.origin, currentOrigin);
+    console.warn('[cpbridge Extension] Message ignored from unauthorized origin:', event.origin, currentOrigin);
     return;
   }
 

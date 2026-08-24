@@ -1,6 +1,6 @@
-# Competitive Programming Hub — Agent Handbook
+# cpbridge — Agent Handbook
 
-Welcome to CP Hub! When developing, extending, or maintaining this codebase, adhere strictly to these architectural guidelines, domain invariants, and code conventions.
+Welcome to cpbridge! When developing, extending, or maintaining this codebase, adhere strictly to these architectural guidelines, domain invariants, and code conventions.
 
 ---
 
@@ -78,7 +78,7 @@ type Platform interface {
 ### Svelte 5 Web Architecture
 - `apps/web` utilizes **Svelte 5 runes** (`$state`, `$derived`, `$props`, `$effect`).
 - Monaco Editor is dynamically imported on the client side (`onMount` or dynamic `import()`) to prevent SSR issues.
-- Types are imported directly from `@cp-hub/contracts`.
+- Types are imported directly from `@cpbridge/contracts`.
 
 ---
 
@@ -91,14 +91,14 @@ Before finishing any task, run the automated verification suite:
 cd apps/api && go test -v ./...
 
 # 2. Check TypeScript contracts
-pnpm --filter @cp-hub/contracts check
+pnpm --filter @cpbridge/contracts check
 
 # 3. Build browser extension
-pnpm --filter @cp-hub/extension build
+pnpm --filter @cpbridge/extension build
 
 # 4. Check & build frontend web app
-pnpm --filter @cp-hub/web check
-pnpm --filter @cp-hub/web build
+pnpm --filter @cpbridge/web check
+pnpm --filter @cpbridge/web build
 ```
 
 ### Starting the Local Development Stack
@@ -111,6 +111,6 @@ go run apps/api/cmd/server/main.go
 # or: pnpm dev:api
 
 # 3. Run Web client (port 3000)
-pnpm --filter @cp-hub/web dev
+pnpm --filter @cpbridge/web dev
 # or: pnpm dev:web
 ```

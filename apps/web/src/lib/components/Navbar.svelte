@@ -11,7 +11,7 @@
         <div class="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center">
           <Code2 class="w-5 h-5 text-white" />
         </div>
-        <span class="text-white">CP<span class="text-zinc-400">Hub</span></span>
+        <span class="text-white">cp<span class="text-zinc-400">bridge</span></span>
       </a>
 
       <!-- Navigation Links -->

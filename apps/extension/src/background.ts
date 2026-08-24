@@ -7,7 +7,7 @@ import type {
   ExtensionSubmissionFailedResponse,
   ExtensionSubmitRequest,
   ExtensionStatusPollResponse
-} from '@cp-hub/contracts';
+} from '@cpbridge/contracts';
 import { checkCodeforcesSession, submitCodeforces, pollCodeforcesStatus } from './platforms/codeforces.js';
 import { checkAtCoderSession, submitAtCoder, pollAtCoderStatus } from './platforms/atcoder.js';
 
@@ -25,7 +25,7 @@ async function storeDispatch(dispatch: StoredDispatch): Promise<void> {
   try {
     await chrome.storage.local.set({ [dispatchStorageKey(dispatch.submissionId)]: dispatch });
   } catch (err) {
-    console.warn('[CP Hub Extension] Could not persist submission dispatch:', err);
+    console.warn('[cpbridge Extension] Could not persist submission dispatch:', err);
   }
 }
 
@@ -37,7 +37,7 @@ async function readStoredDispatches(): Promise<StoredDispatch[]> {
       .map(([, value]) => value as StoredDispatch)
       .filter((value) => !!value?.submissionId && !!value?.state);
   } catch (err) {
-    console.warn('[CP Hub Extension] Could not read stored submission dispatches:', err);
+    console.warn('[cpbridge Extension] Could not read stored submission dispatches:', err);
     return [];
   }
 }
@@ -47,7 +47,7 @@ async function acknowledgeDispatch(submissionId: string): Promise<boolean> {
     await chrome.storage.local.remove(dispatchStorageKey(submissionId));
     return true;
   } catch (err) {
-    console.warn('[CP Hub Extension] Could not acknowledge submission dispatch:', err);
+    console.warn('[cpbridge Extension] Could not acknowledge submission dispatch:', err);
     return false;
   }
 }

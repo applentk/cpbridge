@@ -14,8 +14,8 @@ const distDir = path.join(extensionRoot, 'dist');
 const manifestFile = path.join(extensionRoot, 'manifest.json');
 
 const webStaticDownloadsDir = path.resolve(extensionRoot, '../web/static/downloads');
-const outputZipInWeb = path.join(webStaticDownloadsDir, 'cp-hub-extension.zip');
-const outputZipLocal = path.join(extensionRoot, 'cp-hub-extension.zip');
+const outputZipInWeb = path.join(webStaticDownloadsDir, 'cpbridge-extension.zip');
+const outputZipLocal = path.join(extensionRoot, 'cpbridge-extension.zip');
 
 if (!fs.existsSync(distDir) || !fs.existsSync(manifestFile)) {
   console.error('Error: dist directory or manifest.json not found. Run "vite build" first.');
@@ -54,7 +54,7 @@ async function createZip(outputPath) {
 }
 
 async function main() {
-  console.log('Packaging CP Hub Chrome Extension...');
+  console.log('Packaging cpbridge Chrome Extension...');
   try {
     await createZip(outputZipInWeb);
     // Also create local copy

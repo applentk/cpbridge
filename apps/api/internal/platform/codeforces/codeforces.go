@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cp-hub/api/internal/platform"
+	"github.com/cpbridge/api/internal/platform"
 )
 
 var (
@@ -88,7 +88,7 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 	apiURL := fmt.Sprintf("https://codeforces.com/api/contest.standings?contestId=%s&from=1&count=1", contestIDStr)
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err == nil {
-		req.Header.Set("User-Agent", "Mozilla/5.0 CPHub/1.0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 cpbridge/1.0")
 		resp, err := a.client.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			defer resp.Body.Close()
@@ -152,7 +152,7 @@ func (a *Adapter) fetchProblemTitle(ctx context.Context, officialURL string) (st
 	if err != nil {
 		return "", false
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 CPHub/1.0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 cpbridge/1.0")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
@@ -307,7 +307,7 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 		apiURL := fmt.Sprintf("https://codeforces.com/api/contest.status?contestId=%s&from=1&count=100", contestID)
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err == nil {
-			req.Header.Set("User-Agent", "Mozilla/5.0 CPHub/1.0")
+		req.Header.Set("User-Agent", "Mozilla/5.0 cpbridge/1.0")
 			resp, err := a.client.Do(req)
 			if err == nil && resp.StatusCode == http.StatusOK {
 				defer resp.Body.Close()

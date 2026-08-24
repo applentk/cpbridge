@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
-  import type { User, UserRole } from '@cp-hub/contracts';
+  import type { User, UserRole } from '@cpbridge/contracts';
   import { Users, Search, Shield, ShieldAlert, Check, UserCheck, UserX, ArrowRight } from 'lucide-svelte';
 
   let users: User[] = [];

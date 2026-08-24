@@ -1,10 +1,10 @@
-# CP Hub — Chrome Extension Protocol
+# cpbridge — Chrome Extension Protocol
 
-The extension is a Manifest V3 Chrome extension built from `apps/extension`. It is a browser-session bridge: the CP Hub backend never receives Codeforces or AtCoder cookies.
+The extension is a Manifest V3 Chrome extension built from `apps/extension`. It is a browser-session bridge: the cpbridge backend never receives Codeforces or AtCoder cookies.
 
 ## Components
 
-- `apps/extension/src/bridge.ts`: content script injected into allowed CP Hub origins; forwards messages between the page and `chrome.runtime`.
+- `apps/extension/src/bridge.ts`: content script injected into allowed cpbridge origins; forwards messages between the page and `chrome.runtime`.
 - `apps/extension/src/background.ts`: service worker; checks sessions, submits code, and polls verdicts.
 - `apps/extension/src/platforms/codeforces.ts`: Codeforces form/API/HTML submission logic.
 - `apps/extension/src/platforms/atcoder.ts`: AtCoder form/API/HTML submission logic.
@@ -44,7 +44,7 @@ Checks Codeforces and AtCoder sessions.
 
 ### `SUBMIT` → `SUBMISSION_CREATED` or `SUBMISSION_FAILED`
 
-The web app sends the CP Hub submission ID, normalized platform problem ID, language, and source code.
+The web app sends the cpbridge submission ID, normalized platform problem ID, language, and source code.
 
 ```json
 {
@@ -96,4 +96,4 @@ The API creates the database row first. After the extension returns an external 
 
 ## Required Chrome permissions
 
-The manifest requests `cookies`, `activeTab`, and `scripting`, plus host permissions for Codeforces, AtCoder, local CP Hub development hosts, and the production CP Hub hosts. These permissions are what allow the extension to use the user's existing platform session and, for AtCoder fallback submission, open a same-origin submit page and execute the form request there.
+The manifest requests `cookies`, `activeTab`, and `scripting`, plus host permissions for Codeforces, AtCoder, local cpbridge development hosts, and the production cpbridge hosts. These permissions are what allow the extension to use the user's existing platform session and, for AtCoder fallback submission, open a same-origin submit page and execute the form request there.

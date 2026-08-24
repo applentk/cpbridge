@@ -1,4 +1,4 @@
-# CP Hub — Competitive Programming Hub
+# cpbridge — Competitive Programming Bridge
 
 Unified web platform for **Codeforces** and **AtCoder**.
 
@@ -26,7 +26,7 @@ cd apps/api
 go run cmd/server/main.go
 
 # 3. In another terminal, run Web Frontend
-pnpm --filter @cp-hub/web dev
+pnpm --filter @cpbridge/web dev
 ```
 
 Visit `http://localhost:3000`.
@@ -36,7 +36,7 @@ Visit `http://localhost:3000`.
 The web app can browse without the extension, but submitting to Codeforces or AtCoder requires the built extension and an active login on the target platform:
 
 ```bash
-pnpm --filter @cp-hub/extension build
+pnpm --filter @cpbridge/extension build
 ```
 
 Load `apps/extension` as an unpacked extension in Chrome after the build. The manifest points to the generated `dist/background.js` and `dist/bridge.js` files.

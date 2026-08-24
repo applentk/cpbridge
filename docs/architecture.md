@@ -1,6 +1,6 @@
-# CP Hub — Current System Architecture
+# cpbridge — Current System Architecture
 
-CP Hub is a unified competitive-programming web application for Codeforces and AtCoder. The current implementation is a small monorepo with a Go API, a SvelteKit web client, a Manifest V3 Chrome extension, shared TypeScript contracts, PostgreSQL, and Redis.
+cpbridge is a unified competitive-programming web application for Codeforces and AtCoder. The current implementation is a small monorepo with a Go API, a SvelteKit web client, a Manifest V3 Chrome extension, shared TypeScript contracts, PostgreSQL, and Redis.
 
 ## Runtime topology
 

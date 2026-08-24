@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
-  import type { ProblemSet } from '@cp-hub/contracts';
+  import type { ProblemSet } from '@cpbridge/contracts';
   import { Layers, Plus, Trash2, Edit3, ArrowRight, X, Check } from 'lucide-svelte';
 
   let problemSets: ProblemSet[] = [];

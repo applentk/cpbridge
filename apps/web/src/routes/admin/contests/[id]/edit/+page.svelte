@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
-  import type { Contest, Problem, ContestProblem } from '@cp-hub/contracts';
+  import type { Contest, Problem, ContestProblem } from '@cpbridge/contracts';
   import { Trophy, ArrowLeft, Save, Plus, Trash2, ArrowUp, ArrowDown, Lock, AlertCircle, Check, Search, X } from 'lucide-svelte';
 
   let contestId = $page.params.id;

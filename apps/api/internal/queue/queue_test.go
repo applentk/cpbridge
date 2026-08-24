@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cp-hub/api/internal/queue"
+	"github.com/cpbridge/api/internal/queue"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -1,5 +1,5 @@
 {
-  "name": "@cp-hub/web",
+  "name": "@cpbridge/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
-    "@cp-hub/contracts": "workspace:*",
+    "@cpbridge/contracts": "workspace:*",
     "dompurify": "^3.4.14",
     "katex": "^0.18.4",
     "lucide-svelte": "^0.475.0",

@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
-  import type { Standings, Contest } from '@cp-hub/contracts';
+  import type { Standings, Contest } from '@cpbridge/contracts';
   import Scoreboard from '$lib/components/Scoreboard.svelte';
   import ContestTimer from '$lib/components/ContestTimer.svelte';
   import { Trophy, ArrowLeft, RefreshCw } from 'lucide-svelte';

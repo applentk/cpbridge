@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
-  import type { User, UserRole } from '@cp-hub/contracts';
+  import type { User, UserRole } from '@cpbridge/contracts';
   import { Users, ArrowLeft, Shield, ShieldCheck, Check, Calendar, Mail, UserCheck, UserX } from 'lucide-svelte';
 
   let userId = $page.params.id;

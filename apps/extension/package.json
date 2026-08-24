@@ -1,5 +1,5 @@
 {
-  "name": "@cp-hub/extension",
+  "name": "@cpbridge/extension",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@cp-hub/contracts": "workspace:*"
+    "@cpbridge/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/archiver": "^8.0.0",

@@ -17,12 +17,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cp-hub/api/internal/auth"
-	"github.com/cp-hub/api/internal/contest"
-	"github.com/cp-hub/api/internal/idgen"
-	"github.com/cp-hub/api/internal/platform"
-	"github.com/cp-hub/api/internal/problem"
-	"github.com/cp-hub/api/internal/queue"
+	"github.com/cpbridge/api/internal/auth"
+	"github.com/cpbridge/api/internal/contest"
+	"github.com/cpbridge/api/internal/idgen"
+	"github.com/cpbridge/api/internal/platform"
+	"github.com/cpbridge/api/internal/problem"
+	"github.com/cpbridge/api/internal/queue"
 	"github.com/go-chi/chi/v5"
 	"github.com/hibiken/asynq"
 )

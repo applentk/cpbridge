@@ -3,7 +3,7 @@
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
   import { reconcileExtensionSubmissions } from '$lib/extension/reconcile';
-  import { type Submission, formatLanguageName } from '@cp-hub/contracts';
+  import { type Submission, formatLanguageName } from '@cpbridge/contracts';
   import SubmissionModal from '$lib/components/SubmissionModal.svelte';
   import { Cpu, RefreshCw, Filter, ExternalLink, Code2 } from 'lucide-svelte';
 

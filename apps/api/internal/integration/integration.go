@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cp-hub/api/internal/auth"
-	"github.com/cp-hub/api/internal/platform"
+	"github.com/cpbridge/api/internal/auth"
+	"github.com/cpbridge/api/internal/platform"
 	"github.com/go-chi/chi/v5"
 )
 

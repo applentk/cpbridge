@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { type Submission, formatLanguageName } from '@cp-hub/contracts';
+  import { type Submission, formatLanguageName } from '@cpbridge/contracts';
   import MonacoEditor from '$lib/components/MonacoEditor.svelte';
   import { auth } from '$lib/stores/auth';
   import { X, Copy, Check, Code2, AlertCircle, ExternalLink } from 'lucide-svelte';

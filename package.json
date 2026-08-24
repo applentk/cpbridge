@@ -1,16 +1,16 @@
 {
-  "name": "cp-hub-monorepo",
+  "name": "cpbridge",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev:api": "cd apps/api && go run cmd/server/main.go",
     "seed:demo": "cd apps/api && go run ./cmd/seed-demo",
-    "dev:web": "pnpm --filter @cp-hub/web dev",
-    "dev:ext": "pnpm --filter @cp-hub/extension dev",
-    "package:ext": "pnpm --filter @cp-hub/extension package",
+    "dev:web": "pnpm --filter @cpbridge/web dev",
+    "dev:ext": "pnpm --filter @cpbridge/extension dev",
+    "package:ext": "pnpm --filter @cpbridge/extension package",
     "build": "pnpm --recursive run build",
     "test:api": "cd apps/api && go test -v ./...",
-    "test:web": "pnpm --filter @cp-hub/web test",
+    "test:web": "pnpm --filter @cpbridge/web test",
     "check": "pnpm --recursive run check"
   },
   "devDependencies": {

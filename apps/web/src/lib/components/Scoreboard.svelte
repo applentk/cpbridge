@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Standings } from '@cp-hub/contracts';
+  import type { Standings } from '@cpbridge/contracts';
   import { Trophy, Medal } from 'lucide-svelte';
 
   export let standings: Standings;

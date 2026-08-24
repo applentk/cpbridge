@@ -3,7 +3,7 @@
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
   import { pingExtension } from '$lib/extension/bridge';
-  import type { ExtensionPingResponse, PlatformType } from '@cp-hub/contracts';
+  import type { ExtensionPingResponse, PlatformType } from '@cpbridge/contracts';
   import {
     Puzzle,
     ShieldCheck,
@@ -68,8 +68,8 @@
       <span>Zero-Cookie Privacy Guarantee</span>
     </div>
     <p class="text-xs text-zinc-300 leading-relaxed">
-      CP Hub never stores or uploads your external platform passwords, access tokens, or session cookies.
-      The CP Hub Chrome Extension connects directly to your existing browser tabs to automate submissions safely.
+      cpbridge never stores or uploads your external platform passwords, access tokens, or session cookies.
+      The cpbridge Chrome Extension connects directly to your existing browser tabs to automate submissions safely.
     </p>
   </div>
 
@@ -96,15 +96,15 @@
           </div>
           <div>
             <div class="text-base font-bold text-white">Extension Not Detected</div>
-            <div class="text-xs text-zinc-400">Download and load the CP Hub Extension to enable automatic submissions.</div>
+            <div class="text-xs text-zinc-400">Download and load the cpbridge Extension to enable automatic submissions.</div>
           </div>
         {/if}
       </div>
 
       <div class="flex items-center space-x-3 shrink-0">
         <a
-          href="/downloads/cp-hub-extension.zip"
-          download="cp-hub-extension.zip"
+          href="/downloads/cpbridge-extension.zip"
+          download="cpbridge-extension.zip"
           class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center space-x-2 shadow-lg shadow-indigo-600/20"
         >
           <Download class="w-4 h-4" />
@@ -138,7 +138,7 @@
               <span>Download & Unzip</span>
             </div>
             <p class="text-zinc-400 text-[11px] leading-relaxed">
-              Click the download button above and extract the <code class="text-indigo-300">cp-hub-extension.zip</code> file to a folder.
+              Click the download button above and extract the <code class="text-indigo-300">cpbridge-extension.zip</code> file to a folder.
             </p>
           </div>
 

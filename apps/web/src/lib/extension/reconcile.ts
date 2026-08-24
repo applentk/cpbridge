@@ -53,7 +53,7 @@ export function reconcileExtensionSubmissions(): Promise<void> {
       }
     }));
   })().catch((err) => {
-    console.warn('[CP Hub Web] Submission recovery failed:', err);
+    console.warn('[cpbridge Web] Submission recovery failed:', err);
   });
 
   return reconciliation;

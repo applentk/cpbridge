@@ -3,7 +3,7 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { api } from '$lib/api/client';
-  import type { ProblemSet, Problem, ScoringType, Contest, ContestPublicationStatus } from '@cp-hub/contracts';
+  import type { ProblemSet, Problem, ScoringType, Contest, ContestPublicationStatus } from '@cpbridge/contracts';
   import { Trophy, Clock, AlertCircle, ArrowLeft, Layers, Check } from 'lucide-svelte';
 
   let problemSets: ProblemSet[] = [];

@@ -1,4 +1,4 @@
-module github.com/cp-hub/api
+module github.com/cpbridge/api
 
 go 1.26.5
 

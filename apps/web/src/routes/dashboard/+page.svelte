@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
-  import { type Contest, type Submission, formatLanguageName } from '@cp-hub/contracts';
+  import { type Contest, type Submission, formatLanguageName } from '@cpbridge/contracts';
   import SubmissionModal from '$lib/components/SubmissionModal.svelte';
   import { Trophy, Cpu, ArrowRight, Clock, ShieldCheck, LayoutDashboard, Code2 } from 'lucide-svelte';
 

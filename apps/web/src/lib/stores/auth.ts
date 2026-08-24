@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 import { api } from '$lib/api/client';
-import type { User } from '@cp-hub/contracts';
+import type { User } from '@cpbridge/contracts';
 
 export interface AuthState {
   user: User | null;

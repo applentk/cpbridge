@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cp-hub/api/internal/platform"
+	"github.com/cpbridge/api/internal/platform"
 )
 
 var (
@@ -66,7 +66,7 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 	title := fmt.Sprintf("%s (%s)", taskID, contestID)
 	req, err := http.NewRequestWithContext(ctx, "GET", officialURL, nil)
 	if err == nil {
-		req.Header.Set("User-Agent", "Mozilla/5.0 CPHub/1.0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 cpbridge/1.0")
 		resp, err := a.client.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			defer resp.Body.Close()

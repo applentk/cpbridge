@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
-  import type { Contest } from '@cp-hub/contracts';
+  import type { Contest } from '@cpbridge/contracts';
   import { Trophy, Code2, Layers, Users, Plus, Upload, ArrowRight, Clock, ShieldAlert } from 'lucide-svelte';
 
   interface AdminStats {

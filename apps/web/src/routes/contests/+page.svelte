@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
-  import type { Contest } from '@cp-hub/contracts';
+  import type { Contest } from '@cpbridge/contracts';
   import { Trophy, Clock, Users, ArrowRight, ShieldCheck, Plus } from 'lucide-svelte';
 
   let contests: Contest[] = [];

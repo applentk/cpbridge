@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cp-hub/api/internal/auth"
-	"github.com/cp-hub/api/internal/contest"
-	"github.com/cp-hub/api/internal/db"
-	"github.com/cp-hub/api/internal/platform"
-	"github.com/cp-hub/api/internal/problem"
-	"github.com/cp-hub/api/internal/problemset"
-	"github.com/cp-hub/api/internal/submission"
+	"github.com/cpbridge/api/internal/auth"
+	"github.com/cpbridge/api/internal/contest"
+	"github.com/cpbridge/api/internal/db"
+	"github.com/cpbridge/api/internal/platform"
+	"github.com/cpbridge/api/internal/problem"
+	"github.com/cpbridge/api/internal/problemset"
+	"github.com/cpbridge/api/internal/submission"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -172,7 +172,7 @@ func TestContestEndedSubmissionAndScoreboardRules(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, sub1)
 
-	// The duplicate guard runs before a CP Hub record is created, which means
+	// The duplicate guard runs before a cpbridge record is created, which means
 	// the caller cannot reach the extension dispatch step for this source.
 	duplicate, err := subSvc.Create(ctx, user1.ID, false, p1.ID, &cActive.ID, "cpp23", "int main() {}")
 	assert.Nil(t, duplicate)

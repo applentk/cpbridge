@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cp-hub/api/internal/platform"
-	"github.com/cp-hub/api/internal/problem"
-	"github.com/cp-hub/api/internal/queue"
+	"github.com/cpbridge/api/internal/platform"
+	"github.com/cpbridge/api/internal/problem"
+	"github.com/cpbridge/api/internal/queue"
 	"github.com/hibiken/asynq"
 )
 

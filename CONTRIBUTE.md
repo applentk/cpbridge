@@ -1,6 +1,6 @@
-# Contributing to CP Hub
+# Contributing to cpbridge
 
-Welcome to the **Competitive Programming Hub (CP Hub)** repository! We're thrilled that you are interested in contributing. Whether you are fixing a bug, adding a new competitive programming platform adapter, refining UI components, or improving documentation, your contributions are welcome.
+Welcome to the **cpbridge** repository! We're thrilled that you are interested in contributing. Whether you are fixing a bug, adding a new competitive programming platform adapter, refining UI components, or improving documentation, your contributions are welcome.
 
 This guide provides everything you need to know to set up your environment, understand our architecture, develop new features, and submit your pull requests.
 
@@ -50,7 +50,7 @@ Before setting up the repository, ensure you have the following installed:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/cp-hub/apple-icpc.git
+git clone https://github.com/cpbridge/apple-icpc.git
 cd apple-icpc
 ```
 
@@ -136,7 +136,7 @@ apple-icpc/
 
 ## Core Engineering Invariants
 
-When working on any part of CP Hub, always ensure these rules are preserved:
+When working on any part of cpbridge, always ensure these rules are preserved:
 
 1. **Zero External Credentials on Backend**: Never store user external platform passwords, API secrets, or session cookies in the database.
 2. **Strict Server-Side UTC Contest Timing**: All contest status transitions (`UPCOMING` -> `ACTIVE` -> `FINISHED`), problem statement visibility, and ICPC penalty calculations are determined strictly by server UTC timestamps (`NOW()`).
@@ -188,7 +188,7 @@ When adding new DTOs or modifying payload schemas:
 1. Update TypeScript definitions in `packages/contracts/src/index.ts`.
 2. Verify contracts typecheck:
    ```bash
-   pnpm --filter @cp-hub/contracts check
+   pnpm --filter @cpbridge/contracts check
    ```
 3. Ensure corresponding Go structs in `apps/api/internal/...` match the JSON fields.
 
@@ -197,7 +197,7 @@ When adding new DTOs or modifying payload schemas:
 - We use **Svelte 5 runes** (`$state`, `$derived`, `$props`, `$effect`).
 - Styling uses **Tailwind CSS v4**.
 - Monaco Editor should be dynamically loaded on the client side to avoid SSR errors.
-- Always run `pnpm --filter @cp-hub/web check` to verify TypeScript and template correctness.
+- Always run `pnpm --filter @cpbridge/web check` to verify TypeScript and template correctness.
 
 ### Extension Development (Manifest V3)
 
@@ -215,14 +215,14 @@ Before submitting a Pull Request, run the complete verification suite locally:
 cd apps/api && go test -v ./...
 
 # 2. Check TypeScript contracts
-pnpm --filter @cp-hub/contracts check
+pnpm --filter @cpbridge/contracts check
 
 # 3. Build Extension
-pnpm --filter @cp-hub/extension build
+pnpm --filter @cpbridge/extension build
 
 # 4. Check & build Frontend Web
-pnpm --filter @cp-hub/web check
-pnpm --filter @cp-hub/web build
+pnpm --filter @cpbridge/web check
+pnpm --filter @cpbridge/web build
 ```
 
 ---
@@ -256,4 +256,4 @@ When opening a PR:
 
 ---
 
-Thank you for helping make Competitive Programming Hub better for everyone! 🚀
+Thank you for helping make cpbridge better for everyone! 🚀

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "CP Hub Submission Bridge",
+  "name": "cpbridge Submission Bridge",
   "version": "1.0.0",
-  "description": "Zero-cookie browser session bridge for Competitive Programming Hub submissions",
+  "description": "Zero-cookie browser session bridge for cpbridge submissions",
   "permissions": [
     "cookies",
     "activeTab",

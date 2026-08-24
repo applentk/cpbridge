@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import type { LanguageId } from '@cp-hub/contracts';
+  import type { LanguageId } from '@cpbridge/contracts';
 
   export let value: string = '';
   export let language: LanguageId = 'cpp23';

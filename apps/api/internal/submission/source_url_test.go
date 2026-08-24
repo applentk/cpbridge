@@ -3,7 +3,7 @@ package submission
 import (
 	"testing"
 
-	"github.com/cp-hub/api/internal/platform"
+	"github.com/cpbridge/api/internal/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -12,18 +12,18 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cp-hub/api/internal/admin"
-	"github.com/cp-hub/api/internal/auth"
-	"github.com/cp-hub/api/internal/contest"
-	"github.com/cp-hub/api/internal/db"
-	"github.com/cp-hub/api/internal/integration"
-	"github.com/cp-hub/api/internal/platform"
-	"github.com/cp-hub/api/internal/platform/atcoder"
-	"github.com/cp-hub/api/internal/platform/codeforces"
-	"github.com/cp-hub/api/internal/problem"
-	"github.com/cp-hub/api/internal/problemset"
-	"github.com/cp-hub/api/internal/queue"
-	"github.com/cp-hub/api/internal/submission"
+	"github.com/cpbridge/api/internal/admin"
+	"github.com/cpbridge/api/internal/auth"
+	"github.com/cpbridge/api/internal/contest"
+	"github.com/cpbridge/api/internal/db"
+	"github.com/cpbridge/api/internal/integration"
+	"github.com/cpbridge/api/internal/platform"
+	"github.com/cpbridge/api/internal/platform/atcoder"
+	"github.com/cpbridge/api/internal/platform/codeforces"
+	"github.com/cpbridge/api/internal/problem"
+	"github.com/cpbridge/api/internal/problemset"
+	"github.com/cpbridge/api/internal/queue"
+	"github.com/cpbridge/api/internal/submission"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -31,7 +31,7 @@ import (
 )
 
 func main() {
-	log.Println("Starting Competitive Programming Hub API Server...")
+	log.Println("Starting cpbridge API Server...")
 
 	// Database Connection
 	database, err := db.Connect()
@@ -153,7 +153,7 @@ func main() {
 	r.Route("/api", func(api chi.Router) {
 		api.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "service": "cp-hub-api"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "service": "cpbridge-api"})
 		})
 
 		api.Mount("/auth", authHandler.Routes())
@@ -224,5 +224,5 @@ func main() {
 	}
 
 	asynqServer.Shutdown()
-	log.Println("CP Hub server and Asynq worker stopped cleanly.")
+	log.Println("cpbridge server and Asynq worker stopped cleanly.")
 }

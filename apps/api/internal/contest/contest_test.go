@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cp-hub/api/internal/contest"
+	"github.com/cpbridge/api/internal/contest"
 	"github.com/stretchr/testify/assert"
 )
 

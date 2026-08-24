@@ -1,4 +1,4 @@
-# CP Hub — Platform Adapters
+# cpbridge — Platform Adapters
 
 Platform adapters live under `apps/api/internal/platform`. They normalize external problem metadata and verdicts for the rest of the application. The current interface is defined in `apps/api/internal/platform/platform.go`:
 

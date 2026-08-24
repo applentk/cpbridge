@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cp-hub/api/internal/auth"
+	"github.com/cpbridge/api/internal/auth"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 )

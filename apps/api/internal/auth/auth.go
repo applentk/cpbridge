@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cp-hub/api/internal/idgen"
+	"github.com/cpbridge/api/internal/idgen"
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"

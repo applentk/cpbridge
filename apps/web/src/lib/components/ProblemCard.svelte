@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Problem } from '@cp-hub/contracts';
+  import type { Problem } from '@cpbridge/contracts';
   import { ExternalLink, Tag } from 'lucide-svelte';
 
   export let problem: Problem;
