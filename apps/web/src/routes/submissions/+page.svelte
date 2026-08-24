@@ -2,14 +2,16 @@
   import { onMount, onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
-  import type { Submission } from '@cp-hub/contracts';
-  import { Cpu, RefreshCw, Filter, ExternalLink, RotateCcw } from 'lucide-svelte';
+  import { reconcileExtensionSubmissions } from '$lib/extension/reconcile';
+  import { type Submission, formatLanguageName } from '@cp-hub/contracts';
+  import SubmissionModal from '$lib/components/SubmissionModal.svelte';
+  import { Cpu, RefreshCw, Filter, ExternalLink, Code2 } from 'lucide-svelte';
 
   let submissions: Submission[] = [];
   let loading = true;
   let filterUser = '';
   let interval: any = null;
-  let syncingId: string | null = null;
+  let viewingSubmission: Submission | null = null;
 
   async function loadSubmissions(silent = false) {
     if (!silent) loading = true;
@@ -24,20 +26,8 @@
     }
   }
 
-  async function syncSubmission(subId: string) {
-    syncingId = subId;
-    try {
-      await api.post(`/submissions/${subId}/sync`);
-      await loadSubmissions(true);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      syncingId = null;
-    }
-  }
-
   onMount(() => {
-    loadSubmissions();
+    reconcileExtensionSubmissions().finally(() => loadSubmissions());
     // Poll every 3 seconds to auto-update judging submissions
     interval = setInterval(() => {
       const hasPending = submissions.some(s => s.status === 'JUDGING' || s.status === 'PENDING' || s.status === 'DISPATCHING');
@@ -104,18 +94,25 @@
             <th class="py-3.5 px-4">Problem</th>
             <th class="py-3.5 px-4">User</th>
             <th class="py-3.5 px-4">Platform</th>
-            <th class="py-3.5 px-4">Language</th>
+            <th class="py-3.5 px-4">Language & ID</th>
             <th class="py-3.5 px-4">Verdict</th>
             <th class="py-3.5 px-4">External ID</th>
             <th class="py-3.5 px-4">Submitted At</th>
-            <th class="py-3.5 px-4 text-right">Action</th>
+            <th class="py-3.5 px-4 text-right">Source Code</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-zinc-800/60 font-mono text-xs">
           {#each submissions as s}
-            <tr class="hover:bg-zinc-800/30 transition">
+            <tr
+              on:click={() => (viewingSubmission = s)}
+              class="hover:bg-zinc-800/40 cursor-pointer transition group"
+            >
               <td class="py-3 px-4 font-sans font-semibold text-zinc-100">
-                <a href={`/problems/${s.problemId}`} class="hover:text-white transition">
+                <a
+                  href={`/problems/${s.problemId}`}
+                  on:click|stopPropagation
+                  class="hover:text-white underline decoration-zinc-700 hover:decoration-white transition"
+                >
                   {s.problemTitle || s.problemId}
                 </a>
               </td>
@@ -132,8 +129,11 @@
                 </span>
               </td>
 
-              <td class="py-3 px-4 text-zinc-400">
-                {s.language}
+              <td class="py-3 px-4">
+                <div class="space-y-0.5">
+                  <div class="text-zinc-200 font-semibold">{formatLanguageName(s.language)}</div>
+                  <div class="text-zinc-500 text-[11px] font-mono">{s.id}</div>
+                </div>
               </td>
 
               <td class="py-3 px-4">
@@ -155,7 +155,21 @@
               </td>
 
               <td class="py-3 px-4 text-zinc-500">
-                {s.externalSubmissionId || '-'}
+                {#if $auth.user?.role === 'ADMIN' && s.sourceUrl}
+                  <a
+                    href={s.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    on:click|stopPropagation
+                    class="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300 transition"
+                    title="Open external submission source"
+                  >
+                    <span>{s.externalSubmissionId}</span>
+                    <ExternalLink class="w-3 h-3" />
+                  </a>
+                {:else}
+                  {s.externalSubmissionId || '-'}
+                {/if}
               </td>
 
               <td class="py-3 px-4 text-zinc-500">
@@ -163,19 +177,13 @@
               </td>
 
               <td class="py-3 px-4 text-right">
-                {#if s.status === 'JUDGING' || s.status === 'PENDING' || s.status === 'DISPATCHING'}
-                  <button
-                    on:click={() => syncSubmission(s.id)}
-                    disabled={syncingId === s.id}
-                    class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-200 border border-zinc-700 transition inline-flex items-center space-x-1"
-                    title="Re-check status on source platform"
-                  >
-                    <RotateCcw class="w-3 h-3 {syncingId === s.id ? 'animate-spin' : ''}" />
-                    <span>Sync</span>
-                  </button>
-                {:else}
-                  <span class="text-zinc-600">-</span>
-                {/if}
+                <button
+                  on:click|stopPropagation={() => (viewingSubmission = s)}
+                  class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 transition inline-flex items-center space-x-1.5"
+                >
+                  <Code2 class="w-3.5 h-3.5 text-zinc-400" />
+                  <span>View Code</span>
+                </button>
               </td>
             </tr>
           {/each}
@@ -184,3 +192,9 @@
     </div>
   {/if}
 </div>
+
+<SubmissionModal
+  submission={viewingSubmission}
+  open={!!viewingSubmission}
+  onClose={() => (viewingSubmission = null)}
+/>

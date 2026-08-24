@@ -1,13 +1,24 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
+  import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
-  import { pingExtension, submitViaExtension, pollStatusViaExtension } from '$lib/extension/bridge';
+import { pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendingSubmissions, acknowledgeRecoveredSubmission } from '$lib/extension/bridge';
+  import { reconcileExtensionSubmissions } from '$lib/extension/reconcile';
   import { renderMathInHtml } from '$lib/utils/math';
-  import type { Problem, LanguageId, Submission, ProblemStatement, Contest, ContestProblem } from '@cp-hub/contracts';
+  import {
+    type Problem,
+    type LanguageId,
+    type Submission,
+    type ProblemStatement,
+    type Contest,
+    type ContestProblem,
+    formatLanguageName
+  } from '@cp-hub/contracts';
   import MonacoEditor from '$lib/components/MonacoEditor.svelte';
+  import SubmissionModal from '$lib/components/SubmissionModal.svelte';
   import ContestTimer from '$lib/components/ContestTimer.svelte';
   import {
     ExternalLink,
@@ -29,7 +40,8 @@
     ChevronLeft,
     ChevronRight,
     Layers,
-    Lock
+    Lock,
+    XCircle
   } from 'lucide-svelte';
 
   let problemId: string = $page.params.id || '';
@@ -37,6 +49,7 @@
   let contest: Contest | null = null;
   let contestProblems: ContestProblem[] = [];
   let contestSolvedProblemIds: Set<string> = new Set();
+  let contestWrongProblemIds: Set<string> = new Set();
   let contestLoading = false;
 
   let currentLoadedProblemId: string = '';
@@ -49,8 +62,10 @@
   let loading = true;
   let error = '';
 
+  type ProblemTab = 'statement' | 'editor' | 'submissions';
+
   let viewMode: 'tabbed' | 'split' = 'tabbed';
-  let activeTab: 'statement' | 'editor' | 'submissions' = 'statement';
+  let activeTab: ProblemTab = 'statement';
   let copiedCaseIndex: string | null = null;
 
   let language: LanguageId = 'cpp23';
@@ -60,6 +75,8 @@
   let submitStatus = '';
   let activeSubmission: Submission | null = null;
   let recentSubmissions: Submission[] = [];
+  let submissionsLoading = false;
+  let viewingSubmission: Submission | null = null;
   let pollInterval: any = null;
 
   let uploadSuccessMessage = '';
@@ -90,14 +107,40 @@
     if (browser) {
       const nextPId = $page.params.id || '';
       const nextCId = $page.url.searchParams.get('contestId');
+      const nextTab = tabFromURL();
       if (nextPId && (nextPId !== currentLoadedProblemId || nextCId !== currentLoadedContestId)) {
         currentLoadedProblemId = nextPId;
         currentLoadedContestId = nextCId;
         problemId = nextPId;
         contestId = nextCId;
+        activeTab = nextTab;
         loadProblemAndContest();
+      } else if (activeTab !== nextTab) {
+        activeTab = nextTab;
       }
     }
+  }
+
+  function isProblemTab(value: string | null): value is ProblemTab {
+    return value === 'statement' || value === 'editor' || value === 'submissions';
+  }
+
+  function tabFromURL(): ProblemTab {
+    const tab = $page.url.searchParams.get('tab');
+    return isProblemTab(tab) ? tab : 'statement';
+  }
+
+  function setActiveTab(tab: ProblemTab) {
+    activeTab = tab;
+    if (!browser) return;
+
+    const url = new URL($page.url);
+    url.searchParams.set('tab', tab);
+    void goto(`${url.pathname}${url.search}${url.hash}`, {
+      replaceState: true,
+      keepFocus: true,
+      noScroll: true
+    });
   }
 
   function detectLanguageFromFilename(filename: string): LanguageId | null {
@@ -173,32 +216,31 @@
       const cId = contestId;
       if (!pId) return;
 
-      const promises: Promise<any>[] = [
+      const primaryPromises: Promise<any>[] = [
         api.get<Problem>(`/problems/${pId}`),
-        loadStatement(pId),
-        loadSubmissions(pId, cId)
+        loadStatement(pId)
       ];
 
       if (cId) {
-        promises.push(loadContestData(cId));
+        if (!contest || contest.id !== cId) {
+          primaryPromises.push(loadContestData(cId));
+        } else {
+          // Contest standings are auxiliary to the problem and statement.
+          void loadContestData(cId);
+        }
       } else {
         contest = null;
-        contestProblems = [];
-        contestSolvedProblemIds = new Set();
+      contestProblems = [];
+      contestSolvedProblemIds = new Set();
+      contestWrongProblemIds = new Set();
       }
 
-      const [probData] = await Promise.all(promises);
+      const [probData] = await Promise.all(primaryPromises);
       problem = probData;
 
-      // If there's an ongoing judging submission, start polling
-      if (recentSubmissions.length > 0) {
-        const latest = recentSubmissions[0];
-        if (latest.status === 'JUDGING' || latest.status === 'PENDING' || latest.status === 'DISPATCHING') {
-          activeSubmission = latest;
-          submitStatus = `Judging in progress... Status: ${latest.status}`;
-          startSubmissionPolling(latest.id);
-        }
-      }
+      // Submission history is intentionally independent: it can be slow due
+      // to verdict synchronization, but must never delay the statement.
+      void loadInitialSubmissions(pId, cId);
     } catch (err: any) {
       error = err.message || 'Failed to load problem';
     } finally {
@@ -209,27 +251,39 @@
   async function loadContestData(cId: string) {
     contestLoading = true;
     try {
-      const [cRes, subsRes] = await Promise.all([
-        api.get<Contest>(`/contests/${cId}`),
-        api.get<Submission[]>(`/submissions?contestId=${cId}`).catch(() => [])
-      ]);
+      const cRes = await api.get<Contest>(`/contests/${cId}`);
+      if (cId !== contestId) return;
       contest = cRes;
       contestProblems = cRes.problems || [];
 
-      const solved = new Set<string>();
-      if (Array.isArray(subsRes)) {
-        for (const sub of subsRes) {
-          if (sub.status === 'ACCEPTED') {
-            solved.add(sub.problemId);
-          }
-        }
-      }
-      contestSolvedProblemIds = solved;
+      // Fetch standings context separately; it is not required to render the
+      // problem and can wait behind a slow submissions response.
+      void loadContestSolvedProblems(cId);
     } catch (err) {
       console.error('Failed to load contest context:', err);
     } finally {
       contestLoading = false;
     }
+  }
+
+  async function loadContestSolvedProblems(cId: string) {
+    try {
+      const subsRes = await api.get<Submission[]>(`/submissions?contestId=${cId}`);
+      if (cId !== contestId) return;
+      const solved = new Set<string>();
+      const wrong = new Set<string>();
+      if (Array.isArray(subsRes)) {
+        for (const sub of subsRes) {
+          if (sub.status === 'ACCEPTED') {
+            solved.add(sub.problemId);
+          } else if (sub.status === 'WRONG_ANSWER') {
+            wrong.add(sub.problemId);
+          }
+        }
+      }
+      contestSolvedProblemIds = solved;
+      contestWrongProblemIds = new Set([...wrong].filter((id) => !solved.has(id)));
+    } catch {}
   }
 
   async function loadStatement(pId: string) {
@@ -251,11 +305,36 @@
   }
 
   async function loadSubmissions(pId: string, cId: string | null) {
+    submissionsLoading = true;
     try {
+      await reconcileExtensionSubmissions();
       const query = cId ? `/submissions?problemId=${pId}&contestId=${cId}` : `/submissions?problemId=${pId}`;
-      recentSubmissions = await api.get<Submission[]>(query);
+      const submissions = await api.get<Submission[]>(query);
+      if (pId === problemId && cId === contestId) {
+        recentSubmissions = submissions;
+      }
+      return submissions;
     } catch {
-      recentSubmissions = [];
+      if (pId === problemId && cId === contestId) {
+        recentSubmissions = [];
+      }
+      return [];
+    } finally {
+      if (pId === problemId && cId === contestId) {
+        submissionsLoading = false;
+      }
+    }
+  }
+
+  async function loadInitialSubmissions(pId: string, cId: string | null) {
+    const submissions = await loadSubmissions(pId, cId);
+    if (pId !== problemId || cId !== contestId || submissions.length === 0) return;
+
+    const latest = submissions[0];
+    if (latest.status === 'JUDGING' || latest.status === 'PENDING' || latest.status === 'DISPATCHING') {
+      activeSubmission = latest;
+      submitStatus = `Judging in progress... Status: ${latest.status}`;
+      startSubmissionPolling(latest.id);
     }
   }
 
@@ -283,7 +362,7 @@
       attempts++;
       if (attempts > maxAttempts) {
         stopSubmissionPolling();
-        submitStatus = 'Judging timed out. Use the Sync button below or check the official site.';
+        submitStatus = 'Judging timed out. Please check the official site.';
         try {
           const synced = await api.post<Submission>(`/submissions/${submissionId}/sync`);
           if (synced) {
@@ -297,12 +376,23 @@
       try {
         // 1. Sync via Backend Platform Adapter
         const updated = await api.post<Submission>(`/submissions/${submissionId}/sync`);
+        if (updated) {
+          const idx = recentSubmissions.findIndex((s) => s.id === submissionId);
+          if (idx !== -1) {
+            recentSubmissions[idx] = updated;
+            recentSubmissions = [...recentSubmissions];
+          }
+        }
         if (updated && updated.status !== 'JUDGING' && updated.status !== 'PENDING' && updated.status !== 'DISPATCHING') {
           activeSubmission = updated;
           submitStatus = `Verdict: ${updated.status}`;
           stopSubmissionPolling();
-          if (updated.status === 'ACCEPTED' && problem) {
-            contestSolvedProblemIds = new Set([...contestSolvedProblemIds, problem.id]);
+          const currentProblemId = problem?.id;
+          if (updated.status === 'ACCEPTED' && currentProblemId) {
+            contestSolvedProblemIds = new Set([...contestSolvedProblemIds, currentProblemId]);
+            contestWrongProblemIds = new Set([...contestWrongProblemIds].filter((id) => id !== currentProblemId));
+          } else if (updated.status === 'WRONG_ANSWER' && currentProblemId && !contestSolvedProblemIds.has(currentProblemId)) {
+            contestWrongProblemIds = new Set([...contestWrongProblemIds, currentProblemId]);
           }
           if (problem) {
             await loadSubmissions(problem.id, contestId);
@@ -312,33 +402,47 @@
 
         // 2. Also check via Chrome Extension Bridge if available
         if (problem && updated && updated.externalSubmissionId && !updated.externalSubmissionId.startsWith('cf_') && !updated.externalSubmissionId.startsWith('ac_')) {
-          const extRes = await pollStatusViaExtension(
-            problem.platform,
-            updated.externalSubmissionId,
-            problem.externalId,
-            problem.url
-          );
-          if (extRes && extRes.status && extRes.status !== 'JUDGING' && extRes.status !== 'PENDING') {
-            // Trigger server-side synchronization with platform adapter
-            const synced = await api.post<Submission>(`/submissions/${submissionId}/sync`);
-            if (synced) {
-              activeSubmission = synced;
-              submitStatus = `Verdict: ${synced.status}`;
-              stopSubmissionPolling();
-              if (synced.status === 'ACCEPTED' && problem) {
-                contestSolvedProblemIds = new Set([...contestSolvedProblemIds, problem.id]);
+          try {
+            const extRes = await pollStatusViaExtension(
+              problem.platform,
+              updated.externalSubmissionId,
+              problem.externalId,
+              problem.url
+            );
+            if (extRes && extRes.status && extRes.status !== 'JUDGING' && extRes.status !== 'PENDING' && extRes.status !== 'DISPATCHING') {
+              const synced = await api.post<Submission>(`/submissions/${submissionId}/sync`);
+              if (synced) {
+                activeSubmission = synced;
+                submitStatus = `Verdict: ${synced.status}`;
+                stopSubmissionPolling();
+                const currentProblemId = problem?.id;
+                if (synced.status === 'ACCEPTED' && currentProblemId) {
+                  contestSolvedProblemIds = new Set([...contestSolvedProblemIds, currentProblemId]);
+                  contestWrongProblemIds = new Set([...contestWrongProblemIds].filter((id) => id !== currentProblemId));
+                } else if (synced.status === 'WRONG_ANSWER' && currentProblemId && !contestSolvedProblemIds.has(currentProblemId)) {
+                  contestWrongProblemIds = new Set([...contestWrongProblemIds, currentProblemId]);
+                }
+                if (problem) {
+                  await loadSubmissions(problem.id, contestId);
+                }
+                return;
               }
-              if (problem) {
-                await loadSubmissions(problem.id, contestId);
-              }
-              return;
             }
-          }
+          } catch {}
         }
-      } catch (err) {
-        console.error('Polling status error:', err);
+      } catch (err: any) {
+        console.error('Polling error:', err);
       }
     }, 2500);
+  }
+
+  function isDuplicateSubmissionError(error: unknown): boolean {
+    return error instanceof Error && error.message.includes('an identical solution was already submitted for this problem');
+  }
+
+  function openSubmissionsTab() {
+    setActiveTab('submissions');
+    viewMode = 'tabbed';
   }
 
   async function handleSubmit() {
@@ -353,6 +457,7 @@
     stopSubmissionPolling();
 
     let createdSub: Submission | null = null;
+    let extensionDispatchStarted = false;
     try {
       const sub = await api.post<Submission>('/submissions', {
         problemId: problem.id,
@@ -364,19 +469,39 @@
       activeSubmission = sub;
       submitStatus = 'Dispatching via extension...';
 
-      // Redirect to submissions tab
-      activeTab = 'submissions';
-      viewMode = 'tabbed';
+      // The API only returns a submission for non-duplicate source. Open the
+      // tab at that point, before any external dispatch is attempted.
+      openSubmissionsTab();
       await loadSubmissions(problem.id, contestId);
 
-      const extRes = await submitViaExtension(
-        sub.id,
-        problem.platform,
-        problem.externalId,
-        problem.url,
-        language,
-        sourceCode
-      );
+      extensionDispatchStarted = true;
+      let extRes;
+      let lastError: unknown;
+      // The extension persists dispatch state and deduplicates by submission
+      // ID, so retries are safe even when the first request reached the
+      // external platform but its response was lost.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          extRes = await submitViaExtension(sub.id, problem.platform, problem.externalId, problem.url, language, sourceCode);
+          break;
+        } catch (err) {
+          lastError = err;
+          if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+      }
+      if (!extRes) {
+        const recovered = (await recoverPendingSubmissions()).find((dispatch) => dispatch.submissionId === sub.id);
+        if (recovered?.state === 'CREATED' && recovered.externalSubmissionId) {
+          extRes = {
+            type: 'SUBMISSION_CREATED' as const,
+            submissionId: sub.id,
+            externalSubmissionId: recovered.externalSubmissionId
+          };
+          await acknowledgeRecoveredSubmission(sub.id);
+        } else {
+          throw lastError || new Error('Extension did not confirm the submission; please retry while the dispatch is recoverable.');
+        }
+      }
 
       if (extRes.type === 'SUBMISSION_CREATED' && extRes.externalSubmissionId) {
         submitStatus = 'Submitted! Status: JUDGING (Polling verdict...)';
@@ -385,6 +510,11 @@
         });
         activeSubmission.status = 'JUDGING';
         activeSubmission.externalSubmissionId = extRes.externalSubmissionId;
+        const idx = recentSubmissions.findIndex((s) => s.id === sub.id);
+        if (idx !== -1) {
+          recentSubmissions[idx] = { ...recentSubmissions[idx], status: 'JUDGING', externalSubmissionId: extRes.externalSubmissionId };
+          recentSubmissions = [...recentSubmissions];
+        }
         startSubmissionPolling(sub.id);
       } else if (extRes.type === 'SUBMISSION_FAILED') {
         const errorMsg = extRes.message || extRes.error || 'Submission was not accepted on platform';
@@ -394,6 +524,11 @@
           metadata: { error: errorMsg }
         });
         activeSubmission.status = 'FAILED';
+        const idx = recentSubmissions.findIndex((s) => s.id === sub.id);
+        if (idx !== -1) {
+          recentSubmissions[idx] = { ...recentSubmissions[idx], status: 'FAILED', metadata: { error: errorMsg } };
+          recentSubmissions = [...recentSubmissions];
+        }
       } else {
         const errorMsg = 'Failed to obtain external submission ID';
         submitStatus = `Submission failed: ${errorMsg}`;
@@ -402,12 +537,24 @@
           metadata: { error: errorMsg }
         });
         activeSubmission.status = 'FAILED';
+        const idx = recentSubmissions.findIndex((s) => s.id === sub.id);
+        if (idx !== -1) {
+          recentSubmissions[idx] = { ...recentSubmissions[idx], status: 'FAILED', metadata: { error: errorMsg } };
+          recentSubmissions = [...recentSubmissions];
+        }
       }
 
       await loadSubmissions(problem.id, contestId);
     } catch (err: any) {
-      submitStatus = `Submission error: ${err.message}`;
-      if (createdSub) {
+      const dispatchMayStillBeRunning = extensionDispatchStarted;
+      if (!dispatchMayStillBeRunning && isDuplicateSubmissionError(err)) {
+        submitStatus = 'This exact solution was already submitted. It was not sent to the external judge.';
+      } else {
+        submitStatus = dispatchMayStillBeRunning
+          ? 'Dispatch is still being completed by the extension. You can safely reload this page.'
+          : `Submission error: ${err.message}`;
+      }
+      if (createdSub && !dispatchMayStillBeRunning) {
         try {
           await api.post(`/submissions/${createdSub.id}/result`, {
             status: 'FAILED',
@@ -421,204 +568,159 @@
     }
   }
 
-  async function handleManualSync(subId: string) {
-    try {
-      submitStatus = 'Syncing status...';
-      const updated = await api.post<Submission>(`/submissions/${subId}/sync`);
-      if (updated) {
-        activeSubmission = updated;
-        submitStatus = `Status updated: ${updated.status}`;
-        if (updated.status === 'ACCEPTED' && problem) {
-          contestSolvedProblemIds = new Set([...contestSolvedProblemIds, problem.id]);
-        }
-        if (problem) {
-          await loadSubmissions(problem.id, contestId);
-        }
-      }
-    } catch (err: any) {
-      submitStatus = `Sync failed: ${err.message}`;
-    }
-  }
-
   onDestroy(() => {
     stopSubmissionPolling();
   });
 </script>
 
-{#if loading}
-  <div class="h-96 rounded-2xl bg-zinc-900/40 border border-zinc-800 animate-pulse"></div>
-{:else if error || !problem}
-  <div class="p-8 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300 space-y-2">
-    <h2 class="text-xl font-bold">Error loading problem</h2>
-    <p class="text-sm">{error || 'Problem not found.'}</p>
-  </div>
-{:else}
-  <div class="space-y-4">
-    <!-- Contest Banner & Problem Switcher (if problem is opened within contest) -->
-    {#if contest}
-      <div class="p-4 sm:p-5 rounded-2xl border border-zinc-800 bg-zinc-900/90 shadow-xl space-y-4 backdrop-blur-md">
-        <!-- Contest Title & Status Bar -->
-        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div class="space-y-1.5">
-            <div class="flex flex-wrap items-center gap-2 text-xs">
-              <a
-                href={`/contests/${contest.id}`}
-                class="font-semibold text-zinc-300 hover:text-white transition flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-800 border border-zinc-700/60"
-              >
-                <ArrowLeft class="w-3.5 h-3.5" />
-                <span>Contest Lobby</span>
-              </a>
+<div class="space-y-4">
+  <!-- Contest Banner & Problem Switcher (if problem is opened within contest) -->
+  {#if contest}
+    <div class="p-4 sm:p-5 rounded-2xl border border-zinc-800 bg-zinc-900/90 shadow-xl space-y-4 backdrop-blur-md">
+      <!-- Contest Title & Status Bar -->
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div class="space-y-1.5">
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <a
+              href={`/contests/${contest.id}`}
+              class="font-semibold text-zinc-300 hover:text-white transition flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-800 border border-zinc-700/60"
+            >
+              <ArrowLeft class="w-3.5 h-3.5" />
+              <span>Contest Lobby</span>
+            </a>
 
-              <a
-                href={`/contests/${contest.id}/standings`}
-                class="font-semibold text-zinc-300 hover:text-white transition flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-800 border border-zinc-700/60"
-              >
-                <Trophy class="w-3.5 h-3.5" />
-                <span>Scoreboard</span>
-              </a>
+            <a
+              href={`/contests/${contest.id}/standings`}
+              class="font-semibold text-zinc-300 hover:text-white transition flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-800 border border-zinc-700/60"
+            >
+              <Trophy class="w-3.5 h-3.5" />
+              <span>Scoreboard</span>
+            </a>
 
-              <span class="px-2.5 py-0.5 rounded-full font-bold {
-                contest.state === 'ACTIVE' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
-                contest.state === 'UPCOMING' ? 'bg-zinc-800 text-zinc-300 border border-zinc-700' :
-                'bg-zinc-950 text-zinc-500 border border-zinc-800'
-              }">
-                {contest.state}
-              </span>
+            <span class="px-2.5 py-0.5 rounded-full font-bold {
+              contest.state === 'ACTIVE' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+              contest.state === 'UPCOMING' ? 'bg-zinc-800 text-zinc-300 border border-zinc-700' :
+              'bg-zinc-950 text-zinc-500 border border-zinc-800'
+            }">
+              {contest.state}
+            </span>
 
-              <span class="px-2 py-0.5 rounded-md font-mono bg-zinc-800 text-zinc-300 border border-zinc-700">
-                {contest.scoringType} Scoring
-              </span>
-            </div>
-
-            <div class="flex items-center space-x-2">
-              <h2 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
-                {contest.name}
-              </h2>
-            </div>
+            <span class="px-2 py-0.5 rounded-md font-mono bg-zinc-800 text-zinc-300 border border-zinc-700">
+              {contest.scoringType} Scoring
+            </span>
           </div>
 
-          <!-- Timer & Quick Prev/Next Problem Navigation -->
-          <div class="flex items-center gap-3 shrink-0">
-            <ContestTimer startAt={contest.startAt} endAt={contest.endAt} state={contest.state} />
-
-            <!-- Prev / Next Problem Buttons -->
-            <div class="flex items-center bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
-              {#if prevContestProblem}
-                <a
-                  href={`/problems/${prevContestProblem.problemId}?contestId=${contest.id}`}
-                  class="px-3 py-1.5 rounded-lg font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition flex items-center space-x-1"
-                  title={`Previous: Problem ${prevContestProblem.label}`}
-                >
-                  <ChevronLeft class="w-4 h-4" />
-                  <span class="hidden sm:inline">Prev ({prevContestProblem.label})</span>
-                </a>
-              {:else}
-                <span class="px-3 py-1.5 rounded-lg text-zinc-600 cursor-not-allowed flex items-center space-x-1">
-                  <ChevronLeft class="w-4 h-4" />
-                  <span class="hidden sm:inline">Prev</span>
-                </span>
-              {/if}
-
-              {#if nextContestProblem}
-                <a
-                  href={`/problems/${nextContestProblem.problemId}?contestId=${contest.id}`}
-                  class="px-3 py-1.5 rounded-lg font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition flex items-center space-x-1"
-                  title={`Next: Problem ${nextContestProblem.label}`}
-                >
-                  <span class="hidden sm:inline">Next ({nextContestProblem.label})</span>
-                  <ChevronRight class="w-4 h-4" />
-                </a>
-              {:else}
-                <span class="px-3 py-1.5 rounded-lg text-zinc-600 cursor-not-allowed flex items-center space-x-1">
-                  <span class="hidden sm:inline">Next</span>
-                  <ChevronRight class="w-4 h-4" />
-                </span>
-              {/if}
-            </div>
+          <div class="flex items-center space-x-2">
+            <h2 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+              {contest.name}
+            </h2>
           </div>
         </div>
 
-        <!-- Contest Problem Switcher Bar (Tabs) -->
-        {#if contestProblems.length > 0}
-          <div class="pt-3 border-t border-zinc-800/80 space-y-2">
-            <div class="flex items-center justify-between text-xs text-zinc-400">
-              <div class="flex items-center space-x-1.5 font-semibold uppercase tracking-wider text-[11px] text-zinc-400">
-                <Layers class="w-3.5 h-3.5 text-zinc-400" />
-                <span>Contest Problems ({contestProblems.length})</span>
+        <!-- Timer & Quick Prev/Next Problem Navigation -->
+        <div class="flex items-center gap-3 shrink-0">
+          <ContestTimer startAt={contest.startAt} endAt={contest.endAt} state={contest.state} />
+
+          <!-- Prev / Next Problem Buttons -->
+          <div class="flex items-center bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
+            {#if prevContestProblem}
+              <a
+                href={`/problems/${prevContestProblem.problemId}?contestId=${contest.id}`}
+                class="px-3 py-1.5 rounded-lg font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition flex items-center space-x-1"
+                title={`Previous: Problem ${prevContestProblem.label}`}
+              >
+                <ChevronLeft class="w-4 h-4" />
+                <span class="hidden sm:inline">Prev ({prevContestProblem.label})</span>
+              </a>
+            {:else}
+              <span class="px-3 py-1.5 rounded-lg text-zinc-600 cursor-not-allowed flex items-center space-x-1">
+                <ChevronLeft class="w-4 h-4" />
+                <span class="hidden sm:inline">Prev</span>
+              </span>
+            {/if}
+
+            {#if nextContestProblem}
+              <a
+                href={`/problems/${nextContestProblem.problemId}?contestId=${contest.id}`}
+                class="px-3 py-1.5 rounded-lg font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition flex items-center space-x-1"
+                title={`Next: Problem ${nextContestProblem.label}`}
+              >
+                <span class="hidden sm:inline">Next ({nextContestProblem.label})</span>
+                <ChevronRight class="w-4 h-4" />
+              </a>
+            {:else}
+              <span class="px-3 py-1.5 rounded-lg text-zinc-600 cursor-not-allowed flex items-center space-x-1">
+                <span class="hidden sm:inline">Next</span>
+                <ChevronRight class="w-4 h-4" />
+              </span>
+            {/if}
+          </div>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <div class={contest ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-6 items-start' : 'space-y-4'}>
+    <main class={contest ? 'min-w-0 space-y-4' : 'space-y-4'}>
+      {#if loading}
+        <!-- Problem Section Skeleton -->
+        <div class="space-y-4">
+          <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 space-y-4 shadow-xl animate-pulse">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div class="space-y-2.5 flex-1">
+                <div class="flex items-center space-x-2">
+                  <div class="h-5 w-24 bg-zinc-800 rounded-full"></div>
+                  <div class="h-5 w-16 bg-zinc-800 rounded-full"></div>
+                </div>
+                <div class="h-7 w-3/4 max-w-md bg-zinc-800 rounded-lg"></div>
               </div>
-              {#if contestSolvedProblemIds.size > 0}
-                <span class="text-emerald-400 font-medium text-xs">
-                  {contestSolvedProblemIds.size} of {contestProblems.length} Solved
-                </span>
-              {/if}
-            </div>
-
-            <div class="flex items-center gap-2 overflow-x-auto pb-1">
-              {#each contestProblems as cp}
-                {@const isActive = cp.problemId === problemId}
-                {@const isSolved = contestSolvedProblemIds.has(cp.problemId)}
-                <a
-                  href={`/problems/${cp.problemId}?contestId=${contest.id}`}
-                  class="shrink-0 flex items-center space-x-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition border {
-                    isActive
-                      ? 'bg-white text-black border-white shadow-md'
-                      : isSolved
-                      ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20 hover:text-white'
-                      : 'bg-zinc-950 text-zinc-300 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900 hover:text-white'
-                  }"
-                >
-                  <span class="w-5 h-5 rounded-md flex items-center justify-center font-bold text-xs {
-                    isActive
-                      ? 'bg-black text-white'
-                      : isSolved
-                      ? 'bg-emerald-500/20 text-emerald-300'
-                      : 'bg-zinc-800 text-zinc-300'
-                  }">
-                    {cp.label}
-                  </span>
-
-                  <span class="max-w-[150px] sm:max-w-[200px] truncate">
-                    {cp.problem?.title || `Problem ${cp.label}`}
-                  </span>
-
-                  {#if isSolved}
-                    <CheckCircle2 class="w-3.5 h-3.5 shrink-0 {isActive ? 'text-emerald-700' : 'text-emerald-400'}" />
-                  {/if}
-                </a>
-              {/each}
+              <div class="h-9 w-44 bg-zinc-800 rounded-xl"></div>
             </div>
           </div>
-        {/if}
-      </div>
-    {/if}
 
-    {#if contest && contest.state === 'UPCOMING' && $auth.user?.role !== 'ADMIN'}
-      <div class="p-12 rounded-2xl border border-zinc-800 bg-zinc-900/50 text-center space-y-3">
-        <div class="w-12 h-12 rounded-full bg-zinc-800 border border-zinc-700 text-white flex items-center justify-center mx-auto">
-          <Lock class="w-6 h-6" />
+          <div class="h-[520px] rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 animate-pulse space-y-4">
+            <div class="h-6 w-1/4 bg-zinc-800 rounded-lg"></div>
+            <div class="space-y-2.5 pt-3">
+              <div class="h-4 w-full bg-zinc-800/60 rounded"></div>
+              <div class="h-4 w-11/12 bg-zinc-800/60 rounded"></div>
+              <div class="h-4 w-4/5 bg-zinc-800/60 rounded"></div>
+              <div class="h-4 w-2/3 bg-zinc-800/60 rounded"></div>
+            </div>
+            <div class="h-28 w-full bg-zinc-800/30 rounded-xl mt-6"></div>
+          </div>
         </div>
-        <h3 class="text-lg font-bold text-white">Problem is Locked</h3>
-        <p class="text-xs text-zinc-400 max-w-md mx-auto">
-          Problem statements and submissions for this contest will automatically unlock when the contest starts.
-        </p>
-        <a
-          href={`/contests/${contest.id}`}
-          class="inline-block mt-4 px-4 py-2 rounded-xl text-xs font-semibold bg-white text-black hover:bg-zinc-200 transition"
-        >
-          Return to Contest Lobby
-        </a>
-      </div>
-    {:else}
-      <!-- Header Navigation Card -->
-      <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 space-y-4 shadow-xl">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div class="space-y-1.5">
-            <div class="flex items-center space-x-2.5">
-              {#if currentContestProblem}
-                <span class="text-xs px-2.5 py-0.5 rounded-full font-bold font-mono bg-white text-black shadow-sm">
-                  Problem {currentContestProblem.label}
-                </span>
-              {/if}
+      {:else if error || !problem}
+        <div class="p-8 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300 space-y-2">
+          <h2 class="text-xl font-bold">Error loading problem</h2>
+          <p class="text-sm">{error || 'Problem not found.'}</p>
+        </div>
+      {:else if contest && contest.state === 'UPCOMING' && $auth.user?.role !== 'ADMIN'}
+        <div class="p-12 rounded-2xl border border-zinc-800 bg-zinc-900/50 text-center space-y-3">
+          <div class="w-12 h-12 rounded-full bg-zinc-800 border border-zinc-700 text-white flex items-center justify-center mx-auto">
+            <Lock class="w-6 h-6" />
+          </div>
+          <h3 class="text-lg font-bold text-white">Problem is Locked</h3>
+          <p class="text-xs text-zinc-400 max-w-md mx-auto">
+            Problem statements and submissions for this contest will automatically unlock when the contest starts.
+          </p>
+          <a
+            href={`/contests/${contest.id}`}
+            class="inline-block mt-4 px-4 py-2 rounded-xl text-xs font-semibold bg-white text-black hover:bg-zinc-200 transition"
+          >
+            Return to Contest Lobby
+          </a>
+        </div>
+      {:else}
+        <!-- Header Navigation Card -->
+        <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 space-y-4 shadow-xl">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div class="space-y-1.5">
+              <div class="flex items-center space-x-2.5">
+                {#if currentContestProblem}
+                  <span class="text-xs px-2.5 py-0.5 rounded-full font-bold font-mono bg-white text-black shadow-sm">
+                    Problem {currentContestProblem.label}
+                  </span>
+                {/if}
               {#if !contest}
                 <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold font-mono {
                   problem.platform === 'CODEFORCES' ? 'bg-red-500/15 text-red-300 border border-red-500/30' :
@@ -707,7 +809,7 @@
       {#if viewMode === 'tabbed'}
         <div class="flex items-center space-x-2 pt-2 border-t border-zinc-800/80">
           <button
-            on:click={() => (activeTab = 'statement')}
+            on:click={() => setActiveTab('statement')}
             class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
               activeTab === 'statement' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
             }"
@@ -717,7 +819,7 @@
           </button>
 
           <button
-            on:click={() => (activeTab = 'editor')}
+            on:click={() => setActiveTab('editor')}
             class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
               activeTab === 'editor' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
             }"
@@ -727,7 +829,7 @@
           </button>
 
           <button
-            on:click={() => (activeTab = 'submissions')}
+            on:click={() => setActiveTab('submissions')}
             class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
               activeTab === 'submissions' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
             }"
@@ -980,7 +1082,7 @@
               <!-- Quick Jump to Code Editor -->
               <div class="pt-6 border-t border-zinc-800 flex justify-end">
                 <button
-                  on:click={() => (activeTab = 'editor')}
+                  on:click={() => setActiveTab('editor')}
                   class="px-5 py-2.5 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center space-x-2 text-xs"
                 >
                   <Code2 class="w-4 h-4" />
@@ -1098,7 +1200,7 @@
                   Refresh
                 </button>
                 <button
-                  on:click={() => (activeTab = 'editor')}
+                  on:click={() => setActiveTab('editor')}
                   class="px-3 py-1 text-xs rounded-lg bg-white text-black font-semibold hover:bg-zinc-200 transition flex items-center space-x-1"
                 >
                   <Code2 class="w-3.5 h-3.5" />
@@ -1107,72 +1209,56 @@
               </div>
             </div>
 
-            <!-- Verdict & Dispatch Banner -->
-            {#if activeSubmission || submitStatus}
-              <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-950 space-y-3">
-                <div class="flex items-center justify-between">
-                  <span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Submission Verdict</span>
-                  {#if activeSubmission}
-                    <span class="text-xs font-bold font-mono px-3 py-1 rounded-lg {
-                      activeSubmission.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
-                      activeSubmission.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
-                      activeSubmission.status === 'JUDGING' || activeSubmission.status === 'PENDING' || activeSubmission.status === 'DISPATCHING' ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse' :
-                      'bg-zinc-800 text-zinc-200 border border-zinc-700'
-                    }">
-                      {activeSubmission.status}
-                    </span>
-                  {/if}
-                </div>
-
-                <p class="text-xs text-zinc-400 font-mono">{submitStatus}</p>
-
-                {#if activeSubmission && (activeSubmission.status === 'PENDING' || activeSubmission.status === 'JUDGING' || activeSubmission.status === 'DISPATCHING')}
-                  <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800/80">
-                    <button
-                      on:click={() => handleManualSync(activeSubmission!.id)}
-                      class="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 transition flex items-center space-x-1"
-                    >
-                      <Clock class="w-3 h-3" />
-                      <span>Sync Status</span>
-                    </button>
-                  </div>
-                {/if}
+            {#if submissionsLoading}
+              <div class="space-y-2.5 py-2 animate-pulse">
+                <div class="h-20 rounded-xl border border-zinc-800 bg-zinc-950/70"></div>
+                <div class="h-20 rounded-xl border border-zinc-800 bg-zinc-950/70"></div>
               </div>
-            {/if}
-
-            {#if recentSubmissions.length === 0}
+            {:else if recentSubmissions.length === 0}
               <p class="text-xs text-zinc-500 py-12 text-center">No submissions recorded yet for this problem.</p>
             {:else}
               <div class="space-y-2.5">
                 {#each recentSubmissions as sub}
-                  <div class="p-4 rounded-xl border border-zinc-800 bg-zinc-950 flex items-center justify-between text-xs">
-                    <div class="space-y-1">
-                      <div class="font-mono font-semibold text-zinc-200">{sub.language}</div>
-                      <div class="text-zinc-500">{new Date(sub.submittedAt).toLocaleString()}</div>
-                      {#if sub.metadata && sub.metadata.error}
-                        <div class="text-rose-400 text-[11px] font-sans">{sub.metadata.error}</div>
-                      {/if}
+                  <button
+                    type="button"
+                    on:click={() => (viewingSubmission = sub)}
+                    class="w-full text-left p-4 rounded-xl border border-zinc-800 bg-zinc-950 hover:bg-zinc-900/90 hover:border-zinc-700 focus:outline-none focus:ring-1 focus:ring-zinc-600 transition cursor-pointer group space-y-2"
+                  >
+                    <div class="flex items-center justify-between text-xs gap-3">
+                      <div class="space-y-1.5 min-w-0">
+                        <div class="flex flex-wrap items-center gap-2">
+                          <span class="font-mono font-bold text-zinc-100 group-hover:text-white transition">
+                            {formatLanguageName(sub.language)}
+                          </span>
+                          <span class="text-zinc-600">•</span>
+                          <span class="font-mono text-[11px] text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800/80 group-hover:border-zinc-700 transition">
+                            {sub.id}
+                          </span>
+                          {#if sub.externalSubmissionId && sub.externalSubmissionId !== sub.id}
+                            <span class="font-mono text-[11px] text-zinc-500">
+                              (ext: {sub.externalSubmissionId})
+                            </span>
+                          {/if}
+                        </div>
+                        <div class="text-zinc-500 text-[11px] font-sans">{new Date(sub.submittedAt).toLocaleString()}</div>
+                        {#if sub.metadata && sub.metadata.error}
+                          <div class="text-rose-400 text-[11px] font-sans truncate max-w-md">{sub.metadata.error}</div>
+                        {/if}
+                      </div>
+
+                      <div class="flex items-center space-x-2.5 shrink-0">
+                        <span class="font-bold font-mono px-3 py-1.5 rounded-lg text-xs {
+                          sub.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+                          sub.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
+                          sub.status === 'JUDGING' || sub.status === 'PENDING' || sub.status === 'DISPATCHING' ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse' :
+                          'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                        }">
+                          {sub.status}
+                        </span>
+                        <Code2 class="w-4 h-4 text-zinc-600 group-hover:text-zinc-300 transition" />
+                      </div>
                     </div>
-                    <div class="flex items-center space-x-2">
-                      {#if sub.status === 'JUDGING' || sub.status === 'PENDING' || sub.status === 'DISPATCHING'}
-                        <button
-                          on:click={() => handleManualSync(sub.id)}
-                          class="px-2 py-1 rounded-lg text-[11px] font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition"
-                          title="Re-check status on source platform"
-                        >
-                          Sync
-                        </button>
-                      {/if}
-                      <span class="font-bold font-mono px-3 py-1.5 rounded-lg {
-                        sub.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
-                        sub.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
-                        sub.status === 'JUDGING' || sub.status === 'PENDING' || sub.status === 'DISPATCHING' ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse' :
-                        'bg-zinc-800 text-zinc-400 border border-zinc-700'
-                      }">
-                        {sub.status}
-                      </span>
-                    </div>
-                  </div>
+                  </button>
                 {/each}
               </div>
             {/if}
@@ -1180,9 +1266,75 @@
         {/if}
       </div>
     {/if}
+
     {/if}
+      </main>
+
+      {#if contest && contestProblems.length > 0}
+        <aside class="lg:sticky lg:top-4 p-4 rounded-2xl border border-zinc-800 bg-zinc-900/70 shadow-xl space-y-3">
+          <div class="flex items-center justify-between text-xs text-zinc-400">
+            <div class="flex items-center space-x-1.5 font-semibold uppercase tracking-wider text-[11px]">
+              <Layers class="w-3.5 h-3.5" />
+              <span>Contest Problems</span>
+            </div>
+            {#if contestSolvedProblemIds.size > 0}
+              <span class="text-emerald-400 font-medium">
+                {contestSolvedProblemIds.size}/{contestProblems.length}
+              </span>
+            {/if}
+          </div>
+
+          <div class="max-h-[calc(100vh-140px)] overflow-y-auto space-y-2 pr-1">
+            {#each contestProblems as cp}
+              {@const isActive = cp.problemId === problemId}
+              {@const isSolved = contestSolvedProblemIds.has(cp.problemId)}
+              {@const isWrong = !isSolved && contestWrongProblemIds.has(cp.problemId)}
+              <a
+                href={`/problems/${cp.problemId}?contestId=${contest.id}`}
+                class="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition border {
+                  isActive
+                    ? 'bg-white text-black border-white shadow-md'
+                    : isSolved
+                    ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20 hover:text-white'
+                    : isWrong
+                    ? 'bg-rose-500/10 text-rose-300 border-rose-500/30 hover:bg-rose-500/20 hover:text-white'
+                    : 'bg-zinc-950 text-zinc-300 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900 hover:text-white'
+                }"
+              >
+                <span class="font-mono font-bold w-6 h-6 rounded-lg flex items-center justify-center text-xs shrink-0 {
+                  isActive
+                    ? 'bg-black text-white'
+                    : isSolved
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : isWrong
+                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                    : 'bg-zinc-900 text-zinc-400 border border-zinc-800'
+                }">
+                  {cp.label}
+                </span>
+
+                <span class="min-w-0 flex-1 truncate">
+                  {cp.problem?.title || `Problem ${cp.label}`}
+                </span>
+
+                {#if isSolved}
+                  <CheckCircle2 class="w-3.5 h-3.5 shrink-0 {isActive ? 'text-emerald-700' : 'text-emerald-400'}" />
+                {:else if isWrong}
+                  <XCircle class="w-3.5 h-3.5 shrink-0 {isActive ? 'text-rose-700' : 'text-rose-400'}" />
+                {/if}
+              </a>
+            {/each}
+          </div>
+        </aside>
+      {/if}
+    </div>
   </div>
-{/if}
+
+<SubmissionModal
+  submission={viewingSubmission}
+  open={!!viewingSubmission}
+  onClose={() => (viewingSubmission = null)}
+/>
 
 <style>
   :global(.statement-content p) {

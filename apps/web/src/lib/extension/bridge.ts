@@ -2,6 +2,7 @@ import type {
   ExtensionErrorCode,
   ExtensionMessage,
   ExtensionPingResponse,
+  ExtensionRecoverSubmissionsResponse,
   ExtensionSubmissionCreatedResponse,
   ExtensionSubmissionFailedResponse,
   LanguageId,
@@ -34,7 +35,7 @@ if (typeof window !== 'undefined') {
   });
 }
 
-function sendToExtension<T>(payload: ExtensionMessage): Promise<T> {
+function sendToExtension<T>(payload: ExtensionMessage, timeoutMs = 10000): Promise<T> {
   return new Promise((resolve, reject) => {
     if (typeof window === 'undefined') {
       return reject(new Error('Browser environment required'));
@@ -47,7 +48,7 @@ function sendToExtension<T>(payload: ExtensionMessage): Promise<T> {
         pendingCallbacks.delete(id);
         reject(new Error('Extension response timed out'));
       }
-    }, 10000);
+    }, timeoutMs);
 
     pendingCallbacks.set(id, (response) => {
       clearTimeout(timer);
@@ -111,5 +112,27 @@ export async function pollStatusViaExtension(
     return null;
   } catch {
     return null;
+  }
+}
+
+export async function recoverPendingSubmissions(): Promise<ExtensionRecoverSubmissionsResponse['submissions']> {
+  try {
+    const res = await sendToExtension<ExtensionRecoverSubmissionsResponse>({ type: 'RECOVER_SUBMISSIONS' }, 20000);
+    if (res && res.type === 'RECOVER_SUBMISSIONS_RESULT' && Array.isArray(res.submissions)) {
+      return res.submissions;
+    }
+  } catch {}
+  return [];
+}
+
+export async function acknowledgeRecoveredSubmission(submissionId: string): Promise<boolean> {
+  try {
+    const res = await sendToExtension<{ type: 'ACK_SUBMISSION_RESULT'; acknowledged: boolean }>({
+      type: 'ACK_SUBMISSION',
+      submissionId
+    });
+    return res?.type === 'ACK_SUBMISSION_RESULT' && res.acknowledged;
+  } catch {
+    return false;
   }
 }

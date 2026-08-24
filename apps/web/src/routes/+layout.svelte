@@ -3,10 +3,12 @@
   import 'katex/dist/katex.min.css';
   import { onMount } from 'svelte';
   import { auth } from '$lib/stores/auth';
+  import { reconcileExtensionSubmissions } from '$lib/extension/reconcile';
   import Navbar from '$lib/components/Navbar.svelte';
 
-  onMount(() => {
-    auth.init();
+  onMount(async () => {
+    await auth.init();
+    await reconcileExtensionSubmissions();
   });
 </script>
 

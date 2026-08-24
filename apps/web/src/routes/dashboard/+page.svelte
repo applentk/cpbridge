@@ -2,12 +2,14 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
-  import type { Contest, Submission } from '@cp-hub/contracts';
-  import { Trophy, Cpu, ArrowRight, Clock, ShieldCheck, LayoutDashboard } from 'lucide-svelte';
+  import { type Contest, type Submission, formatLanguageName } from '@cp-hub/contracts';
+  import SubmissionModal from '$lib/components/SubmissionModal.svelte';
+  import { Trophy, Cpu, ArrowRight, Clock, ShieldCheck, LayoutDashboard, Code2 } from 'lucide-svelte';
 
   let contests: Contest[] = [];
   let submissions: Submission[] = [];
   let loading = true;
+  let viewingSubmission: Submission | null = null;
 
   onMount(async () => {
     try {
@@ -112,29 +114,38 @@
         {:else}
           <div class="rounded-xl border border-zinc-800 bg-zinc-900/40 divide-y divide-zinc-800/60 overflow-hidden">
             {#each submissions as sub}
-              <div class="p-4 flex items-center justify-between hover:bg-zinc-800/20 transition">
+              <button
+                type="button"
+                on:click={() => (viewingSubmission = sub)}
+                class="w-full text-left p-4 flex items-center justify-between hover:bg-zinc-800/30 transition cursor-pointer group"
+              >
                 <div class="space-y-1">
-                  <div class="font-semibold text-zinc-100 text-sm">
+                  <div class="font-semibold text-zinc-100 group-hover:text-white text-sm transition">
                     {sub.problemTitle || sub.problemId}
                   </div>
-                  <div class="flex items-center space-x-2 text-xs text-zinc-400">
+                  <div class="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
                     <span class="font-mono">{sub.platform}</span>
                     <span>•</span>
-                    <span>{sub.language}</span>
+                    <span class="text-zinc-300 font-semibold">{formatLanguageName(sub.language)}</span>
+                    <span class="text-zinc-600">•</span>
+                    <span class="font-mono text-[11px] text-zinc-500">{sub.id}</span>
                     <span>•</span>
                     <span>{new Date(sub.submittedAt).toLocaleTimeString()}</span>
                   </div>
                 </div>
 
-                <span class="text-xs px-2.5 py-1 rounded-lg font-bold font-mono {
-                  sub.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
-                  sub.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
-                  sub.status === 'JUDGING' || sub.status === 'PENDING' ? 'bg-zinc-800 text-zinc-200 border border-zinc-700 font-medium' :
-                  'bg-zinc-950 text-zinc-400 border border-zinc-800'
-                }">
-                  {sub.status}
-                </span>
-              </div>
+                <div class="flex items-center space-x-2.5">
+                  <span class="text-xs px-2.5 py-1 rounded-lg font-bold font-mono {
+                    sub.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
+                    sub.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
+                    sub.status === 'JUDGING' || sub.status === 'PENDING' ? 'bg-zinc-800 text-zinc-200 border border-zinc-700 font-medium' :
+                    'bg-zinc-950 text-zinc-400 border border-zinc-800'
+                  }">
+                    {sub.status}
+                  </span>
+                  <Code2 class="w-4 h-4 text-zinc-600 group-hover:text-zinc-300 transition" />
+                </div>
+              </button>
             {/each}
           </div>
         {/if}
@@ -142,3 +153,9 @@
     {/if}
   {/if}
 </div>
+
+<SubmissionModal
+  submission={viewingSubmission}
+  open={!!viewingSubmission}
+  onClose={() => (viewingSubmission = null)}
+/>
