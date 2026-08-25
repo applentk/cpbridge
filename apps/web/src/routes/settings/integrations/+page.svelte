@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api } from '$lib/api/client';
   import { isExtensionVersionCompatible, LATEST_EXTENSION_VERSION, pingExtension } from '$lib/extension/bridge';
-  import type { ExtensionPingResponse, PlatformType } from '@cpbridge/contracts';
+  import { syncActivePlatformIdentities } from '$lib/extension/identity';
+  import type { ExtensionPingResponse } from '@cpbridge/contracts';
   import {
     Puzzle,
     ShieldCheck,
@@ -22,36 +22,6 @@
   let copiedUrl = false;
   let identitySyncError = '';
 
-  interface PlatformIntegration {
-    platform: PlatformType;
-    externalUsername: string;
-    connectionStatus: string;
-  }
-
-  async function syncVerifiedIdentities(info: ExtensionPingResponse) {
-    const existing = await api.get<PlatformIntegration[]>('/integrations');
-    const platforms: PlatformType[] = ['CODEFORCES', 'ATCODER'];
-
-    await Promise.all(platforms.map(async (platform) => {
-      const session = info.platforms[platform];
-      const username = session?.username?.trim();
-      if (!session?.loggedIn || !username) return;
-
-      const linked = existing.find((integration) => integration.platform === platform);
-      if (
-        linked?.connectionStatus === 'CONNECTED'
-        && linked.externalUsername.toLowerCase() === username.toLowerCase()
-      ) {
-        return;
-      }
-
-      await api.put(`/integrations/${platform}`, {
-        externalUsername: username,
-        connectionStatus: 'CONNECTED'
-      });
-    }));
-  }
-
   async function checkConnections() {
     checking = true;
     identitySyncError = '';
@@ -60,7 +30,7 @@
       extensionCompatible = !!extInfo && isExtensionVersionCompatible(extInfo.version);
       if (extInfo && extensionCompatible) {
         try {
-          await syncVerifiedIdentities(extInfo);
+          await syncActivePlatformIdentities(extInfo);
         } catch (err) {
           identitySyncError = err instanceof Error ? err.message : 'Could not synchronize platform identities';
         }

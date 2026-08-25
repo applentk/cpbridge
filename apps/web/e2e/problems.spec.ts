@@ -134,6 +134,55 @@ test.describe('Problem Workspace', () => {
     await expect(page.locator('button:has-text("ACCEPTED")').first()).toBeVisible();
   });
 
+  test('synchronizes a switched Codeforces account before creating the submission', async ({ page }) => {
+    const accountRequests: Array<{ method: string; path: string; body?: unknown }> = [];
+    page.on('request', (request) => {
+      const path = new URL(request.url()).pathname;
+      if (
+        (request.method() === 'PUT' && path === '/api/integrations/CODEFORCES')
+        || (request.method() === 'POST' && path === '/api/submissions')
+      ) {
+        accountRequests.push({
+          method: request.method(),
+          path,
+          body: request.postDataJSON()
+        });
+      }
+    });
+
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, {
+      currentUser: mockRegularUser,
+      integrations: [{
+        platform: 'CODEFORCES',
+        externalUsername: 'old_handle',
+        connectionStatus: 'CONNECTED',
+        updatedAt: new Date(0).toISOString()
+      }],
+      extensionPlatforms: {
+        CODEFORCES: { loggedIn: true, username: 'new_handle' },
+        ATCODER: { loggedIn: true, username: 'tourist_fan' }
+      }
+    });
+
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=editor');
+    await page.locator('button:has-text("Submit Solution")').click();
+
+    await expect(page.locator('button:has-text("ACCEPTED")').first()).toBeVisible();
+    expect(accountRequests.slice(0, 2)).toEqual([
+      {
+        method: 'PUT',
+        path: '/api/integrations/CODEFORCES',
+        body: { externalUsername: 'new_handle', connectionStatus: 'CONNECTED' }
+      },
+      {
+        method: 'POST',
+        path: '/api/submissions',
+        body: expect.any(Object)
+      }
+    ]);
+  });
+
   test('outdated extension is blocked before a submission is created', async ({ page }) => {
     let submissionCreateRequests = 0;
     page.on('request', (request) => {

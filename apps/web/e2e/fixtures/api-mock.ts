@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test';
-import type { User, Problem, Contest, Submission, ProblemSet, Standings } from '@cpbridge/contracts';
+import type { User, Problem, Contest, Submission, ProblemSet, Standings, PlatformIntegration } from '@cpbridge/contracts';
 import {
   mockAdminUser,
   mockRegularUser,
@@ -29,6 +29,7 @@ export interface SetupApiMocksOptions {
   extensionVersion?: string;
   extensionPollVerdict?: string;
   recoveredSubmissions?: unknown[];
+  integrations?: PlatformIntegration[];
 }
 
 export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = {}) {
@@ -38,11 +39,9 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
   const contestsList = options.contests ? [...options.contests] : [...mockContests];
   const problemSetsList = options.problemSets ? [...options.problemSets] : [...mockProblemSets];
   const submissionsList = options.submissions ? [...options.submissions] : [...mockSubmissions];
-  const integrationsList: Array<{
-    platform: string;
-    externalUsername: string;
-    connectionStatus: string;
-  }> = [];
+  const integrationsList: PlatformIntegration[] = options.integrations
+    ? options.integrations.map((integration) => ({ ...integration }))
+    : [];
   const currentStandings = options.standings ? JSON.parse(JSON.stringify(options.standings)) : JSON.parse(JSON.stringify(mockStandings));
 
   // Provide mock Chrome Extension postMessage responder unless disabled
@@ -176,10 +175,11 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
     if (integrationMatch && method === 'PUT') {
       const platform = integrationMatch[1];
       const body = JSON.parse(route.request().postData() || '{}');
-      const integration = {
-        platform,
+      const integration: PlatformIntegration = {
+        platform: platform as PlatformIntegration['platform'],
         externalUsername: body.externalUsername,
         connectionStatus: body.connectionStatus,
+        updatedAt: new Date().toISOString(),
       };
       const index = integrationsList.findIndex((item) => item.platform === platform);
       if (index === -1) integrationsList.push(integration);

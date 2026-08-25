@@ -6,6 +6,7 @@
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
   import { isExtensionVersionCompatible, pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendingSubmissions, acknowledgeRecoveredSubmission } from '$lib/extension/bridge';
+  import { syncActivePlatformIdentities } from '$lib/extension/identity';
   import { reconcileExtensionSubmissions } from '$lib/extension/reconcile';
   import { renderMathInHtml } from '$lib/utils/math';
   import {
@@ -466,6 +467,22 @@
     if (extension && !isExtensionVersionCompatible(extension.version)) {
       submitStatus = 'Extension update required. Install v' + LATEST_EXTENSION_VERSION + ' before submitting.';
       return;
+    }
+    if (extension) {
+      const platformSession = extension.platforms[problem.platform];
+      if (!platformSession?.loggedIn || !platformSession.username?.trim()) {
+        const platformName = problem.platform === 'CODEFORCES' ? 'Codeforces' : 'AtCoder';
+        submitStatus = `Log in to ${platformName} in this browser before submitting.`;
+        return;
+      }
+      try {
+        await syncActivePlatformIdentities(extension, [problem.platform]);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown identity synchronization error';
+        const platformName = problem.platform === 'CODEFORCES' ? 'Codeforces' : 'AtCoder';
+        submitStatus = `Could not synchronize the active ${platformName} account: ${message}`;
+        return;
+      }
     }
 
     submitting = true;
