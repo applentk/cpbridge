@@ -65,9 +65,9 @@ function sendToExtension<T>(payload: ExtensionMessage, timeoutMs = 10000): Promi
   });
 }
 
-export async function pingExtension(): Promise<ExtensionPingResponse | null> {
+export async function pingExtension(timeoutMs = 1500): Promise<ExtensionPingResponse | null> {
   try {
-    const res = await sendToExtension<ExtensionPingResponse>({ type: 'PING' });
+    const res = await sendToExtension<ExtensionPingResponse>({ type: 'PING' }, timeoutMs);
     return res;
   } catch {
     return null;
