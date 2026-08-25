@@ -3,7 +3,7 @@ services:
     name: cpbridge-api
     runtime: go
     region: singapore
-    plan: starter
+    plan: free
     rootDir: apps/api
     buildCommand: go build -o bin/cpbridge-api ./cmd/server
     startCommand: ./bin/cpbridge-api
@@ -33,14 +33,14 @@ services:
   - type: keyvalue
     name: cpbridge-redis
     region: singapore
-    plan: starter
+    plan: free
     maxmemoryPolicy: noeviction
-    persistenceMode: journal-snapshot
+    persistenceMode: off
     ipAllowList: []
 
 databases:
   - name: cpbridge-db
     region: singapore
-    plan: basic-256mb
+    plan: free
     postgresMajorVersion: "16"
     ipAllowList: []

@@ -28,9 +28,15 @@ Create a Blueprint from `render.yaml`. It provisions:
 - A Singapore Render Key Value instance for Asynq/Redis
 - A Singapore PostgreSQL 16 database
 
-The API service starts the HTTP server and the Asynq worker in one persistent
-process. Keep it at one instance until worker coordination and horizontal scaling
-are explicitly designed.
+The Blueprint currently uses Render's free plans for all three resources. This is
+appropriate for a temporary demo environment only: the API can spin down after
+inactivity, the Redis instance is non-persistent, and the free PostgreSQL database
+is subject to Render's free-tier lifecycle limits. The API service starts the HTTP
+server and the Asynq worker in one process, so queued verdict polling is not
+reliable while the free API is asleep.
+
+For a production deployment, change the API and Redis plans to `starter` and the
+PostgreSQL plan to `basic-256mb` or larger, and restore Redis persistence.
 
 During the initial Blueprint setup, provide `INITIAL_ADMIN_EMAIL` if the first
 registered account should be promoted to admin. Do not commit secrets.
