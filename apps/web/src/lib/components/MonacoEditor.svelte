@@ -65,4 +65,4 @@
   });
 </script>
 
-<div class="w-full h-full min-h-[350px] rounded-xl overflow-hidden border border-zinc-800 bg-[#1e1e1e]" bind:this={editorContainer}></div>
+<div class="w-full h-full min-h-87.5 rounded-xl overflow-hidden border border-zinc-800 bg-[#1e1e1e]" bind:this={editorContainer}></div>

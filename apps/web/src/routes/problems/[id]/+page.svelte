@@ -526,7 +526,7 @@
         }
         startSubmissionPolling(sub.id);
       } else if (extRes.type === 'SUBMISSION_FAILED') {
-        const errorMsg = extRes.message || extRes.error || 'Submission was not accepted on platform';
+        const errorMsg = extRes.error || extRes.message || 'Submission was not accepted on platform';
         submitStatus = `Submission failed: ${errorMsg}`;
         await api.post(`/submissions/${sub.id}/result`, {
           status: 'FAILED',
