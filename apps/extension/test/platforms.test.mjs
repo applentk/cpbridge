@@ -5,12 +5,12 @@ import {
   checkCodeforcesSession,
   pollCodeforcesStatus,
   submitCodeforces
-} from '../src/platforms/codeforces.ts';
+} from '../dist/test/codeforces.js';
 import {
   checkAtCoderSession,
   pollAtCoderStatus,
   submitAtCoder
-} from '../src/platforms/atcoder.ts';
+} from '../dist/test/atcoder.js';
 
 const originalFetch = globalThis.fetch;
 
@@ -104,6 +104,40 @@ describe('Codeforces adapter', () => {
     await submitCodeforces('123', 'A', 'cpp23', '#include <iostream>');
 
     assert.equal(submittedForm?.get('programTypeId'), '91');
+  });
+
+  test('falls back to problemset submission when a new account is blocked at the contest endpoint', async () => {
+    let myPageReads = 0;
+    const postUrls = [];
+    globalThis.fetch = async (input, init = {}) => {
+      const url = String(input);
+      if (url.endsWith('/contest/123/submit') && init.method === 'GET') {
+        return htmlResponse('<input name="_tta" value="1234"><script>var csrf_token = "contest-csrf";</script>');
+      }
+      if (url.endsWith('/problemset/submit') && init.method === 'GET') {
+        return htmlResponse('<input name="_tta" value="1234"><script>var csrf_token = "problemset-csrf";</script>');
+      }
+      if (url.endsWith('/contest/123/my')) {
+        myPageReads += 1;
+        return htmlResponse(codeforcesSubmissionRow(myPageReads <= 2 ? '500' : '501'));
+      }
+      if (url.includes('/contest/123/submit?') && init.method === 'POST') {
+        postUrls.push(url);
+        return htmlResponse('<span class="error">Please complete anti-bot verification to submit a solution</span>');
+      }
+      if (url.includes('/problemset/submit?') && init.method === 'POST') {
+        postUrls.push(url);
+        return htmlResponse('<div class="success">has been submitted</div>');
+      }
+      throw new Error(`Unexpected request: ${init.method || 'GET'} ${url}`);
+    };
+
+    const result = await submitCodeforces('123', 'A', 'cpp23', '#include <iostream>');
+
+    assert.deepEqual(result, { externalSubmissionId: '501' });
+    assert.equal(postUrls.length, 2);
+    assert.match(postUrls[0], /\/contest\/123\/submit\?/);
+    assert.match(postUrls[1], /\/problemset\/submit\?/);
   });
 
   test('normalizes API verdicts', async () => {

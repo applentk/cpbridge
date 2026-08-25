@@ -13,7 +13,7 @@ import {
   mockUsersList,
 } from './mock-data';
 
-const LATEST_EXTENSION_VERSION = '1.0.6';
+const LATEST_EXTENSION_VERSION = '1.0.7';
 
 export interface SetupApiMocksOptions {
   currentUser?: User | null;

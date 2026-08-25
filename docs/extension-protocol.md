@@ -34,7 +34,7 @@ Checks Codeforces and AtCoder sessions.
 ```json
 {
   "type": "PONG",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "platforms": {
     "CODEFORCES": { "loggedIn": true, "username": "tourist" },
     "ATCODER": { "loggedIn": false }

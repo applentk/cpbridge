@@ -10,7 +10,7 @@
     "check": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "node --test test/*.test.mjs"
+    "test": "vite build --config vite.test.config.ts && node --test test/*.test.mjs"
   },
   "dependencies": {
     "@cpbridge/contracts": "workspace:*"

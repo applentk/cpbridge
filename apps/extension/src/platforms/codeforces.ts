@@ -108,6 +108,19 @@ function platformError(html: string): string | undefined {
   return message || undefined;
 }
 
+class RetryableEndpointRejection extends Error {}
+
+function retryableEndpointRejection(html: string, error?: string): string | undefined {
+  const text = error || htmlText(html);
+  if (/anti[- ]?bot verification|complete (?:the )?verification to submit/i.test(text)) {
+    return 'Codeforces requires anti-bot verification for this account. Open https://codeforces.com/problemset/submit in the same browser, complete the verification, then retry.';
+  }
+  if (/not registered (?:for|in) (?:the )?contest/i.test(text)) {
+    return 'This Codeforces account is not registered for the original contest.';
+  }
+  return undefined;
+}
+
 function extractCodeforcesUsername(html: string): string | undefined {
   const patterns = [
     /href=["']\/profile\/([^"'/?#]+)["']/i,
@@ -183,7 +196,13 @@ export async function submitCodeforces(contestId: string, index: string, languag
       const responseHtml = await submitRes.text();
       if (!submitRes.ok) throw new Error(`Codeforces returned HTTP ${submitRes.status}`);
       const error = platformError(responseHtml);
-      if (error && !/has been submitted|success/i.test(error)) throw new Error(error);
+      if (error && !/has been submitted|success/i.test(error)) {
+        const retryableMessage = retryableEndpointRejection(responseHtml, error);
+        if (retryableMessage) throw new RetryableEndpointRejection(retryableMessage);
+        throw new Error(error);
+      }
+      const retryableMessage = retryableEndpointRejection(responseHtml);
+      if (retryableMessage) throw new RetryableEndpointRejection(retryableMessage);
 
       const id = await waitForCodeforcesSubmission(contestId, index, knownIds);
       if (id) return { externalSubmissionId: id };
@@ -195,7 +214,13 @@ export async function submitCodeforces(contestId: string, index: string, languag
       // thrown as strings). Never surface a blank "Codeforces: " error.
       const errorText = typeof err === 'string' ? err.trim() : String(errObj?.message || '').trim();
       lastError = errorText || `Request failed while ${postSent ? 'sending the submission to' : 'opening'} Codeforces`;
-      if (postSent) throw new Error(`Codeforces: ${lastError}`, { cause: err });
+      // Codeforces may reject newer/unregistered accounts at the contest
+      // endpoint before creating a submission. Only those explicit rejections
+      // are safe to retry through the problemset endpoint without risking a
+      // duplicate solution.
+      if (postSent && !(err instanceof RetryableEndpointRejection)) {
+        throw new Error(`Codeforces: ${lastError}`, { cause: err });
+      }
     }
   }
   throw new Error(`Codeforces: ${lastError || 'Failed to open the submission form.'}`);
