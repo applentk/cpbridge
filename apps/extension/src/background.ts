@@ -84,6 +84,7 @@ interface ManualCodeforcesSubmission {
   submitUrl: string;
   message: string;
   createdAt: number;
+  tabId?: number;
 }
 
 interface CodeforcesPrefillRequest {
@@ -97,6 +98,8 @@ interface CodeforcesSubmissionSubmittedRequest {
 }
 
 const inFlightSubmissions = new Map<string, Promise<DispatchResponse>>();
+const submittedCodeforcesSubmissions = new Set<string>();
+const interactiveCodeforcesTabs = new Map<number, string>();
 
 function dispatchStorageKey(submissionId: string): string {
   return `${DISPATCH_STORAGE_PREFIX}${submissionId}`;
@@ -198,7 +201,12 @@ async function beginInteractiveCodeforcesSubmission(
     actionMessage: actionError.message
   });
   try {
-    await chrome.tabs.create({ url: submitUrl, active: true });
+    const tab = await chrome.tabs.create({ url: submitUrl, active: true });
+    if (tab.id !== undefined) {
+      pending.tabId = tab.id;
+      interactiveCodeforcesTabs.set(tab.id, message.submissionId);
+      await storeManualMetadata(pending);
+    }
   } catch (err) {
     console.warn('[cpbridge Extension] Could not open interactive Codeforces tab:', err);
   }
@@ -209,6 +217,14 @@ async function completeManualCodeforcesSubmission(submissionId: string): Promise
   const stored = (await readStoredDispatches()).find((dispatch) => dispatch.submissionId === submissionId);
   if (stored?.state === 'CREATED' && stored.externalSubmissionId) {
     return { type: 'SUBMISSION_CREATED', submissionId, externalSubmissionId: stored.externalSubmissionId };
+  }
+  if (stored?.state === 'FAILED') {
+    return {
+      type: 'SUBMISSION_FAILED',
+      submissionId,
+      error: 'SUBMISSION_FAILED',
+      message: stored.error || 'The Codeforces submission tab was closed before the solution was submitted.'
+    };
   }
 
   const pending = await readManualSubmission(submissionId);
@@ -343,6 +359,8 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage | CodeforcesPref
       sendResponse({ type: 'SUBMISSION_FAILED', submissionId: message.submissionId, error: 'PLATFORM_UNAVAILABLE', message: 'Untrusted Codeforces page' });
       return false;
     }
+    submittedCodeforcesSubmissions.add(message.submissionId);
+    if (sender.tab?.id !== undefined) interactiveCodeforcesTabs.delete(sender.tab.id);
     void completeSubmittedCodeforcesTab(message.submissionId, sender.tab?.id)
       .then(sendResponse)
       .catch((err) => sendResponse({
@@ -350,7 +368,8 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage | CodeforcesPref
         submissionId: message.submissionId,
         error: 'SUBMISSION_FAILED',
         message: err instanceof Error ? err.message : 'Could not detect the Codeforces submission'
-      }));
+      }))
+      .finally(() => submittedCodeforcesSubmissions.delete(message.submissionId));
     return true;
   }
 
@@ -398,6 +417,23 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage | CodeforcesPref
       });
     });
   return true; // keep channel open for async response
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  const submissionId = interactiveCodeforcesTabs.get(tabId);
+  interactiveCodeforcesTabs.delete(tabId);
+  if (!submissionId || submittedCodeforcesSubmissions.has(submissionId)) return;
+
+  void (async () => {
+    const stored = (await readStoredDispatches()).find((dispatch) => dispatch.submissionId === submissionId);
+    if (stored?.state !== 'AWAITING_USER_ACTION') return;
+
+    const message = 'The Codeforces tab was closed before the solution was submitted.';
+    await storeDispatch({ submissionId, state: 'FAILED', error: message });
+    await clearManualSubmission(submissionId);
+  })().catch((err) => {
+    console.warn('[cpbridge Extension] Could not mark the closed Codeforces handoff as failed:', err);
+  });
 });
 
 async function handleMessage(message: ExtensionMessage): Promise<unknown> {

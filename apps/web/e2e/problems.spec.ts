@@ -243,6 +243,21 @@ test.describe('Problem Workspace', () => {
     await expect(page).toHaveURL(/tab=submissions/);
   });
 
+  test('marks an interactive submission failed when the Codeforces tab is closed', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, {
+      currentUser: mockRegularUser,
+      manualSubmissionRequired: true,
+      manualSubmissionCloseAfterChecks: 1,
+    });
+
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=editor');
+    await page.locator('button:has-text("Submit Solution")').click();
+
+    await expect(page).toHaveURL(/tab=submissions/);
+    await expect(page.getByText('FAILED', { exact: true }).first()).toBeVisible();
+  });
+
   test('code submission handling non-accepted verdicts (WRONG_ANSWER)', async ({ page }) => {
     await loginAs(page, mockRegularUser);
     await setupApiMocks(page, {

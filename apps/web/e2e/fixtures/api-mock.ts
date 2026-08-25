@@ -27,6 +27,7 @@ export interface SetupApiMocksOptions {
   submissionError?: string;
   manualSubmissionRequired?: boolean;
   manualSubmissionCompleteAfterChecks?: number;
+  manualSubmissionCloseAfterChecks?: number;
   extensionPlatforms?: Record<string, { loggedIn: boolean; username?: string }>;
   extensionVersion?: string;
   extensionPollVerdict?: string;
@@ -104,6 +105,19 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
             }
           } else if (payload?.type === 'COMPLETE_MANUAL_SUBMISSION') {
             manualCompletionChecks += 1;
+            if (opts.manualSubmissionCloseAfterChecks && manualCompletionChecks >= opts.manualSubmissionCloseAfterChecks) {
+              window.postMessage({
+                source: 'CPBRIDGE_EXTENSION',
+                id,
+                payload: {
+                  type: 'SUBMISSION_FAILED',
+                  submissionId: payload.submissionId,
+                  error: 'SUBMISSION_FAILED',
+                  message: 'The Codeforces tab was closed before the solution was submitted.',
+                },
+              }, '*');
+              return;
+            }
             if (manualCompletionChecks <= opts.manualSubmissionCompleteAfterChecks) {
               window.postMessage({
                 source: 'CPBRIDGE_EXTENSION',
@@ -164,6 +178,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       submissionError: options.submissionError,
       manualSubmissionRequired: options.manualSubmissionRequired,
       manualSubmissionCompleteAfterChecks: options.manualSubmissionCompleteAfterChecks || 0,
+      manualSubmissionCloseAfterChecks: options.manualSubmissionCloseAfterChecks || 0,
       extensionPlatforms: options.extensionPlatforms,
       extensionVersion: options.extensionVersion || LATEST_EXTENSION_VERSION,
       extensionPollVerdict: options.extensionPollVerdict,

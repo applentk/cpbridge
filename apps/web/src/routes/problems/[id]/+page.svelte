@@ -593,7 +593,20 @@
         submitStatus = response.message;
       } else if (response.type === 'SUBMISSION_FAILED') {
         stopManualSubmissionPolling();
-        submitStatus = `Could not verify the Codeforces submission: ${response.message || response.error}. Keep this page open and try again after submitting.`;
+        const errorMessage = response.message || response.error;
+        submitStatus = `Submission failed: ${errorMessage}`;
+        await api.post(`/submissions/${submission.id}/result`, {
+          status: 'FAILED',
+          metadata: { error: errorMessage }
+        });
+        activeSubmission = { ...submission, status: 'FAILED', metadata: { error: errorMessage } };
+        const idx = recentSubmissions.findIndex((item) => item.id === submission.id);
+        if (idx !== -1) {
+          recentSubmissions[idx] = { ...recentSubmissions[idx], status: 'FAILED', metadata: { error: errorMessage } };
+          recentSubmissions = [...recentSubmissions];
+        }
+        manualSubmissionAction = null;
+        manualSourceCode = '';
       } else {
         submitStatus = 'Codeforces did not return a submission ID yet. Keep this page open and try again after submitting.';
       }
