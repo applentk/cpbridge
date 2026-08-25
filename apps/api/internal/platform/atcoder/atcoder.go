@@ -114,7 +114,9 @@ func (a *Adapter) fetchTaskPage(ctx context.Context, officialURL string) (string
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 cpbridge/1.0")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
@@ -300,7 +302,9 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 		submissionURL := fmt.Sprintf("https://atcoder.jp/contests/%s/submissions/%s", contestID, subID)
 		req, err := http.NewRequestWithContext(ctx, "GET", submissionURL, nil)
 		if err == nil {
-			req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+			req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+			req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+			req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 			resp, err := a.client.Do(req)
 			if err == nil {
 				defer resp.Body.Close()
