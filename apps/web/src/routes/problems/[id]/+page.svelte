@@ -99,11 +99,14 @@
   $: nextContestProblem = currentProblemIndex >= 0 && currentProblemIndex < contestProblems.length - 1 ? contestProblems[currentProblemIndex + 1] : null;
 
   $: {
-    if (browser) {
+    if (browser && !$auth.loading) {
       const nextPId = $page.params.id || '';
       const nextCId = $page.url.searchParams.get('contestId');
       const nextTab = tabFromURL();
-      if (nextPId && (nextPId !== currentLoadedProblemId || nextCId !== currentLoadedContestId)) {
+
+      if (!nextCId && $auth.user?.role !== 'ADMIN') {
+        void goto('/contests');
+      } else if (nextPId && (nextPId !== currentLoadedProblemId || nextCId !== currentLoadedContestId)) {
         currentLoadedProblemId = nextPId;
         currentLoadedContestId = nextCId;
         problemId = nextPId;
@@ -209,9 +212,16 @@
       const cId = contestId;
       if (!pId) return;
 
+      if (!cId && $auth.user?.role !== 'ADMIN') {
+        error = 'Problems can only be accessed within a contest. Please select a contest to view this problem.';
+        loading = false;
+        return;
+      }
+
+      const qParam = cId ? `?contestId=${encodeURIComponent(cId)}` : '';
       const primaryPromises: Promise<any>[] = [
-        api.get<Problem>(`/problems/${pId}`),
-        loadStatement(pId)
+        api.get<Problem>(`/problems/${pId}${qParam}`),
+        loadStatement(pId, cId)
       ];
 
       if (cId) {
@@ -279,10 +289,11 @@
     } catch {}
   }
 
-  async function loadStatement(pId: string) {
+  async function loadStatement(pId: string, cId: string | null = null) {
     statementLoading = true;
     try {
-      statement = await api.get<ProblemStatement>(`/problems/${pId}/statement`);
+      const qParam = cId ? `?contestId=${encodeURIComponent(cId)}` : '';
+      statement = await api.get<ProblemStatement>(`/problems/${pId}/statement${qParam}`);
       if (statement && statement.html) {
         renderedHtml = renderMathInHtml(statement.html);
       } else {

@@ -43,10 +43,6 @@
             <LayoutDashboard class="w-4 h-4 text-zinc-400" />
             <span>Dashboard</span>
           </a>
-          <a href="/problems" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
-            <BookOpen class="w-4 h-4 text-zinc-400" />
-            <span>Problems</span>
-          </a>
           <a href="/contests" class="px-3 py-1.5 rounded-md text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition">
             <Trophy class="w-4 h-4 text-zinc-400" />
             <span>Contests</span>
