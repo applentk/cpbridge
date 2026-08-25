@@ -8,6 +8,7 @@ import type {
   LanguageId,
   PlatformType,
 } from '@cpbridge/contracts';
+import { LATEST_EXTENSION_VERSION } from '@cpbridge/contracts';
 
 const EXTENSION_ORIGIN = 'CP_HUB_EXTENSION';
 const WEB_APP_ORIGIN = 'CP_HUB_WEB';
@@ -16,6 +17,16 @@ export interface ExtensionBridgeStatus {
   isInstalled: boolean;
   version?: string;
   platforms: Record<PlatformType, { loggedIn: boolean; username?: string }>;
+}
+
+export { LATEST_EXTENSION_VERSION };
+
+export function isExtensionVersionCompatible(version: string | undefined): boolean {
+  return version === LATEST_EXTENSION_VERSION;
+}
+
+function incompatibleVersionMessage(version: string): string {
+  return 'Extension v' + version + ' is outdated. Install v' + LATEST_EXTENSION_VERSION + ' to enable submissions.';
 }
 
 const pendingCallbacks = new Map<string, (response: unknown) => void>();
@@ -83,6 +94,16 @@ export async function submitViaExtension(
   language: LanguageId,
   source: string
 ): Promise<ExtensionSubmissionCreatedResponse | ExtensionSubmissionFailedResponse> {
+  const extension = await pingExtension();
+  if (extension && !isExtensionVersionCompatible(extension.version)) {
+    return {
+      type: 'SUBMISSION_FAILED',
+      submissionId,
+      error: 'INCOMPATIBLE_VERSION',
+      message: incompatibleVersionMessage(extension.version)
+    };
+  }
+
   return sendToExtension<ExtensionSubmissionCreatedResponse | ExtensionSubmissionFailedResponse>({
     type: 'SUBMIT',
     submissionId,
@@ -100,6 +121,9 @@ export async function pollStatusViaExtension(
   url: string
 ): Promise<{ status: string } | null> {
   try {
+    const extension = await pingExtension();
+    if (!extension || !isExtensionVersionCompatible(extension.version)) return null;
+
     const res = await sendToExtension<ExtensionStatusPollResponse>({
       type: 'POLL_STATUS',
       platform,
@@ -117,6 +141,9 @@ export async function pollStatusViaExtension(
 
 export async function recoverPendingSubmissions(): Promise<ExtensionRecoverSubmissionsResponse['submissions']> {
   try {
+    const extension = await pingExtension();
+    if (!extension || !isExtensionVersionCompatible(extension.version)) return [];
+
     const res = await sendToExtension<ExtensionRecoverSubmissionsResponse>({ type: 'RECOVER_SUBMISSIONS' }, 20000);
     if (res && res.type === 'RECOVER_SUBMISSIONS_RESULT' && Array.isArray(res.submissions)) {
       return res.submissions;
@@ -127,6 +154,9 @@ export async function recoverPendingSubmissions(): Promise<ExtensionRecoverSubmi
 
 export async function acknowledgeRecoveredSubmission(submissionId: string): Promise<boolean> {
   try {
+    const extension = await pingExtension();
+    if (!extension || !isExtensionVersionCompatible(extension.version)) return false;
+
     const res = await sendToExtension<{ type: 'ACK_SUBMISSION_RESULT'; acknowledged: boolean }>({
       type: 'ACK_SUBMISSION',
       submissionId

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
-  import { pingExtension } from '$lib/extension/bridge';
+  import { isExtensionVersionCompatible, LATEST_EXTENSION_VERSION, pingExtension } from '$lib/extension/bridge';
   import type { ExtensionPingResponse, PlatformType } from '@cpbridge/contracts';
   import {
     Puzzle,
@@ -18,6 +18,7 @@
 
   let checking = true;
   let extInfo: ExtensionPingResponse | null = null;
+  let extensionCompatible = false;
   let copiedUrl = false;
   let identitySyncError = '';
 
@@ -56,7 +57,8 @@
     identitySyncError = '';
     try {
       extInfo = await pingExtension();
-      if (extInfo) {
+      extensionCompatible = !!extInfo && isExtensionVersionCompatible(extInfo.version);
+      if (extInfo && extensionCompatible) {
         try {
           await syncVerifiedIdentities(extInfo);
         } catch (err) {
@@ -124,10 +126,10 @@
       </div>
     </div>
   {:else}
-    <div class="p-6 rounded-2xl border {extInfo ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-amber-500/30 bg-amber-500/5'} space-y-6 transition">
+    <div class="p-6 rounded-2xl border {extInfo && extensionCompatible ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-amber-500/30 bg-amber-500/5'} space-y-6 transition">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div class="flex items-center space-x-3.5">
-          {#if extInfo}
+          {#if extInfo && extensionCompatible}
             <div class="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
               <CheckCircle2 class="w-5 h-5 text-emerald-400" />
             </div>
@@ -139,6 +141,19 @@
                 </span>
               </div>
               <div class="text-xs text-zinc-400">Connected and ready to submit to Codeforces and AtCoder.</div>
+            </div>
+          {:else if extInfo}
+            <div class="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
+              <AlertTriangle class="w-5 h-5 text-amber-400" />
+            </div>
+            <div>
+              <div class="text-base font-bold text-white flex items-center space-x-2">
+                <span>Extension Update Required</span>
+                <span class="text-xs px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30">
+                  v{extInfo.version}
+                </span>
+              </div>
+              <div class="text-xs text-zinc-400">Install v{LATEST_EXTENSION_VERSION} before using browser submissions.</div>
             </div>
           {:else}
             <div class="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
@@ -158,7 +173,7 @@
             class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center space-x-2 shadow-lg shadow-indigo-600/20"
           >
             <Download class="w-4 h-4" />
-            <span>{extInfo ? 'Re-download (.zip)' : 'Download Extension (.zip)'}</span>
+            <span>{extInfo && extensionCompatible ? 'Re-download (.zip)' : 'Download Extension (.zip)'}</span>
           </a>
 
           <button
@@ -173,7 +188,7 @@
       </div>
 
       <!-- Installation Step-by-Step Guide (Shown prominently if not connected, or compact if connected) -->
-      {#if !extInfo}
+      {#if !extInfo || !extensionCompatible}
         <div class="border-t border-amber-500/20 pt-5 space-y-4">
           <div class="flex items-center space-x-2 text-xs font-bold text-amber-300 uppercase tracking-wider">
             <Info class="w-4 h-4" />
@@ -264,7 +279,7 @@
             <h3 class="text-base font-bold text-white">Codeforces</h3>
             {#if checking && !extInfo}
               <div class="w-20 h-5 rounded-full bg-zinc-800 animate-pulse"></div>
-            {:else if extInfo?.platforms?.CODEFORCES?.loggedIn}
+            {:else if extensionCompatible && extInfo?.platforms?.CODEFORCES?.loggedIn}
               <span class="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30 flex items-center space-x-1">
                 <CheckCircle2 class="w-3 h-3" />
                 <span>Connected ({extInfo.platforms.CODEFORCES.username || 'Session Active'})</span>
@@ -305,7 +320,7 @@
             <h3 class="text-base font-bold text-white">AtCoder</h3>
             {#if checking && !extInfo}
               <div class="w-20 h-5 rounded-full bg-zinc-800 animate-pulse"></div>
-            {:else if extInfo?.platforms?.ATCODER?.loggedIn}
+            {:else if extensionCompatible && extInfo?.platforms?.ATCODER?.loggedIn}
               <span class="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-semibold border border-emerald-500/30 flex items-center space-x-1">
                 <CheckCircle2 class="w-3 h-3" />
                 <span>Connected ({extInfo.platforms.ATCODER.username || 'Session Active'})</span>

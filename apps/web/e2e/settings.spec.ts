@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { setupApiMocks } from './fixtures/api-mock';
 
+const LATEST_EXTENSION_VERSION = '1.0.6';
+
 test.describe('Platform Integrations Settings', () => {
   test('renders integrations page, zero-cookie notice, extension guide, and platform cards when active', async ({ page }) => {
     await setupApiMocks(page);
@@ -13,7 +15,7 @@ test.describe('Platform Integrations Settings', () => {
 
     // Extension active status
     await expect(page.locator('text=Browser Extension Active')).toBeVisible();
-    await expect(page.locator('text=v1.0.0')).toBeVisible();
+    await expect(page.locator('text=v' + LATEST_EXTENSION_VERSION)).toBeVisible();
 
     // Download button
     const downloadBtn = page.locator('a[download="cpbridge-extension.zip"]');
@@ -28,7 +30,7 @@ test.describe('Platform Integrations Settings', () => {
     await setupApiMocks(page, { disableExtension: true });
 
     // Delay the mock extension reply to observe skeleton
-    await page.addInitScript(() => {
+    await page.addInitScript((latestVersion) => {
       window.addEventListener('message', (event) => {
         if (event.data && event.data.source === 'CP_HUB_WEB' && event.data.payload?.type === 'PING') {
           const { id } = event.data;
@@ -38,7 +40,7 @@ test.describe('Platform Integrations Settings', () => {
               id,
               payload: {
                 type: 'PONG',
-                version: '1.0.0',
+                version: latestVersion,
                 platforms: {
                   CODEFORCES: { loggedIn: true, username: 'tester' },
                   ATCODER: { loggedIn: true, username: 'tester' },
@@ -48,7 +50,7 @@ test.describe('Platform Integrations Settings', () => {
           }, 300);
         }
       });
-    });
+    }, LATEST_EXTENSION_VERSION);
 
     await page.goto('/settings/integrations');
     // Initially "Extension Not Detected" should NOT be visible immediately
@@ -68,6 +70,18 @@ test.describe('Platform Integrations Settings', () => {
     await expect(page.locator('text=Extension Not Detected')).toBeVisible();
     await expect(page.locator('text=Quick 4-Step Installation Guide')).toBeVisible();
     await expect(page.locator('text=Download & Unzip')).toBeVisible();
+  });
+
+  test('blocks outdated extensions and asks for the latest version', async ({ page }) => {
+    await setupApiMocks(page, { extensionVersion: '1.0.4' });
+
+    await page.goto('/settings/integrations');
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.locator('text=Extension Update Required')).toBeVisible();
+    await expect(page.locator('text=Install v' + LATEST_EXTENSION_VERSION + ' before using browser submissions.')).toBeVisible();
+    await expect(page.locator('text=Browser Extension Active')).not.toBeVisible();
+    await expect(page.locator('text=Quick 4-Step Installation Guide')).toBeVisible();
   });
 
   test('displays Not Connected badges and external login links when platform sessions are inactive', async ({ page }) => {

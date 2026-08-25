@@ -134,6 +134,29 @@ test.describe('Problem Workspace', () => {
     await expect(page.locator('button:has-text("ACCEPTED")').first()).toBeVisible();
   });
 
+  test('outdated extension is blocked before a submission is created', async ({ page }) => {
+    let submissionCreateRequests = 0;
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/submissions') {
+        submissionCreateRequests += 1;
+      }
+    });
+
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, {
+      currentUser: mockRegularUser,
+      extensionVersion: '1.0.4',
+    });
+
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=editor');
+    await page.waitForLoadState('networkidle');
+
+    await page.locator('button:has-text("Submit Solution")').click();
+
+    await expect(page.locator('text=Extension update required. Install v1.0.6 before submitting.')).toBeVisible();
+    expect(submissionCreateRequests).toBe(0);
+  });
+
   test('extension submission failure displays error notification and failed status', async ({ page }) => {
     await loginAs(page, mockRegularUser);
     await setupApiMocks(page, {
@@ -233,4 +256,3 @@ test.describe('Problem Workspace', () => {
     await expect(page.locator('text=Problem not found')).toBeVisible();
   });
 });
-

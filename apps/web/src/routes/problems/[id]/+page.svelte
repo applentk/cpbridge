@@ -5,7 +5,7 @@
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
-  import { submitViaExtension, pollStatusViaExtension, recoverPendingSubmissions, acknowledgeRecoveredSubmission } from '$lib/extension/bridge';
+  import { isExtensionVersionCompatible, pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendingSubmissions, acknowledgeRecoveredSubmission } from '$lib/extension/bridge';
   import { reconcileExtensionSubmissions } from '$lib/extension/reconcile';
   import { renderMathInHtml } from '$lib/utils/math';
   import {
@@ -15,6 +15,7 @@
     type ProblemStatement,
     type Contest,
     type ContestProblem,
+    LATEST_EXTENSION_VERSION,
     formatLanguageName
   } from '@cpbridge/contracts';
   import MonacoEditor from '$lib/components/MonacoEditor.svelte';
@@ -461,6 +462,12 @@
     }
     if (!problem) return;
 
+    const extension = await pingExtension();
+    if (extension && !isExtensionVersionCompatible(extension.version)) {
+      submitStatus = 'Extension update required. Install v' + LATEST_EXTENSION_VERSION + ' before submitting.';
+      return;
+    }
+
     submitting = true;
     submitStatus = 'Creating submission...';
     stopSubmissionPolling();
@@ -528,7 +535,7 @@
         }
         startSubmissionPolling(sub.id);
       } else if (extRes.type === 'SUBMISSION_FAILED') {
-        const errorMsg = extRes.error || extRes.message || 'Submission was not accepted on platform';
+        const errorMsg = extRes.message || extRes.error || 'Submission was not accepted on platform';
         submitStatus = `Submission failed: ${errorMsg}`;
         await api.post(`/submissions/${sub.id}/result`, {
           status: 'FAILED',

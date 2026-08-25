@@ -1,8 +1,14 @@
 import type { LanguageId, PlatformType } from './problem.js';
 
+// Keep this value in sync with apps/extension/manifest.json whenever a new
+// extension build becomes available. Web clients use it as the compatibility
+// gate before allowing browser-side platform operations.
+export const LATEST_EXTENSION_VERSION = '1.0.6';
+
 export type ExtensionErrorCode =
   | 'NOT_LOGGED_IN'
   | 'PLATFORM_UNAVAILABLE'
+  | 'INCOMPATIBLE_VERSION'
   | 'RATE_LIMITED'
   | 'UNSUPPORTED_LANGUAGE'
   | 'PROBLEM_NOT_FOUND'

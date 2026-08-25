@@ -13,6 +13,8 @@ import {
   mockUsersList,
 } from './mock-data';
 
+const LATEST_EXTENSION_VERSION = '1.0.6';
+
 export interface SetupApiMocksOptions {
   currentUser?: User | null;
   users?: User[];
@@ -24,6 +26,7 @@ export interface SetupApiMocksOptions {
   disableExtension?: boolean;
   submissionError?: string;
   extensionPlatforms?: Record<string, { loggedIn: boolean; username?: string }>;
+  extensionVersion?: string;
   extensionPollVerdict?: string;
   recoveredSubmissions?: unknown[];
 }
@@ -54,7 +57,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
               id,
               payload: {
                 type: 'PONG',
-                version: '1.0.0',
+                version: opts.extensionVersion,
                 platforms: opts.extensionPlatforms || {
                   CODEFORCES: { loggedIn: true, username: 'tourist_fan' },
                   ATCODER: { loggedIn: true, username: 'tourist_fan' },
@@ -69,8 +72,8 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
                 payload: {
                   type: 'SUBMISSION_FAILED',
                   submissionId: payload.submissionId,
-                  error: opts.submissionError,
-                  message: 'Platform submission failed',
+                  error: 'SUBMISSION_FAILED',
+                  message: opts.submissionError,
                 },
               }, '*');
             } else {
@@ -109,6 +112,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
     }, {
       submissionError: options.submissionError,
       extensionPlatforms: options.extensionPlatforms,
+      extensionVersion: options.extensionVersion || LATEST_EXTENSION_VERSION,
       extensionPollVerdict: options.extensionPollVerdict,
       recoveredSubmissions: options.recoveredSubmissions,
     });

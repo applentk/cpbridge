@@ -81,7 +81,7 @@ if (isAllowedOrigin(window.location.origin)) {
     {
       source: EXTENSION_ORIGIN,
       type: 'EXTENSION_READY',
-      version: '1.0.0'
+      version: chrome.runtime.getManifest().version
     },
     window.location.origin
   );
