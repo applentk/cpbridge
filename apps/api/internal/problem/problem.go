@@ -214,30 +214,61 @@ func (s *Service) GetByID(ctx context.Context, id string) (*Problem, error) {
 	return &p, nil
 }
 
-func (s *Service) GetStatement(ctx context.Context, id, requestingUserID string, isAdmin bool) (*platform.ProblemStatement, error) {
+func (s *Service) GetByIDForUser(ctx context.Context, id, contestID, requestingUserID string, isAdmin bool) (*Problem, error) {
 	prob, err := s.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check if this problem is part of an upcoming contest and must be kept secret
 	if !isAdmin {
-		var upcomingSecretCount int
+		if strings.TrimSpace(contestID) == "" {
+			return nil, errors.New("contestId is required")
+		}
+
+		var startedContestCount int
 		err := s.db.QueryRowContext(ctx, `
 			SELECT COUNT(*)
 			FROM contest_problems cp
 			JOIN contests c ON cp.contest_id = c.id
-			WHERE cp.problem_id = $1 
-			  AND c.start_at > NOW() 
-			  AND c.owner_id != $2
-			  AND NOT EXISTS (
-			      SELECT 1 FROM contest_problems cp2 
-			      JOIN contests c2 ON cp2.contest_id = c2.id 
-			      WHERE cp2.problem_id = $1 AND c2.start_at <= NOW()
-			  )
-		`, id, requestingUserID).Scan(&upcomingSecretCount)
-		if err == nil && upcomingSecretCount > 0 && (prob.Platform == platform.Type("CUSTOM") || prob.Platform == "") {
-			return nil, errors.New("problem statement is hidden until contest begins")
+			WHERE cp.problem_id = $1
+			  AND cp.contest_id = $2
+			  AND c.publication_status = 'PUBLISHED'
+			  AND c.start_at <= NOW()
+			  AND (c.visibility = 'PUBLIC' OR c.owner_id = $3 OR EXISTS(SELECT 1 FROM contest_participants part WHERE part.contest_id = c.id AND part.user_id = $3))
+		`, id, contestID, requestingUserID).Scan(&startedContestCount)
+		if err != nil || startedContestCount == 0 {
+			return nil, errors.New("problem is only accessible within a started contest")
+		}
+	}
+
+	return prob, nil
+}
+
+func (s *Service) GetStatement(ctx context.Context, id, contestID, requestingUserID string, isAdmin bool) (*platform.ProblemStatement, error) {
+	prob, err := s.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// For non-admin, verify problem is part of a started contest
+	if !isAdmin {
+		if strings.TrimSpace(contestID) == "" {
+			return nil, errors.New("contestId is required")
+		}
+
+		var startedContestCount int
+		err := s.db.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM contest_problems cp
+			JOIN contests c ON cp.contest_id = c.id
+			WHERE cp.problem_id = $1
+			  AND cp.contest_id = $2
+			  AND c.publication_status = 'PUBLISHED'
+			  AND c.start_at <= NOW()
+			  AND (c.visibility = 'PUBLIC' OR c.owner_id = $3 OR EXISTS(SELECT 1 FROM contest_participants part WHERE part.contest_id = c.id AND part.user_id = $3))
+		`, id, contestID, requestingUserID).Scan(&startedContestCount)
+		if err != nil || startedContestCount == 0 {
+			return nil, errors.New("problem statement is only accessible within a started contest")
 		}
 	}
 
@@ -612,6 +643,7 @@ func (h *Handler) Routes() chi.Router {
 	r.Group(func(pr chi.Router) {
 		if h.authSvc != nil {
 			pr.Use(h.authSvc.AuthMiddleware(true))
+			pr.Use(auth.RequireAdmin())
 		}
 		pr.Post("/", h.Create)
 		pr.Post("/import", h.Import)
@@ -693,9 +725,21 @@ func (h *Handler) ExtractText(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	p, err := h.service.GetByID(r.Context(), id)
+	contestID := r.URL.Query().Get("contestId")
+	var uid string
+	var isAdmin bool
+	if claims := auth.GetUserFromContext(r.Context()); claims != nil {
+		uid = claims.UserID
+		isAdmin = claims.Role == auth.RoleAdmin
+	}
+
+	p, err := h.service.GetByIDForUser(r.Context(), id, contestID, uid, isAdmin)
 	if err != nil {
-		http.Error(w, `{"error":"problem not found"}`, http.StatusNotFound)
+		if err.Error() == "contestId is required" {
+			http.Error(w, `{"error":"contestId parameter is required to access problem"}`, http.StatusBadRequest)
+		} else {
+			http.Error(w, `{"error":"problem not found"}`, http.StatusNotFound)
+		}
 		return
 	}
 
@@ -705,6 +749,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetStatement(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	contestID := r.URL.Query().Get("contestId")
 	var uid string
 	var isAdmin bool
 	if claims := auth.GetUserFromContext(r.Context()); claims != nil {
@@ -712,9 +757,13 @@ func (h *Handler) GetStatement(w http.ResponseWriter, r *http.Request) {
 		isAdmin = claims.Role == auth.RoleAdmin
 	}
 
-	st, err := h.service.GetStatement(r.Context(), id, uid, isAdmin)
+	st, err := h.service.GetStatement(r.Context(), id, contestID, uid, isAdmin)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"failed to fetch statement: %s"}`, err.Error()), http.StatusBadRequest)
+		if err.Error() == "contestId is required" {
+			http.Error(w, `{"error":"contestId parameter is required to access statement"}`, http.StatusBadRequest)
+		} else {
+			http.Error(w, fmt.Sprintf(`{"error":"failed to fetch statement: %s"}`, err.Error()), http.StatusBadRequest)
+		}
 		return
 	}
 
@@ -723,6 +772,12 @@ func (h *Handler) GetStatement(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetUserFromContext(r.Context())
+	if claims == nil || claims.Role != auth.RoleAdmin {
+		http.Error(w, `{"error":"only administrators can browse the global problem library"}`, http.StatusForbidden)
+		return
+	}
+
 	q := r.URL.Query()
 	filter := Filter{
 		Query: q.Get("query"),

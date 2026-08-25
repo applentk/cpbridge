@@ -3,6 +3,8 @@ package submission_test
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
 	"testing"
 	"time"
 
@@ -16,6 +18,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func init() {
+	log.SetOutput(io.Discard)
+}
 
 func TestICPCPenaltyCalculation(t *testing.T) {
 	// Formula: penalty = minutes_from_start_to_first_AC + 20 * rejected_before_first_AC

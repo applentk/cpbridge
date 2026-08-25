@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -23,6 +25,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func init() {
+	log.SetOutput(io.Discard)
+}
 
 type testApp struct {
 	router      *chi.Mux

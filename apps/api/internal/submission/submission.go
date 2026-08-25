@@ -193,6 +193,13 @@ func (s *Service) Create(ctx context.Context, userID string, isAdmin bool, probl
 			return nil, errors.New("contest has not started yet")
 		}
 
+		// Verify problem belongs to this contest
+		var inContest int
+		err = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM contest_problems WHERE contest_id = $1 AND problem_id = $2", *contestID, problemID).Scan(&inContest)
+		if err != nil || inContest == 0 {
+			return nil, errors.New("problem does not belong to this contest")
+		}
+
 		// Ensure user joined contest if contest is currently active
 		if now.Before(c.EndAt) {
 			if err := s.contestSvc.Join(ctx, *contestID, userID); err != nil {
@@ -200,6 +207,20 @@ func (s *Service) Create(ctx context.Context, userID string, isAdmin bool, probl
 					return nil, fmt.Errorf("failed to join contest: %w", err)
 				}
 			}
+		}
+	} else if !isAdmin {
+		var startedContestCount int
+		err := s.db.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM contest_problems cp
+			JOIN contests c ON cp.contest_id = c.id
+			WHERE cp.problem_id = $1
+			  AND c.publication_status = 'PUBLISHED'
+			  AND c.start_at <= $2
+			  AND (c.visibility = 'PUBLIC' OR c.owner_id = $3 OR EXISTS(SELECT 1 FROM contest_participants part WHERE part.contest_id = c.id AND part.user_id = $3))
+		`, problemID, now, userID).Scan(&startedContestCount)
+		if err != nil || startedContestCount == 0 {
+			return nil, errors.New("submissions are only allowed for problems in started contests")
 		}
 	}
 

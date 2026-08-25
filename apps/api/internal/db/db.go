@@ -3,7 +3,6 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -179,6 +178,5 @@ func EnsureSchema(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to ensure schema: %w", err)
 	}
-	log.Println("Database schema verified")
 	return nil
 }
