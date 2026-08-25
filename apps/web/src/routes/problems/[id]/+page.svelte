@@ -467,6 +467,7 @@
 
     let createdSub: Submission | null = null;
     let extensionDispatchStarted = false;
+    let extensionDispatchCompleted = false;
     try {
       const sub = await api.post<Submission>('/submissions', {
         problemId: problem.id,
@@ -513,6 +514,7 @@
       }
 
       if (extRes.type === 'SUBMISSION_CREATED' && extRes.externalSubmissionId) {
+        extensionDispatchCompleted = true;
         submitStatus = 'Submitted! Status: JUDGING (Polling verdict...)';
         await api.post(`/submissions/${sub.id}/dispatched`, {
           externalSubmissionId: extRes.externalSubmissionId
@@ -556,15 +558,18 @@
       await loadSubmissions(problem.id, contestId);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err || 'Unknown error');
-      const dispatchMayStillBeRunning = extensionDispatchStarted;
+      const dispatchMayStillBeRunning = extensionDispatchStarted && !extensionDispatchCompleted;
       if (!dispatchMayStillBeRunning && isDuplicateSubmissionError(err)) {
         submitStatus = 'This exact solution was already submitted. It was not sent to the external judge.';
+      } else if (extensionDispatchCompleted) {
+        const platformName = problem.platform === 'CODEFORCES' ? 'Codeforces' : 'AtCoder';
+        submitStatus = `Submission reached ${platformName}, but cpbridge could not verify the handoff: ${errMsg}. Reload to retry safely.`;
       } else {
         submitStatus = dispatchMayStillBeRunning
           ? 'Dispatch is still being completed by the extension. You can safely reload this page.'
           : `Submission error: ${errMsg}`;
       }
-      if (createdSub && !dispatchMayStillBeRunning) {
+      if (createdSub && !extensionDispatchStarted) {
         try {
           await api.post(`/submissions/${createdSub.id}/result`, {
             status: 'FAILED',

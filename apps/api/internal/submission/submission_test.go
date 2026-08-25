@@ -23,6 +23,30 @@ func init() {
 	log.SetOutput(io.Discard)
 }
 
+type verifiedSubmissionPlatform struct {
+	status *platform.SubmissionStatus
+}
+
+func (p *verifiedSubmissionPlatform) Type() platform.Type {
+	return platform.Codeforces
+}
+
+func (p *verifiedSubmissionPlatform) MatchURL(string) (string, bool) {
+	return "", false
+}
+
+func (p *verifiedSubmissionPlatform) GetProblem(context.Context, string) (*platform.NormalizedProblem, error) {
+	return nil, nil
+}
+
+func (p *verifiedSubmissionPlatform) GetStatement(context.Context, string) (*platform.ProblemStatement, error) {
+	return nil, nil
+}
+
+func (p *verifiedSubmissionPlatform) GetSubmission(context.Context, string) (*platform.SubmissionStatus, error) {
+	return p.status, nil
+}
+
 func TestICPCPenaltyCalculation(t *testing.T) {
 	// Formula: penalty = minutes_from_start_to_first_AC + 20 * rejected_before_first_AC
 	tests := []struct {
@@ -65,6 +89,97 @@ func TestSubmissionStatuses(t *testing.T) {
 	assert.Equal(t, submission.Status("ACCEPTED"), submission.Accepted)
 	assert.Equal(t, submission.Status("WRONG_ANSWER"), submission.WrongAnswer)
 	assert.Equal(t, submission.Status("FAILED"), submission.Failed)
+}
+
+func TestUpdateDispatchedLinksFirstVerifiedPlatformIdentity(t *testing.T) {
+	database, err := db.Connect()
+	if err != nil {
+		t.Skipf("Skipping database integration tests: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+	if err := database.Ping(); err != nil {
+		t.Skipf("Skipping database integration tests: %v", err)
+	}
+	require.NoError(t, db.EnsureSchema(database))
+
+	suffix := time.Now().UnixNano()
+	email := fmt.Sprintf("verified_%d@test.com", suffix)
+	problemExternalID := fmt.Sprintf("%d/A", suffix)
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = database.ExecContext(ctx, `DELETE FROM submissions WHERE user_id IN (SELECT id FROM users WHERE email = $1)`, email)
+		_, _ = database.ExecContext(ctx, `DELETE FROM integrations WHERE user_id IN (SELECT id FROM users WHERE email = $1)`, email)
+		_, _ = database.ExecContext(ctx, `DELETE FROM contests WHERE owner_id IN (SELECT id FROM users WHERE email = $1)`, email)
+		_, _ = database.ExecContext(ctx, `DELETE FROM problems WHERE platform = $1 AND external_id = $2`, platform.Codeforces, problemExternalID)
+		_, _ = database.ExecContext(ctx, `DELETE FROM users WHERE email = $1`, email)
+	})
+
+	ctx := context.Background()
+	authSvc := auth.NewService(database)
+	adapter := &verifiedSubmissionPlatform{}
+	registry := platform.NewRegistry()
+	registry.Register(adapter)
+	problemSvc := problem.NewService(database, registry)
+	contestSvc := contest.NewService(database, problemset.NewService(database))
+	submissionSvc := submission.NewService(database, contestSvc, problemSvc, registry)
+
+	user, _, err := authSvc.Register(ctx, email, fmt.Sprintf("verified_%d", suffix), "password123")
+	require.NoError(t, err)
+	createdProblem, err := problemSvc.CreateCustom(ctx, problem.CreateCustomReq{
+		Title:       "Verified identity problem",
+		Platform:    platform.Codeforces,
+		ExternalID:  problemExternalID,
+		Statement:   "Test statement",
+		TimeLimit:   "1.0s",
+		MemoryLimit: "256MB",
+	})
+	require.NoError(t, err)
+	now := time.Now().UTC()
+	activeContest, err := contestSvc.Create(ctx, contest.CreateContestParams{
+		OwnerID:           user.ID,
+		ProblemIDs:        []string{createdProblem.ID},
+		Name:              "Verified identity contest",
+		StartAt:           now.Add(-time.Hour),
+		EndAt:             now.Add(time.Hour),
+		Visibility:        "PRIVATE",
+		ScoringType:       contest.ICPC,
+		PublicationStatus: contest.PublicationPublished,
+	})
+	require.NoError(t, err)
+	createdSubmission, err := submissionSvc.Create(ctx, user.ID, false, createdProblem.ID, &activeContest.ID, "cpp23", "int main() { return 0; }")
+	require.NoError(t, err)
+
+	externalSubmissionID := fmt.Sprintf("%d", suffix+1)
+	adapter.status = &platform.SubmissionStatus{
+		ExternalSubmissionID: fmt.Sprintf("%d/%s", suffix, externalSubmissionID),
+		Status:               "JUDGING",
+		ProblemExternalID:    problemExternalID,
+		Language:             "GNU C++23 (64)",
+		PlatformUsername:     "verified_handle",
+		SubmittedAt:          &createdSubmission.SubmittedAt,
+	}
+
+	require.NoError(t, submissionSvc.UpdateDispatched(ctx, createdSubmission.ID, user.ID, false, externalSubmissionID))
+
+	var username, connectionStatus string
+	err = database.QueryRowContext(ctx, `
+		SELECT external_username, connection_status
+		FROM integrations
+		WHERE user_id = $1 AND platform = $2
+	`, user.ID, platform.Codeforces).Scan(&username, &connectionStatus)
+	require.NoError(t, err)
+	assert.Equal(t, "verified_handle", username)
+	assert.Equal(t, "CONNECTED", connectionStatus)
+
+	updated, err := submissionSvc.GetByID(ctx, createdSubmission.ID, user.ID, false)
+	require.NoError(t, err)
+	assert.Equal(t, submission.Judging, updated.Status)
+	require.NotNil(t, updated.ExternalSubmissionID)
+	assert.Equal(t, externalSubmissionID, *updated.ExternalSubmissionID)
 }
 
 func TestContestEndedSubmissionAndScoreboardRules(t *testing.T) {

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { api } from '$lib/api/client';
   import { pingExtension } from '$lib/extension/bridge';
-  import type { ExtensionPingResponse } from '@cpbridge/contracts';
+  import type { ExtensionPingResponse, PlatformType } from '@cpbridge/contracts';
   import {
     Puzzle,
     ShieldCheck,
@@ -18,11 +19,50 @@
   let checking = true;
   let extInfo: ExtensionPingResponse | null = null;
   let copiedUrl = false;
+  let identitySyncError = '';
+
+  interface PlatformIntegration {
+    platform: PlatformType;
+    externalUsername: string;
+    connectionStatus: string;
+  }
+
+  async function syncVerifiedIdentities(info: ExtensionPingResponse) {
+    const existing = await api.get<PlatformIntegration[]>('/integrations');
+    const platforms: PlatformType[] = ['CODEFORCES', 'ATCODER'];
+
+    await Promise.all(platforms.map(async (platform) => {
+      const session = info.platforms[platform];
+      const username = session?.username?.trim();
+      if (!session?.loggedIn || !username) return;
+
+      const linked = existing.find((integration) => integration.platform === platform);
+      if (
+        linked?.connectionStatus === 'CONNECTED'
+        && linked.externalUsername.toLowerCase() === username.toLowerCase()
+      ) {
+        return;
+      }
+
+      await api.put(`/integrations/${platform}`, {
+        externalUsername: username,
+        connectionStatus: 'CONNECTED'
+      });
+    }));
+  }
 
   async function checkConnections() {
     checking = true;
+    identitySyncError = '';
     try {
       extInfo = await pingExtension();
+      if (extInfo) {
+        try {
+          await syncVerifiedIdentities(extInfo);
+        } catch (err) {
+          identitySyncError = err instanceof Error ? err.message : 'Could not synchronize platform identities';
+        }
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -199,6 +239,13 @@
           </div>
         </div>
       {/if}
+    </div>
+  {/if}
+
+  {#if identitySyncError}
+    <div class="p-4 rounded-xl border border-amber-500/30 bg-amber-500/5 text-xs text-amber-200 flex items-start gap-2">
+      <AlertTriangle class="w-4 h-4 shrink-0 mt-0.5" />
+      <span>Browser sessions are active, but cpbridge could not synchronize the platform identity: {identitySyncError}</span>
     </div>
   {/if}
 

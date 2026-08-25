@@ -218,28 +218,53 @@ func validateExternalSubmissionMetadata(sub *Submission, externalID string, stat
 }
 
 // verifyExternalSubmission checks data obtained from the official platform,
-// rather than data supplied by the participant. The linked integration is the
-// platform identity established for the account; the platform record must also
-// be created immediately after cpbridge recorded the dispatch.
+// rather than data supplied by the participant. An existing linked identity
+// must match; otherwise the first fully verified submission establishes it.
 func (s *Service) verifyExternalSubmission(ctx context.Context, sub *Submission, externalID string, statusObj *platform.SubmissionStatus, now time.Time) error {
 	if err := validateExternalSubmissionMetadata(sub, externalID, statusObj, now); err != nil {
 		return err
 	}
 
-	var expectedUsername string
+	var expectedUsername, connectionStatus string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT external_username
+		SELECT external_username, connection_status
 		FROM integrations
-		WHERE user_id = $1 AND platform = $2 AND connection_status = 'CONNECTED'
-	`, sub.UserID, sub.Platform).Scan(&expectedUsername)
+		WHERE user_id = $1 AND platform = $2
+	`, sub.UserID, sub.Platform).Scan(&expectedUsername, &connectionStatus)
 	if errors.Is(err, sql.ErrNoRows) {
-		return errors.New("connect the matching platform identity before submitting")
+		// Trust on first verified submission: the identity comes from the
+		// official platform response after the submission ID, problem, language,
+		// and timestamp have all been validated. This keeps the browser bridge
+		// zero-cookie while avoiding a separate manual identity-linking step.
+		_, err = s.db.ExecContext(ctx, `
+			INSERT INTO integrations (user_id, platform, external_username, connection_status, updated_at)
+			VALUES ($1, $2, $3, 'CONNECTED', $4)
+			ON CONFLICT (user_id, platform) DO NOTHING
+		`, sub.UserID, sub.Platform, statusObj.PlatformUsername, now)
+		if err != nil {
+			return fmt.Errorf("failed to link verified platform identity: %w", err)
+		}
+		err = s.db.QueryRowContext(ctx, `
+			SELECT external_username, connection_status
+			FROM integrations
+			WHERE user_id = $1 AND platform = $2
+		`, sub.UserID, sub.Platform).Scan(&expectedUsername, &connectionStatus)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to verify platform identity: %w", err)
 	}
 	if !strings.EqualFold(strings.TrimSpace(expectedUsername), strings.TrimSpace(statusObj.PlatformUsername)) {
 		return errors.New("external submission belongs to a different platform identity")
+	}
+	if connectionStatus != "CONNECTED" {
+		_, err = s.db.ExecContext(ctx, `
+			UPDATE integrations
+			SET connection_status = 'CONNECTED', updated_at = $1
+			WHERE user_id = $2 AND platform = $3
+		`, now, sub.UserID, sub.Platform)
+		if err != nil {
+			return fmt.Errorf("failed to reconnect verified platform identity: %w", err)
+		}
 	}
 	return nil
 }

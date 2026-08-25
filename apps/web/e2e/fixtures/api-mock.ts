@@ -35,6 +35,11 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
   const contestsList = options.contests ? [...options.contests] : [...mockContests];
   const problemSetsList = options.problemSets ? [...options.problemSets] : [...mockProblemSets];
   const submissionsList = options.submissions ? [...options.submissions] : [...mockSubmissions];
+  const integrationsList: Array<{
+    platform: string;
+    externalUsername: string;
+    connectionStatus: string;
+  }> = [];
   const currentStandings = options.standings ? JSON.parse(JSON.stringify(options.standings)) : JSON.parse(JSON.stringify(mockStandings));
 
   // Provide mock Chrome Extension postMessage responder unless disabled
@@ -157,6 +162,25 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       };
       currentUser = newUser;
       return jsonResponse(route, { user: newUser, token: `mock_jwt_token_${newUser.id}` });
+    }
+
+    if (path === '/integrations' && method === 'GET') {
+      return jsonResponse(route, integrationsList);
+    }
+
+    const integrationMatch = path.match(/^\/integrations\/([^/]+)$/);
+    if (integrationMatch && method === 'PUT') {
+      const platform = integrationMatch[1];
+      const body = JSON.parse(route.request().postData() || '{}');
+      const integration = {
+        platform,
+        externalUsername: body.externalUsername,
+        connectionStatus: body.connectionStatus,
+      };
+      const index = integrationsList.findIndex((item) => item.platform === platform);
+      if (index === -1) integrationsList.push(integration);
+      else integrationsList[index] = integration;
+      return jsonResponse(route, integration);
     }
 
     // 2. Problems routes

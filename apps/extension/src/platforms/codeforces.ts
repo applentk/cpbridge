@@ -105,12 +105,30 @@ function platformError(html: string): string | undefined {
   return message || undefined;
 }
 
+function extractCodeforcesUsername(html: string): string | undefined {
+  const patterns = [
+    /href=["']\/profile\/([^"'/?#]+)["']/i,
+    /handle\s*=\s*["']([^"']+)["']/i,
+    /data-user=["']([^"']+)["']/i
+  ];
+  for (const pattern of patterns) {
+    const username = html.match(pattern)?.[1]?.trim();
+    if (username) return username;
+  }
+  return undefined;
+}
+
 export async function checkCodeforcesSession(): Promise<{ loggedIn: boolean; username?: string }> {
   try {
-    const res = await fetch('https://codeforces.com/enter', { method: 'GET', credentials: 'include' });
-    const text = await res.text();
-    const handleMatch = text.match(/handle\s*=\s*["']([^"']+)["']/) || text.match(/\/profile\/([a-zA-Z0-9_-]+)/);
-    return { loggedIn: !text.includes('Enter Codeforces') || !!handleMatch, username: handleMatch?.[1] };
+    // The settings page is account-scoped, so its profile link identifies the
+    // active browser session without mistaking another user's public link for
+    // the signed-in handle.
+    const res = await fetch('https://codeforces.com/settings/general', { method: 'GET', credentials: 'include' });
+    if (!res.ok || new URL(res.url).pathname.startsWith('/enter')) {
+      return { loggedIn: false };
+    }
+    const username = extractCodeforcesUsername(await res.text());
+    return username ? { loggedIn: true, username } : { loggedIn: false };
   } catch {
     return { loggedIn: false };
   }

@@ -25,6 +25,8 @@ test.describe('Platform Integrations Settings', () => {
   });
 
   test('displays loading skeleton state before extension detection resolves', async ({ page }) => {
+    await setupApiMocks(page, { disableExtension: true });
+
     // Delay the mock extension reply to observe skeleton
     await page.addInitScript(() => {
       window.addEventListener('message', (event) => {
@@ -95,4 +97,3 @@ test.describe('Platform Integrations Settings', () => {
     await expect(acLoginLink).toHaveAttribute('href', 'https://atcoder.jp/login');
   });
 });
-
