@@ -83,21 +83,28 @@ type Platform interface {
 
 ## 4. Verification & Testing Playbook
 
-Before finishing any task, run the automated verification suite:
+After **any** development or code change (even if only touching backend/API files in `apps/api`), run the full verification suite including both backend and frontend tests.
+
+### Zero Errors & Zero Warnings Policy
+- **No unresolved errors or warnings**: Code must pass all linter checks, type diagnostics, test suites, and builds cleanly with **0 errors and 0 warnings**.
+- **Iterative Fix Loop**: If any error or warning is encountered at any stage, fix the root cause immediately and re-run the full verification suite in a loop until all checks pass cleanly with zero errors and zero warnings.
 
 ```bash
-# 1. Run all Go backend unit tests
+# 1. Run full monorepo linting (zero warnings & zero errors)
+rtk pnpm lint
+
+# 2. Run full monorepo type checks (contracts, web, extension)
+rtk pnpm check
+
+# 3. Run all Go backend unit tests
 cd apps/api && go test -v ./...
 
-# 2. Check TypeScript contracts
-pnpm --filter @cpbridge/contracts check
+# 4. Run frontend tests (MANDATORY even when only modifying apps/api)
+rtk pnpm --filter @cpbridge/web test
 
-# 3. Build browser extension
-pnpm --filter @cpbridge/extension build
-
-# 4. Check & build frontend web app
-pnpm --filter @cpbridge/web check
-pnpm --filter @cpbridge/web build
+# 5. Build browser extension & frontend web app
+rtk pnpm --filter @cpbridge/extension build
+rtk pnpm --filter @cpbridge/web build
 ```
 
 ### Starting the Local Development Stack

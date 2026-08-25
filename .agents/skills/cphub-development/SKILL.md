@@ -127,21 +127,31 @@ When implementing contest or scoreboard features:
 
 ---
 
-## 4. Full Verification Suite
+## 4. Full Verification & Quality Loop (Mandatory)
 
-Before marking any task as complete, execute this verification run:
+After **any** development or code change (even if only touching backend/API files in `apps/api`), agents **must** run the complete verification suite including both backend and frontend tests.
+
+### Zero Errors & Zero Warnings Policy
+- **No unresolved errors or warnings**: Code must pass all linter checks, type diagnostics, test suites, and builds cleanly with **0 errors and 0 warnings**.
+- **Iterative Fix Loop**: If any error or warning is reported at any stage (linter, TypeScript compiler, svelte-check, Go compiler/tests, Playwright tests, or Vite bundler), fix the underlying issue immediately and re-run the full verification suite from the start. Repeat this loop until the entire suite passes with zero errors and zero warnings.
+
+### Verification Suite Commands
 
 ```bash
-# 1. Run all Go backend unit tests
+# 1. Full monorepo linting (must have 0 errors and 0 warnings)
+rtk pnpm lint
+
+# 2. Full monorepo type checking (contracts, web, extension)
+rtk pnpm check
+
+# 3. Go backend unit tests
 cd apps/api && go test -v ./...
 
-# 2. Check TypeScript contracts
-pnpm --filter @cpbridge/contracts check
+# 4. Frontend web tests (MANDATORY even when only modifying apps/api)
+rtk pnpm --filter @cpbridge/web test
 
-# 3. Build Extension
-pnpm --filter @cpbridge/extension build
-
-# 4. Check & build Frontend Web
-pnpm --filter @cpbridge/web check
-pnpm --filter @cpbridge/web build
+# 5. Build Extension & Web client
+rtk pnpm --filter @cpbridge/extension build
+rtk pnpm --filter @cpbridge/web build
 ```
+
