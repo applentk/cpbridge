@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "cpbridge Submission Bridge",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Zero-cookie browser session bridge for cpbridge submissions",
   "permissions": [
     "cookies",

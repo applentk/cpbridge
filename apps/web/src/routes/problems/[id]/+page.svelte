@@ -85,6 +85,8 @@
   let submissionsInitialized = false;
   let viewingSubmission: Submission | null = null;
   let pollInterval: ReturnType<typeof setInterval> | null = null;
+  let manualSubmissionPollInterval: ReturnType<typeof setInterval> | null = null;
+  let manualSubmissionCheckInFlight = false;
 
   let uploadSuccessMessage = '';
   let fileInputElement: HTMLInputElement;
@@ -209,6 +211,7 @@
     loading = true;
     error = '';
     stopSubmissionPolling();
+    stopManualSubmissionPolling();
     activeSubmission = null;
     manualSubmissionAction = null;
     manualSourceCode = '';
@@ -352,6 +355,7 @@
               message: awaiting.actionMessage || 'Complete the Codeforces verification and submit the prefilled solution.'
             };
             submitStatus = manualSubmissionAction.message;
+            startManualSubmissionPolling();
           }
         }
       }
@@ -395,6 +399,28 @@
       clearInterval(pollInterval);
       pollInterval = null;
     }
+  }
+
+  function stopManualSubmissionPolling() {
+    if (manualSubmissionPollInterval) {
+      clearInterval(manualSubmissionPollInterval);
+      manualSubmissionPollInterval = null;
+    }
+  }
+
+  function startManualSubmissionPolling() {
+    stopManualSubmissionPolling();
+    let attempts = 0;
+    const maxAttempts = 180; // keep checking for up to ~3 minutes
+
+    manualSubmissionPollInterval = setInterval(() => {
+      attempts += 1;
+      if (attempts > maxAttempts || !manualSubmissionAction) {
+        stopManualSubmissionPolling();
+        return;
+      }
+      void reconcileManualSubmission(false);
+    }, 1000);
   }
 
   function startSubmissionPolling(submissionId: string) {
@@ -489,6 +515,19 @@
     viewMode = 'tabbed';
   }
 
+  function navigateToSubmissionsTab() {
+    if (!browser) return;
+
+    viewMode = 'tabbed';
+    const url = new URL($page.url);
+    url.searchParams.set('tab', 'submissions');
+    void goto(`${url.pathname}${url.search}${url.hash}`, {
+      replaceState: true,
+      keepFocus: true,
+      noScroll: true
+    });
+  }
+
   function openManualSubmitPage() {
     if (!manualSubmissionAction) return;
     window.open(manualSubmissionAction.submitUrl, '_blank', 'noopener,noreferrer');
@@ -520,6 +559,7 @@
       }
     }
     if (lastError) throw lastError;
+    stopManualSubmissionPolling();
     activeSubmission = { ...submission, status: 'JUDGING', externalSubmissionId };
     const idx = recentSubmissions.findIndex((item) => item.id === submission.id);
     if (idx !== -1) {
@@ -529,21 +569,28 @@
     manualSubmissionAction = null;
     manualSourceCode = '';
     submitStatus = 'Submitted! Status: JUDGING (Polling verdict...)';
+    navigateToSubmissionsTab();
     startSubmissionPolling(submission.id);
   }
 
-  async function checkManualSubmission() {
-    if (!manualSubmissionAction || !activeSubmission || checkingManualSubmission) return;
-    checkingManualSubmission = true;
+  async function reconcileManualSubmission(showCheckingState: boolean) {
+    if (!manualSubmissionAction || !activeSubmission || manualSubmissionCheckInFlight) return;
+    const action = manualSubmissionAction;
+    const submission = activeSubmission;
+    manualSubmissionCheckInFlight = true;
+    if (showCheckingState) checkingManualSubmission = true;
     try {
-      const response = await completeManualSubmission(activeSubmission.id);
+      const response = await completeManualSubmission(submission.id);
+      if (manualSubmissionAction?.submissionId !== action.submissionId || activeSubmission?.id !== submission.id) return;
+
       if (response.type === 'SUBMISSION_CREATED' && response.externalSubmissionId) {
-        await markSubmissionDispatched(activeSubmission, response.externalSubmissionId);
+        await markSubmissionDispatched(submission, response.externalSubmissionId);
         if (problem) await loadSubmissions(problem.id, contestId);
       } else if (response.type === 'SUBMISSION_ACTION_REQUIRED') {
         manualSubmissionAction = response;
         submitStatus = response.message;
       } else if (response.type === 'SUBMISSION_FAILED') {
+        stopManualSubmissionPolling();
         submitStatus = `Could not verify the Codeforces submission: ${response.message || response.error}. Keep this page open and try again after submitting.`;
       } else {
         submitStatus = 'Codeforces did not return a submission ID yet. Keep this page open and try again after submitting.';
@@ -552,8 +599,13 @@
       const message = err instanceof Error ? err.message : 'The extension did not respond';
       submitStatus = `Could not verify the Codeforces submission: ${message}. You can safely try again.`;
     } finally {
-      checkingManualSubmission = false;
+      manualSubmissionCheckInFlight = false;
+      if (showCheckingState) checkingManualSubmission = false;
     }
+  }
+
+  async function checkManualSubmission() {
+    await reconcileManualSubmission(true);
   }
 
   async function handleSubmit() {
@@ -646,8 +698,9 @@
         manualSourceCode = sourceCode;
         manualCodeCopied = false;
         submitStatus = extRes.message;
-        setActiveTab('editor');
+        startManualSubmissionPolling();
       } else if (extRes.type === 'SUBMISSION_FAILED') {
+        stopManualSubmissionPolling();
         manualSubmissionAction = null;
         const errorMsg = extRes.message || extRes.error || 'Submission was not accepted on platform';
         submitStatus = `Submission failed: ${errorMsg}`;
@@ -706,6 +759,7 @@
 
   onDestroy(() => {
     stopSubmissionPolling();
+    stopManualSubmissionPolling();
   });
 </script>
 

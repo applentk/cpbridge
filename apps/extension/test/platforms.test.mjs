@@ -12,6 +12,7 @@ import {
   pollAtCoderStatus,
   submitAtCoder
 } from '../dist/test/atcoder.js';
+import { isCodeforcesSubmissionForm } from '../dist/test/codeforces-submit-form.js';
 
 const originalFetch = globalThis.fetch;
 
@@ -37,6 +38,24 @@ function atCoderSubmissionRow(id, taskId = 'abc123_a') {
 }
 
 describe('Codeforces adapter', () => {
+  test('recognizes the dynamic Codeforces problemset submission form', () => {
+    const form = {
+      classList: { contains: (name) => name === 'submit-form' },
+      querySelector: () => null
+    };
+
+    assert.equal(isCodeforcesSubmissionForm(form), true);
+  });
+
+  test('recognizes the Codeforces submission action field without relying on the form URL', () => {
+    const form = {
+      classList: { contains: () => false },
+      querySelector: () => ({ value: 'submitSolutionFormSubmitted' })
+    };
+
+    assert.equal(isCodeforcesSubmissionForm(form), true);
+  });
+
   test('detects the authenticated account from the settings page', async () => {
     globalThis.fetch = async () => htmlResponse(
       '<a href="/profile/tourist">tourist</a>',

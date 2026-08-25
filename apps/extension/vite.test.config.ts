@@ -11,7 +11,8 @@ export default defineConfig({
       preserveEntrySignatures: 'strict',
       input: {
         atcoder: resolve(__dirname, 'src/platforms/atcoder.ts'),
-        codeforces: resolve(__dirname, 'src/platforms/codeforces.ts')
+        codeforces: resolve(__dirname, 'src/platforms/codeforces.ts'),
+        'codeforces-submit-form': resolve(__dirname, 'src/codeforces-submit-form.ts')
       },
       output: {
         entryFileNames: '[name].js',

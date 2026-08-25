@@ -1,4 +1,5 @@
 import type { LanguageId } from '@cpbridge/contracts';
+import { findCodeforcesSubmissionForm } from './codeforces-submit-form.js';
 
 interface PrefillPayload {
   submissionId: string;
@@ -89,7 +90,7 @@ function fillSubmissionForm(pending: PrefillPayload, source: string | undefined)
 }
 
 function watchSubmissionForm(submissionId: string): void {
-  const form = document.querySelector<HTMLFormElement>('form[action*="submit"]');
+  const form = findCodeforcesSubmissionForm(document);
   if (!form || form.dataset.cpbridgeSubmitObserver === 'true') return;
 
   form.dataset.cpbridgeSubmitObserver = 'true';

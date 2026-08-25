@@ -13,7 +13,7 @@ import {
   mockUsersList,
 } from './mock-data';
 
-const LATEST_EXTENSION_VERSION = '1.0.9';
+const LATEST_EXTENSION_VERSION = '1.0.10';
 
 export interface SetupApiMocksOptions {
   currentUser?: User | null;
@@ -26,6 +26,7 @@ export interface SetupApiMocksOptions {
   disableExtension?: boolean;
   submissionError?: string;
   manualSubmissionRequired?: boolean;
+  manualSubmissionCompleteAfterChecks?: number;
   extensionPlatforms?: Record<string, { loggedIn: boolean; username?: string }>;
   extensionVersion?: string;
   extensionPollVerdict?: string;
@@ -48,6 +49,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
   // Provide mock Chrome Extension postMessage responder unless disabled
   if (!options.disableExtension) {
     await page.addInitScript((opts) => {
+      let manualCompletionChecks = 0;
       window.addEventListener('message', (event) => {
         if (event.data && event.data.source === 'CPBRIDGE_WEB') {
           const { id, payload } = event.data;
@@ -101,6 +103,22 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
               }, '*');
             }
           } else if (payload?.type === 'COMPLETE_MANUAL_SUBMISSION') {
+            manualCompletionChecks += 1;
+            if (manualCompletionChecks <= opts.manualSubmissionCompleteAfterChecks) {
+              window.postMessage({
+                source: 'CPBRIDGE_EXTENSION',
+                id,
+                payload: {
+                  type: 'SUBMISSION_ACTION_REQUIRED',
+                  submissionId: payload.submissionId,
+                  platform: 'CODEFORCES',
+                  action: 'COMPLETE_ANTIBOT',
+                  submitUrl: `https://codeforces.com/problemset/submit#cpbridge=${payload.submissionId}`,
+                  message: 'No new Codeforces submission was found yet.',
+                },
+              }, '*');
+              return;
+            }
             window.postMessage({
               source: 'CPBRIDGE_EXTENSION',
               id,
@@ -145,6 +163,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
     }, {
       submissionError: options.submissionError,
       manualSubmissionRequired: options.manualSubmissionRequired,
+      manualSubmissionCompleteAfterChecks: options.manualSubmissionCompleteAfterChecks || 0,
       extensionPlatforms: options.extensionPlatforms,
       extensionVersion: options.extensionVersion || LATEST_EXTENSION_VERSION,
       extensionPollVerdict: options.extensionPollVerdict,

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { setupApiMocks } from './fixtures/api-mock';
 
-const LATEST_EXTENSION_VERSION = '1.0.9';
+const LATEST_EXTENSION_VERSION = '1.0.10';
 
 test.describe('Platform Integrations Settings', () => {
   test('renders integrations page, zero-cookie notice, extension guide, and platform cards when active', async ({ page }) => {

@@ -14,7 +14,7 @@ test.describe('Admin Dashboard & Management', () => {
     await expect(page.locator('text=Registered Users')).toBeVisible();
     await expect(page.locator('text=120')).toBeVisible(); // totalUsers
     await expect(page.locator('text=42').first()).toBeVisible(); // totalProblems
-    await expect(page.locator('text=15')).toBeVisible(); // totalContests
+    await expect(page.getByText('15', { exact: true })).toBeVisible(); // totalContests
     await expect(page.getByText('8', { exact: true })).toBeVisible(); // totalProblemSets
   });
 
@@ -233,4 +233,3 @@ test.describe('Admin Dashboard & Management', () => {
     await page.waitForURL('/admin/contests/new');
   });
 });
-
