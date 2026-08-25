@@ -14,10 +14,15 @@
     "https://atcoder.jp/*",
     "http://localhost:3000/*",
     "http://localhost:5173/*",
+    "http://localhost:4173/*",
     "http://localhost:8080/*",
-    "https://cpbridge.applentk.com/*",
-    "https://cphub.dev/*",
-    "https://app.cphub.dev/*"
+    "http://127.0.0.1:3000/*",
+    "http://127.0.0.1:5173/*",
+    "http://127.0.0.1:4173/*",
+    "http://127.0.0.1:8080/*",
+    "https://*.applentk.com/*",
+    "https://*.vercel.app/*",
+    "https://cpbridge.applentk.com/*"
   ],
   "background": {
     "service_worker": "dist/background.js",
@@ -28,10 +33,15 @@
       "matches": [
         "http://localhost:3000/*",
         "http://localhost:5173/*",
+        "http://localhost:4173/*",
         "http://localhost:8080/*",
-        "https://cpbridge.applentk.com/*",
-        "https://cphub.dev/*",
-        "https://app.cphub.dev/*"
+        "http://127.0.0.1:3000/*",
+        "http://127.0.0.1:5173/*",
+        "http://127.0.0.1:4173/*",
+        "http://127.0.0.1:8080/*",
+        "https://*.applentk.com/*",
+        "https://*.vercel.app/*",
+        "https://cpbridge.applentk.com/*"
       ],
       "js": ["dist/bridge.js"],
       "run_at": "document_start"

@@ -15,7 +15,7 @@ The extension is a Manifest V3 Chrome extension built from `apps/extension`. It 
 
 The web page sends a message with `source: CP_HUB_WEB` using `window.postMessage`. The content script accepts only messages from the same window and an allowlisted origin. It forwards the payload to the background worker and posts the response back with `source: CP_HUB_EXTENSION`.
 
-Allowed origins include the local development hosts and `https://cphub.dev` / `https://app.cphub.dev`.
+Allowed origins include local development hosts, `https://cpbridge.applentk.com`, and `https://*.applentk.com`.
 
 Each request has a generated ID. The web bridge keeps a callback map. The default timeout is 10 seconds, submission dispatch uses 30 seconds, and recovery uses 20 seconds.
 

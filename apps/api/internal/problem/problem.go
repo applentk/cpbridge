@@ -134,7 +134,7 @@ func (s *Service) CreateCustom(ctx context.Context, req CreateCustomReq) (*Probl
 		req.Platform = platform.Codeforces
 	}
 	if req.URL == "" {
-		req.URL = fmt.Sprintf("https://cphub.dev/problems/%s", req.ExternalID)
+		req.URL = fmt.Sprintf("https://cpbridge.applentk.com/problems/%s", req.ExternalID)
 	}
 	if req.Tags == nil {
 		req.Tags = []string{"custom"}

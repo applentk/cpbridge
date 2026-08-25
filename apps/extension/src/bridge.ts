@@ -4,20 +4,31 @@
 const EXTENSION_ORIGIN = 'CP_HUB_EXTENSION';
 const WEB_APP_ORIGIN = 'CP_HUB_WEB';
 
-const ALLOWED_ORIGINS = new Set([
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'http://localhost:8080',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:8080',
-  'https://cphub.dev',
-  'https://app.cphub.dev'
-]);
-
 function isAllowedOrigin(origin: string): boolean {
   if (!origin) return false;
-  if (ALLOWED_ORIGINS.has(origin)) return true;
+  try {
+    const url = new URL(origin);
+    const host = url.hostname;
+    const protocol = url.protocol;
+
+    if (protocol === 'http:') {
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return true;
+      }
+    }
+
+    if (protocol === 'https:') {
+      if (
+        host === 'applentk.com' ||
+        host.endsWith('.applentk.com') ||
+        host.endsWith('.vercel.app')
+      ) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
   return false;
 }
 

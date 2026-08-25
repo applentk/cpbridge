@@ -10,6 +10,7 @@ export default tseslint.config(
       '**/dist/**',
       '**/build/**',
       '**/.svelte-kit/**',
+      '**/.vercel/**',
       '**/coverage/**',
       'apps/api/**',
       '**/.agents/**',
