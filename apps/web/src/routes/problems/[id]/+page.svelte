@@ -75,6 +75,7 @@
 
   let submitting = false;
   let submitStatus = '';
+  let duplicateSubmission = false;
   let activeSubmission: Submission | null = null;
   let manualSubmissionAction: ExtensionSubmissionActionRequiredResponse | null = null;
   let manualSourceCode = '';
@@ -218,6 +219,7 @@
     checkingManualSubmission = false;
     manualCodeCopied = false;
     submitStatus = '';
+    duplicateSubmission = false;
     recentSubmissions = [];
     submissionsInitialized = false;
     submissionsLoading = false;
@@ -639,6 +641,7 @@
 
     submitting = true;
     submitStatus = 'Creating submission...';
+    duplicateSubmission = false;
     stopSubmissionPolling();
 
     let createdSub: Submission | null = null;
@@ -734,6 +737,7 @@
       const errMsg = err instanceof Error ? err.message : String(err || 'Unknown error');
       const dispatchMayStillBeRunning = extensionDispatchStarted && !extensionDispatchCompleted;
       if (!dispatchMayStillBeRunning && isDuplicateSubmissionError(err)) {
+        duplicateSubmission = true;
         submitStatus = 'This exact solution was already submitted. It was not sent to the external judge.';
       } else if (extensionDispatchCompleted) {
         const platformName = problem.platform === 'CODEFORCES' ? 'Codeforces' : 'AtCoder';
@@ -1164,13 +1168,20 @@
             </div>
           {/if}
 
+          {#if duplicateSubmission}
+            <div class="p-3.5 rounded-2xl border border-red-500/40 bg-red-500/10 text-red-200 flex items-start space-x-2.5">
+              <XCircle class="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
+              <p class="text-xs font-semibold">{submitStatus}</p>
+            </div>
+          {/if}
+
           <!-- Editor -->
           <div class="flex-1 min-h-87.5">
             <MonacoEditor bind:value={sourceCode} {language} />
           </div>
 
           <!-- Verdict Banner -->
-          {#if activeSubmission || submitStatus}
+          {#if (activeSubmission && !duplicateSubmission) || (submitStatus && !duplicateSubmission)}
             <div class="p-3.5 rounded-2xl border border-zinc-800 bg-zinc-900/80 space-y-2">
               <div class="flex items-center justify-between">
                 <span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Verdict</span>
@@ -1357,13 +1368,20 @@
               </div>
             {/if}
 
+            {#if duplicateSubmission}
+              <div class="p-4 rounded-2xl border border-red-500/40 bg-red-500/10 text-red-200 flex items-start space-x-2.5">
+                <XCircle class="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
+                <p class="text-xs font-semibold">{submitStatus}</p>
+              </div>
+            {/if}
+
             <!-- Monaco Editor -->
             <div class="h-137.5 rounded-2xl overflow-hidden border border-zinc-800">
               <MonacoEditor bind:value={sourceCode} {language} />
             </div>
 
             <!-- Verdict & Dispatch Banner -->
-            {#if activeSubmission || submitStatus}
+            {#if (activeSubmission && !duplicateSubmission) || (submitStatus && !duplicateSubmission)}
               <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-950 space-y-3">
                 <div class="flex items-center justify-between">
                   <span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Submission Verdict</span>
