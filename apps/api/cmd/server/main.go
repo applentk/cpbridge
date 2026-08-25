@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -45,14 +48,9 @@ func main() {
 	}
 
 	// Redis & Asynq Setup
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		redisAddr = "localhost:6379"
-	}
-	redisPassword := os.Getenv("REDIS_PASSWORD")
-	redisOpt := asynq.RedisClientOpt{
-		Addr:     redisAddr,
-		Password: redisPassword,
+	redisOpt, err := redisOptions()
+	if err != nil {
+		log.Fatalf("Failed to configure Redis: %v", err)
 	}
 
 	asynqClient := asynq.NewClient(redisOpt)
@@ -141,11 +139,11 @@ func main() {
 
 	// CORS Setup
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
+		AllowedOrigins:   allowedOrigins(),
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
-		AllowCredentials: true,
+		AllowCredentials: false,
 		MaxAge:           300,
 	}))
 
@@ -225,4 +223,59 @@ func main() {
 
 	asynqServer.Shutdown()
 	log.Println("cpbridge server and Asynq worker stopped cleanly.")
+}
+
+func allowedOrigins() []string {
+	value := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS"))
+	if value == "" {
+		return []string{"http://localhost:3000"}
+	}
+
+	origins := make([]string, 0)
+	for _, origin := range strings.Split(value, ",") {
+		if trimmed := strings.TrimSpace(origin); trimmed != "" {
+			origins = append(origins, trimmed)
+		}
+	}
+	if len(origins) == 0 {
+		return []string{"http://localhost:3000"}
+	}
+	return origins
+}
+
+func redisOptions() (asynq.RedisClientOpt, error) {
+	redisURL := strings.TrimSpace(os.Getenv("REDIS_URL"))
+	if redisURL == "" {
+		redisAddr := os.Getenv("REDIS_ADDR")
+		if redisAddr == "" {
+			redisAddr = "localhost:6379"
+		}
+		return asynq.RedisClientOpt{
+			Addr:     redisAddr,
+			Password: os.Getenv("REDIS_PASSWORD"),
+		}, nil
+	}
+
+	parsed, err := url.Parse(redisURL)
+	if err != nil {
+		return asynq.RedisClientOpt{}, fmt.Errorf("invalid REDIS_URL: %w", err)
+	}
+	if parsed.Scheme != "redis" && parsed.Scheme != "rediss" {
+		return asynq.RedisClientOpt{}, fmt.Errorf("REDIS_URL must use redis:// or rediss://")
+	}
+	if parsed.Host == "" {
+		return asynq.RedisClientOpt{}, fmt.Errorf("REDIS_URL must include a host")
+	}
+
+	opt := asynq.RedisClientOpt{Addr: parsed.Host}
+	if parsed.User != nil {
+		opt.Username = parsed.User.Username()
+		if password, ok := parsed.User.Password(); ok {
+			opt.Password = password
+		}
+	}
+	if parsed.Scheme == "rediss" {
+		opt.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	return opt, nil
 }
