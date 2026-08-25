@@ -269,7 +269,7 @@ export async function snapshotCodeforcesSubmissionIds(
 export async function pollCodeforcesStatus(contestId: string, externalSubmissionId: string): Promise<{ status: 'JUDGING' | 'ACCEPTED' | 'WRONG_ANSWER' | 'TIME_LIMIT' | 'MEMORY_LIMIT' | 'RUNTIME_ERROR' | 'COMPILE_ERROR' | 'FAILED' }> {
   if (externalSubmissionId.startsWith('cf_')) return { status: 'FAILED' };
   try {
-    const res = await fetch(`https://codeforces.com/api/contest.status?contestId=${contestId}&from=1&count=100`, { method: 'GET', credentials: 'include' });
+    const res = await fetch(`https://codeforces.com/api/contest.status?contestId=${contestId}&from=1&count=1000&cpbridge_ts=${Date.now()}`, { method: 'GET', credentials: 'include', cache: 'no-store' });
     if (res.ok) {
       const data = await res.json();
       const sub = data.status === 'OK' && Array.isArray(data.result) ? data.result.find((item: { id?: number | string; verdict?: string }) => String(item.id) === String(externalSubmissionId)) : undefined;

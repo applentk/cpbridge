@@ -202,7 +202,7 @@ test.describe('Problem Workspace', () => {
 
     await page.locator('button:has-text("Submit Solution")').click();
 
-    await expect(page.locator('text=Extension update required. Install v1.0.8 before submitting.')).toBeVisible();
+    await expect(page.locator('text=Extension update required. Install v1.0.9 before submitting.')).toBeVisible();
     expect(submissionCreateRequests).toBe(0);
   });
 

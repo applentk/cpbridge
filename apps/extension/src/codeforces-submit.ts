@@ -88,6 +88,20 @@ function fillSubmissionForm(pending: PrefillPayload, source: string | undefined)
   return true;
 }
 
+function watchSubmissionForm(submissionId: string): void {
+  const form = document.querySelector<HTMLFormElement>('form[action*="submit"]');
+  if (!form || form.dataset.cpbridgeSubmitObserver === 'true') return;
+
+  form.dataset.cpbridgeSubmitObserver = 'true';
+  form.addEventListener('submit', () => {
+    showBanner('Codeforces received the submission. cpbridge is detecting the verdict and will close this tab.', true);
+    void chrome.runtime.sendMessage({
+      type: 'CODEFORCES_SUBMISSION_SUBMITTED',
+      submissionId
+    });
+  }, { capture: true });
+}
+
 async function initialize(): Promise<void> {
   const submissionId = submissionIdFromHash();
   if (!submissionId) return;
@@ -110,7 +124,9 @@ async function initialize(): Promise<void> {
   let attempts = 0;
   const tryFill = () => {
     attempts += 1;
-    if (fillSubmissionForm(response.pending!, response.source) || attempts >= 600) {
+    const filled = fillSubmissionForm(response.pending!, response.source);
+    if (filled) watchSubmissionForm(submissionId);
+    if (filled || attempts >= 600) {
       window.clearInterval(timer);
       if (attempts >= 600) showBanner('Codeforces did not expose its submission form. Return to cpbridge and use the official submission link manually.', false);
     }

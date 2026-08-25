@@ -706,19 +706,43 @@ func (s *Service) UpdateDispatched(ctx context.Context, id, userID string, isAdm
 		lookupID = strings.Split(sub.ProblemExternalID, "/")[0] + "/" + lookupID
 	}
 	verified, err := adapter.GetSubmission(ctx, lookupID)
-	if err != nil {
-		return fmt.Errorf("failed to verify external submission: %w", err)
+	var verificationErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		if err == nil {
+			verificationErr = s.verifyExternalSubmission(ctx, sub, lookupID, verified, s.timeClock())
+			if verificationErr == nil {
+				break
+			}
+		} else {
+			verificationErr = fmt.Errorf("failed to verify external submission: %w", err)
+		}
+		if attempt < 3 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(750 * time.Millisecond):
+			}
+			verified, err = adapter.GetSubmission(ctx, lookupID)
+		}
 	}
-	if err := s.verifyExternalSubmission(ctx, sub, lookupID, verified, s.timeClock()); err != nil {
-		return err
+	if verificationErr != nil {
+		return verificationErr
 	}
 
+	newStatus := Judging
+	var judgedAt *time.Time
+	if verified.Status != "JUDGING" && verified.Status != "PENDING" && verified.Status != "" {
+		terminalStatus := Status(verified.Status)
+		newStatus = terminalStatus
+		now := s.timeClock()
+		judgedAt = &now
+	}
 	query := `
 		UPDATE submissions
-		SET status = $1, external_submission_id = $2
-		WHERE id = $3 AND status IN ($4, $5)
+		SET status = $1, external_submission_id = $2, judged_at = $3
+		WHERE id = $4 AND status IN ($5, $6)
 	`
-	result, err := s.db.ExecContext(ctx, query, Judging, externalSubmissionID, id, Pending, Dispatching)
+	result, err := s.db.ExecContext(ctx, query, newStatus, externalSubmissionID, judgedAt, id, Pending, Dispatching)
 	if err != nil {
 		return err
 	}
@@ -732,10 +756,10 @@ func (s *Service) UpdateDispatched(ctx context.Context, id, userID string, isAdm
 		return nil
 	}
 
-	log.Printf("[Submission:Dispatched] %s marked as JUDGING with external ID %s", sub.ID, externalSubmissionID)
+	log.Printf("[Submission:Dispatched] %s linked with external ID %s (status: %s)", sub.ID, externalSubmissionID, newStatus)
 
 	// Enqueue Asynq worker task for asynchronous status polling
-	if s.asynqClient != nil {
+	if newStatus == Judging && s.asynqClient != nil {
 		task, taskErr := queue.NewPollVerdictTask(sub.ID, externalSubmissionID, string(sub.Platform), sub.ProblemID)
 		if taskErr == nil {
 			info, enqErr := s.asynqClient.EnqueueContext(ctx, task)

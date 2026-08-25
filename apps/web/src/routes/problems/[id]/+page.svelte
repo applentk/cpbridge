@@ -504,7 +504,22 @@
   }
 
   async function markSubmissionDispatched(submission: Submission, externalSubmissionId: string) {
-    await api.post(`/submissions/${submission.id}/dispatched`, { externalSubmissionId });
+    let lastError: unknown;
+    // Codeforces can expose the new row in the browser before its public API
+    // exposes the same row. Retrying this bookkeeping call is safe: the
+    // extension has already persisted the external ID and the API update is
+    // idempotent for this cpbridge submission.
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try {
+        await api.post(`/submissions/${submission.id}/dispatched`, { externalSubmissionId });
+        lastError = undefined;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 5) await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
+    if (lastError) throw lastError;
     activeSubmission = { ...submission, status: 'JUDGING', externalSubmissionId };
     const idx = recentSubmissions.findIndex((item) => item.id === submission.id);
     if (idx !== -1) {

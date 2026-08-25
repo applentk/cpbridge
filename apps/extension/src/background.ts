@@ -91,6 +91,11 @@ interface CodeforcesPrefillRequest {
   submissionId: string;
 }
 
+interface CodeforcesSubmissionSubmittedRequest {
+  type: 'CODEFORCES_SUBMISSION_SUBMITTED';
+  submissionId: string;
+}
+
 const inFlightSubmissions = new Map<string, Promise<DispatchResponse>>();
 
 function dispatchStorageKey(submissionId: string): string {
@@ -201,6 +206,11 @@ async function beginInteractiveCodeforcesSubmission(
 }
 
 async function completeManualCodeforcesSubmission(submissionId: string): Promise<DispatchResponse> {
+  const stored = (await readStoredDispatches()).find((dispatch) => dispatch.submissionId === submissionId);
+  if (stored?.state === 'CREATED' && stored.externalSubmissionId) {
+    return { type: 'SUBMISSION_CREATED', submissionId, externalSubmissionId: stored.externalSubmissionId };
+  }
+
   const pending = await readManualSubmission(submissionId);
   if (!pending) {
     return {
@@ -242,6 +252,22 @@ async function completeManualCodeforcesSubmission(submissionId: string): Promise
   await storeDispatch({ submissionId, state: 'CREATED', externalSubmissionId });
   await clearManualSubmission(submissionId);
   return { type: 'SUBMISSION_CREATED', submissionId, externalSubmissionId };
+}
+
+async function completeSubmittedCodeforcesTab(submissionId: string, tabId?: number): Promise<DispatchResponse> {
+  // The submit form can navigate before Codeforces publishes the new row in
+  // /my. Keep polling for a short window so the tab closes only after the
+  // external ID is safely attached to this cpbridge submission.
+  let result: DispatchResponse = await completeManualCodeforcesSubmission(submissionId);
+  for (let attempt = 0; attempt < 12 && result.type === 'SUBMISSION_ACTION_REQUIRED'; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    result = await completeManualCodeforcesSubmission(submissionId);
+  }
+
+  if (result.type === 'SUBMISSION_CREATED' && tabId !== undefined) {
+    await chrome.tabs.remove(tabId).catch(() => undefined);
+  }
+  return result;
 }
 
 async function prepareCodeforcesPrefill(submissionId: string): Promise<ManualCodeforcesSubmission | undefined> {
@@ -311,7 +337,23 @@ async function dispatchSubmission(message: ExtensionSubmitRequest): Promise<Disp
   }
 }
 
-chrome.runtime.onMessage.addListener((message: ExtensionMessage | CodeforcesPrefillRequest, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: ExtensionMessage | CodeforcesPrefillRequest | CodeforcesSubmissionSubmittedRequest, sender, sendResponse) => {
+  if (message.type === 'CODEFORCES_SUBMISSION_SUBMITTED') {
+    if (!isCodeforcesSender(sender)) {
+      sendResponse({ type: 'SUBMISSION_FAILED', submissionId: message.submissionId, error: 'PLATFORM_UNAVAILABLE', message: 'Untrusted Codeforces page' });
+      return false;
+    }
+    void completeSubmittedCodeforcesTab(message.submissionId, sender.tab?.id)
+      .then(sendResponse)
+      .catch((err) => sendResponse({
+        type: 'SUBMISSION_FAILED',
+        submissionId: message.submissionId,
+        error: 'SUBMISSION_FAILED',
+        message: err instanceof Error ? err.message : 'Could not detect the Codeforces submission'
+      }));
+    return true;
+  }
+
   if (message.type === 'GET_CODEFORCES_PREFILL') {
     if (!isCodeforcesSender(sender)) {
       sendResponse({ type: 'CODEFORCES_PREFILL_RESULT', error: 'Untrusted Codeforces page' });
