@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 type Type string
@@ -39,6 +40,10 @@ type NormalizedProblem struct {
 type SubmissionStatus struct {
 	ExternalSubmissionID string         `json:"externalSubmissionId"`
 	Status               string         `json:"status"` // PENDING, JUDGING, ACCEPTED, WRONG_ANSWER, TIME_LIMIT, COMPILATION_ERROR, RUNTIME_ERROR, MEMORY_LIMIT
+	ProblemExternalID    string         `json:"problemExternalId,omitempty"`
+	Language             string         `json:"language,omitempty"`
+	PlatformUsername     string         `json:"platformUsername,omitempty"`
+	SubmittedAt          *time.Time     `json:"submittedAt,omitempty"`
 	ExecutionTimeMs      *int           `json:"executionTimeMs,omitempty"`
 	MemoryBytes          *int64         `json:"memoryBytes,omitempty"`
 	FailedTestcase       *int           `json:"failedTestcase,omitempty"`

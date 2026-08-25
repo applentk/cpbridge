@@ -26,6 +26,7 @@ import (
 	"github.com/cpbridge/api/internal/problem"
 	"github.com/cpbridge/api/internal/problemset"
 	"github.com/cpbridge/api/internal/queue"
+	"github.com/cpbridge/api/internal/ratelimit"
 	"github.com/cpbridge/api/internal/submission"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -62,9 +63,9 @@ func main() {
 	platRegistry.Register(atcoder.New())
 
 	// Domain Services
-	authSvc := auth.NewService(database)
-	if err := authSvc.BootstrapInitialAdmin(context.Background()); err != nil {
-		log.Printf("Initial admin bootstrap notice: %v", err)
+	authSvc, err := auth.NewServiceFromEnv(database)
+	if err != nil {
+		log.Fatalf("Failed to configure authentication: %v", err)
 	}
 
 	probSvc := problem.NewService(database, platRegistry)
@@ -136,6 +137,7 @@ func main() {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(requestProtection)
 
 	// CORS Setup
 	r.Use(cors.Handler(cors.Options{
@@ -196,8 +198,13 @@ func main() {
 	}
 
 	httpServer := &http.Server{
-		Addr:    ":" + port,
-		Handler: r,
+		Addr:              ":" + port,
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	// Server shutdown listener
@@ -223,6 +230,25 @@ func main() {
 
 	asynqServer.Shutdown()
 	log.Println("cpbridge server and Asynq worker stopped cleanly.")
+}
+
+func requestProtection(next http.Handler) http.Handler {
+	var limiter = ratelimit.New(20000)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ok, retryAfter := limiter.Allow(ratelimit.ClientIP(r), 240, time.Minute, time.Now()); !ok {
+			seconds := int(retryAfter.Seconds())
+			if seconds < 1 {
+				seconds = 1
+			}
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", seconds))
+			http.Error(w, `{"error":"too many requests"}`, http.StatusTooManyRequests)
+			return
+		}
+		// Keep the global ceiling below the largest source payload accepted by
+		// the API. Individual sensitive handlers apply smaller limits as well.
+		r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+		next.ServeHTTP(w, r)
+	})
 }
 
 func allowedOrigins() []string {

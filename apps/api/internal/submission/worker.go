@@ -54,17 +54,17 @@ func (w *Worker) ProcessPollVerdict(ctx context.Context, t *asynq.Task) error {
 
 	// 1. Fetch current submission from DB
 	query := `
-		SELECT id, user_id, problem_id, platform, status, external_submission_id, submitted_at, metadata
+		SELECT id, user_id, problem_id, platform, language, status, external_submission_id, submitted_at, metadata
 		FROM submissions
 		WHERE id = $1
 	`
-	var subID, userID, problemID, platStr, statusStr string
+	var subID, userID, problemID, platStr, language, statusStr string
 	var extSubID sql.NullString
 	var submittedAt time.Time
 	var metaBytes []byte
 
 	err := w.db.QueryRowContext(ctx, query, p.SubmissionID).Scan(
-		&subID, &userID, &problemID, &platStr, &statusStr, &extSubID, &submittedAt, &metaBytes,
+		&subID, &userID, &problemID, &platStr, &language, &statusStr, &extSubID, &submittedAt, &metaBytes,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -132,6 +132,31 @@ func (w *Worker) ProcessPollVerdict(ctx context.Context, t *asynq.Task) error {
 
 	if statusObj == nil {
 		return fmt.Errorf("empty status response from platform")
+	}
+
+	problemExternalID := ""
+	if prob != nil {
+		problemExternalID = prob.ExternalID
+	}
+	verifiedSub := &Submission{
+		ID:                subID,
+		UserID:            userID,
+		ProblemID:         problemID,
+		ProblemExternalID: problemExternalID,
+		Platform:          platform.Type(platStr),
+		Language:          language,
+		SubmittedAt:       submittedAt,
+	}
+	service := &Service{db: w.db}
+	if err := service.verifyExternalSubmission(ctx, verifiedSub, formattedExtID, statusObj, now); err != nil {
+		metadata["error"] = err.Error()
+		metaJSON, _ := json.Marshal(metadata)
+		_, _ = w.db.ExecContext(ctx, `
+			UPDATE submissions
+			SET status = $1, judged_at = $2, metadata = $3
+			WHERE id = $4 AND status IN ('PENDING', 'DISPATCHING', 'JUDGING')
+		`, Failed, now, metaJSON, p.SubmissionID)
+		return nil
 	}
 
 	// 5. Handle terminal statuses

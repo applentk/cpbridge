@@ -169,6 +169,81 @@ func (s *Service) SetAsynqClient(client *asynq.Client) {
 	s.asynqClient = client
 }
 
+func canonicalExternalID(value string) string {
+	parts := strings.Split(strings.TrimSpace(value), "/")
+	if len(parts) < 2 {
+		return strings.TrimSpace(value)
+	}
+	return strings.TrimSpace(parts[0]) + "/" + strings.ToUpper(strings.TrimSpace(parts[1]))
+}
+
+func platformLanguageMatches(platformType platform.Type, expected, actual string) bool {
+	expected = strings.ToLower(strings.TrimSpace(expected))
+	actual = strings.ToLower(strings.TrimSpace(actual))
+	if expected == "" || actual == "" {
+		return false
+	}
+	switch expected {
+	case "cpp23":
+		return strings.Contains(actual, "c++") || strings.Contains(actual, "gnu c")
+	case "python3":
+		return strings.Contains(actual, "python") || strings.Contains(actual, "pypy")
+	case "java21":
+		return strings.Contains(actual, "java")
+	default:
+		return false
+	}
+}
+
+func validateExternalSubmissionMetadata(sub *Submission, externalID string, statusObj *platform.SubmissionStatus, now time.Time) error {
+	if sub == nil || statusObj == nil {
+		return errors.New("external submission could not be verified")
+	}
+	if statusObj.ExternalSubmissionID != "" && canonicalExternalID(statusObj.ExternalSubmissionID) != canonicalExternalID(externalID) {
+		return errors.New("external submission ID could not be verified")
+	}
+	if canonicalExternalID(statusObj.ProblemExternalID) != canonicalExternalID(sub.ProblemExternalID) {
+		return errors.New("external submission targets a different problem")
+	}
+	if !platformLanguageMatches(sub.Platform, sub.Language, statusObj.Language) {
+		return errors.New("external submission uses a different language")
+	}
+	if statusObj.SubmittedAt == nil || statusObj.SubmittedAt.Before(sub.SubmittedAt.Add(-2*time.Minute)) || statusObj.SubmittedAt.After(now.Add(2*time.Minute)) {
+		return errors.New("external submission timestamp is outside the dispatch window")
+	}
+	if strings.TrimSpace(statusObj.PlatformUsername) == "" {
+		return errors.New("external submission platform identity is missing")
+	}
+	return nil
+}
+
+// verifyExternalSubmission checks data obtained from the official platform,
+// rather than data supplied by the participant. The linked integration is the
+// platform identity established for the account; the platform record must also
+// be created immediately after cpbridge recorded the dispatch.
+func (s *Service) verifyExternalSubmission(ctx context.Context, sub *Submission, externalID string, statusObj *platform.SubmissionStatus, now time.Time) error {
+	if err := validateExternalSubmissionMetadata(sub, externalID, statusObj, now); err != nil {
+		return err
+	}
+
+	var expectedUsername string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT external_username
+		FROM integrations
+		WHERE user_id = $1 AND platform = $2 AND connection_status = 'CONNECTED'
+	`, sub.UserID, sub.Platform).Scan(&expectedUsername)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errors.New("connect the matching platform identity before submitting")
+	}
+	if err != nil {
+		return fmt.Errorf("failed to verify platform identity: %w", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(expectedUsername), strings.TrimSpace(statusObj.PlatformUsername)) {
+		return errors.New("external submission belongs to a different platform identity")
+	}
+	return nil
+}
+
 func (s *Service) Create(ctx context.Context, userID string, isAdmin bool, problemID string, contestID *string, language, sourceCode string) (*Submission, error) {
 	language = strings.TrimSpace(language)
 	if !isSupportedLanguage(language) {
@@ -594,6 +669,24 @@ func (s *Service) UpdateDispatched(ctx context.Context, id, userID string, isAdm
 	if strings.HasPrefix(externalSubmissionID, "cf_") || strings.HasPrefix(externalSubmissionID, "ac_") {
 		return errors.New("invalid external submission ID")
 	}
+	if s.platRegistry == nil {
+		return errors.New("platform verification is unavailable")
+	}
+	adapter, err := s.platRegistry.Get(sub.Platform)
+	if err != nil {
+		return err
+	}
+	lookupID := externalSubmissionID
+	if !strings.Contains(lookupID, "/") && strings.Contains(sub.ProblemExternalID, "/") {
+		lookupID = strings.Split(sub.ProblemExternalID, "/")[0] + "/" + lookupID
+	}
+	verified, err := adapter.GetSubmission(ctx, lookupID)
+	if err != nil {
+		return fmt.Errorf("failed to verify external submission: %w", err)
+	}
+	if err := s.verifyExternalSubmission(ctx, sub, lookupID, verified, s.timeClock()); err != nil {
+		return err
+	}
 
 	query := `
 		UPDATE submissions
@@ -864,6 +957,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req createSubReq
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
@@ -966,6 +1060,7 @@ func (h *Handler) UpdateDispatched(w http.ResponseWriter, r *http.Request) {
 	isAdmin := claims.Role == auth.RoleAdmin
 
 	var req dispatchedReq
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return
@@ -998,6 +1093,7 @@ func (h *Handler) UpdateResult(w http.ResponseWriter, r *http.Request) {
 	isAdmin := claims.Role == auth.RoleAdmin
 
 	var req resultReq
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
 		return

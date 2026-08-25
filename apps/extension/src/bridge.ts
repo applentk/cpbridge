@@ -18,10 +18,6 @@ const ALLOWED_ORIGINS = new Set([
 function isAllowedOrigin(origin: string): boolean {
   if (!origin) return false;
   if (ALLOWED_ORIGINS.has(origin)) return true;
-  // Local development ports
-  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-    return true;
-  }
   return false;
 }
 

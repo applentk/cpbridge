@@ -19,14 +19,18 @@ var (
 	titlePrefixRegex   = regexp.MustCompile(`(?i)^[a-z0-9]+\s*[-.:)]\s*`)
 	contestSuffixRegex = regexp.MustCompile(`(?i)\s+-\s+atcoder.*$`)
 
-	taskStatementRegex  = regexp.MustCompile(`(?s)<div id="task-statement">(.*?)</div>\s*<span class="center-block`)
-	taskStatementRegex2 = regexp.MustCompile(`(?s)<div id="task-statement">(.*)`)
-	langEnRegex         = regexp.MustCompile(`(?s)<span class="lang-en">(.*?)</span>\s*</span>`)
-	langJaRegex         = regexp.MustCompile(`(?is)<span class="lang-ja">.*?</span>`)
-	timeLimitRegex      = regexp.MustCompile(`Time Limit:\s*([0-9\.]+\s*sec)`)
-	memoryLimitRegex    = regexp.MustCompile(`Memory Limit:\s*([0-9\.]+\s*MB)`)
-	sampleInputRegex    = regexp.MustCompile(`(?s)<h3>\s*Sample Input\s*\d*\s*</h3>\s*<pre>(.*?)</pre>`)
-	sampleOutputRegex   = regexp.MustCompile(`(?s)<h3>\s*Sample Output\s*\d*\s*</h3>\s*<pre>(.*?)</pre>`)
+	taskStatementRegex      = regexp.MustCompile(`(?s)<div id="task-statement">(.*?)</div>\s*<span class="center-block`)
+	taskStatementRegex2     = regexp.MustCompile(`(?s)<div id="task-statement">(.*)`)
+	langEnRegex             = regexp.MustCompile(`(?s)<span class="lang-en">(.*?)</span>\s*</span>`)
+	langJaRegex             = regexp.MustCompile(`(?is)<span class="lang-ja">.*?</span>`)
+	timeLimitRegex          = regexp.MustCompile(`Time Limit:\s*([0-9\.]+\s*sec)`)
+	memoryLimitRegex        = regexp.MustCompile(`Memory Limit:\s*([0-9\.]+\s*MB)`)
+	submissionTaskRegex     = regexp.MustCompile(`(?is)<th[^>]*>\s*Task\s*</th>\s*<td[^>]*>.*?/contests/([^/"']+)/tasks/([^"']+)`)
+	submissionLanguageRegex = regexp.MustCompile(`(?is)<th[^>]*>\s*Language\s*</th>\s*<td[^>]*>(.*?)</td>`)
+	submissionUserRegex     = regexp.MustCompile(`(?is)<a[^>]+href=["']/users/([^"']+)["']`)
+	submissionTimeRegex     = regexp.MustCompile(`(?is)<th[^>]*>\s*(?:Submitted At|Submission Time)\s*</th>\s*<td[^>]*>(.*?)</td>`)
+	sampleInputRegex        = regexp.MustCompile(`(?s)<h3>\s*Sample Input\s*\d*\s*</h3>\s*<pre>(.*?)</pre>`)
+	sampleOutputRegex       = regexp.MustCompile(`(?s)<h3>\s*Sample Output\s*\d*\s*</h3>\s*<pre>(.*?)</pre>`)
 
 	// Cleaners for footer and duplicate sample blocks in statement html
 	sampleSectionRegex           = regexp.MustCompile(`(?is)<hr\s*/?>\s*<div class="part">\s*<section>\s*<h3>\s*Sample (?:Input|Output).*`)
@@ -235,53 +239,39 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 					bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
 					if err == nil {
 						htmlStr := string(bodyBytes)
+						verified := parseSubmissionMetadata(htmlStr, contestID)
+						verified.ExternalSubmissionID = externalSubmissionID
 						if strings.Contains(htmlStr, ">AC</span>") || strings.Contains(htmlStr, "label-success") {
-							return &platform.SubmissionStatus{
-								ExternalSubmissionID: externalSubmissionID,
-								Status:               "ACCEPTED",
-							}, nil
+							verified.Status = "ACCEPTED"
+							return verified, nil
 						}
 						if strings.Contains(htmlStr, ">WA</span>") {
-							return &platform.SubmissionStatus{
-								ExternalSubmissionID: externalSubmissionID,
-								Status:               "WRONG_ANSWER",
-							}, nil
+							verified.Status = "WRONG_ANSWER"
+							return verified, nil
 						}
 						if strings.Contains(htmlStr, ">TLE</span>") {
-							return &platform.SubmissionStatus{
-								ExternalSubmissionID: externalSubmissionID,
-								Status:               "TIME_LIMIT",
-							}, nil
+							verified.Status = "TIME_LIMIT"
+							return verified, nil
 						}
 						if strings.Contains(htmlStr, ">MLE</span>") {
-							return &platform.SubmissionStatus{
-								ExternalSubmissionID: externalSubmissionID,
-								Status:               "MEMORY_LIMIT",
-							}, nil
+							verified.Status = "MEMORY_LIMIT"
+							return verified, nil
 						}
 						if strings.Contains(htmlStr, ">RE</span>") {
-							return &platform.SubmissionStatus{
-								ExternalSubmissionID: externalSubmissionID,
-								Status:               "RUNTIME_ERROR",
-							}, nil
+							verified.Status = "RUNTIME_ERROR"
+							return verified, nil
 						}
 						if strings.Contains(htmlStr, ">CE</span>") {
-							return &platform.SubmissionStatus{
-								ExternalSubmissionID: externalSubmissionID,
-								Status:               "COMPILE_ERROR",
-							}, nil
+							verified.Status = "COMPILE_ERROR"
+							return verified, nil
 						}
 						if strings.Contains(htmlStr, ">OLE</span>") || strings.Contains(htmlStr, ">QLE</span>") {
-							return &platform.SubmissionStatus{
-								ExternalSubmissionID: externalSubmissionID,
-								Status:               "FAILED",
-							}, nil
+							verified.Status = "FAILED"
+							return verified, nil
 						}
 						if strings.Contains(htmlStr, ">WJ</span>") || strings.Contains(htmlStr, ">WR</span>") || strings.Contains(htmlStr, "label-default") {
-							return &platform.SubmissionStatus{
-								ExternalSubmissionID: externalSubmissionID,
-								Status:               "JUDGING",
-							}, nil
+							verified.Status = "JUDGING"
+							return verified, nil
 						}
 					}
 				}
@@ -293,4 +283,35 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 		ExternalSubmissionID: externalSubmissionID,
 		Status:               "JUDGING",
 	}, nil
+}
+
+func parseSubmissionMetadata(htmlStr, contestID string) *platform.SubmissionStatus {
+	status := &platform.SubmissionStatus{}
+	if match := submissionTaskRegex.FindStringSubmatch(htmlStr); len(match) == 3 {
+		status.ProblemExternalID = fmt.Sprintf("%s/%s", match[1], match[2])
+	}
+	if match := submissionLanguageRegex.FindStringSubmatch(htmlStr); len(match) == 2 {
+		status.Language = cleanHTMLTags(match[1])
+	}
+	if match := submissionUserRegex.FindStringSubmatch(htmlStr); len(match) == 2 {
+		status.PlatformUsername = html.UnescapeString(strings.TrimSpace(match[1]))
+	}
+	if match := submissionTimeRegex.FindStringSubmatch(htmlStr); len(match) == 2 {
+		value := cleanHTMLTags(match[1])
+		for _, layout := range []string{"2006-01-02 15:04:05-0700", "2006-01-02 15:04:05 MST", time.RFC3339} {
+			if parsed, err := time.Parse(layout, strings.TrimSpace(value)); err == nil {
+				parsed = parsed.UTC()
+				status.SubmittedAt = &parsed
+				break
+			}
+		}
+	}
+	if status.ProblemExternalID == "" && contestID != "" {
+		status.RawPayload = map[string]any{"metadataIncomplete": true}
+	}
+	return status
+}
+
+func cleanHTMLTags(value string) string {
+	return strings.TrimSpace(regexp.MustCompile(`<[^>]*>`).ReplaceAllString(html.UnescapeString(value), ""))
 }

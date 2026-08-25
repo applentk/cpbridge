@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 
@@ -40,4 +41,16 @@ func TestTokenParsing(t *testing.T) {
 	assert.Equal(t, "usr_123456", parsedClaims.UserID)
 	assert.Equal(t, "testuser", parsedClaims.Username)
 	assert.Equal(t, auth.RoleAdmin, parsedClaims.Role)
+}
+
+func TestStartupRequiresJWTSecretOutsideDevelopment(t *testing.T) {
+	t.Setenv("ENV", "production")
+	t.Setenv("JWT_SECRET", "")
+	_, err := auth.NewServiceFromEnv((*sql.DB)(nil))
+	assert.ErrorContains(t, err, "JWT_SECRET is required")
+
+	t.Setenv("ENV", "development")
+	service, err := auth.NewServiceFromEnv((*sql.DB)(nil))
+	assert.NoError(t, err)
+	assert.NotNil(t, service)
 }

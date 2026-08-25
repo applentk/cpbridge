@@ -88,7 +88,7 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 	apiURL := fmt.Sprintf("https://codeforces.com/api/contest.standings?contestId=%s&from=1&count=1", contestIDStr)
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err == nil {
-	req.Header.Set("User-Agent", "Mozilla/5.0 cpbridge/1.0")
+		req.Header.Set("User-Agent", "Mozilla/5.0 cpbridge/1.0")
 		resp, err := a.client.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			defer resp.Body.Close()
@@ -269,8 +269,19 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 }
 
 type cfSubmissionResult struct {
-	ID                  int64   `json:"id"`
-	ContestID           int     `json:"contestId"`
+	ID        int64 `json:"id"`
+	ContestID int   `json:"contestId"`
+	Problem   struct {
+		ContestID int    `json:"contestId"`
+		Index     string `json:"index"`
+	} `json:"problem"`
+	Author struct {
+		Members []struct {
+			Handle string `json:"handle"`
+		} `json:"members"`
+	} `json:"author"`
+	ProgrammingLanguage string  `json:"programmingLanguage"`
+	CreationTimeSeconds int64   `json:"creationTimeSeconds"`
 	Verdict             *string `json:"verdict"`
 	PassedTestCount     int     `json:"passedTestCount"`
 	TimeConsumedMillis  int     `json:"timeConsumedMillis"`
@@ -307,7 +318,7 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 		apiURL := fmt.Sprintf("https://codeforces.com/api/contest.status?contestId=%s&from=1&count=100", contestID)
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err == nil {
-		req.Header.Set("User-Agent", "Mozilla/5.0 cpbridge/1.0")
+			req.Header.Set("User-Agent", "Mozilla/5.0 cpbridge/1.0")
 			resp, err := a.client.Do(req)
 			if err == nil && resp.StatusCode == http.StatusOK {
 				defer resp.Body.Close()
@@ -325,6 +336,10 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 							return &platform.SubmissionStatus{
 								ExternalSubmissionID: externalSubmissionID,
 								Status:               status,
+								ProblemExternalID:    fmt.Sprintf("%d/%s", sub.Problem.ContestID, strings.ToUpper(sub.Problem.Index)),
+								Language:             sub.ProgrammingLanguage,
+								PlatformUsername:     firstCFHandle(sub.Author.Members),
+								SubmittedAt:          unixTime(sub.CreationTimeSeconds),
 								ExecutionTimeMs:      &timeMs,
 								MemoryBytes:          &memBytes,
 								FailedTestcase:       &testcase,
@@ -425,6 +440,23 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 		ExternalSubmissionID: externalSubmissionID,
 		Status:               "JUDGING",
 	}, nil
+}
+
+func firstCFHandle(members []struct {
+	Handle string `json:"handle"`
+}) string {
+	if len(members) == 0 {
+		return ""
+	}
+	return members[0].Handle
+}
+
+func unixTime(seconds int64) *time.Time {
+	if seconds <= 0 {
+		return nil
+	}
+	value := time.Unix(seconds, 0).UTC()
+	return &value
 }
 
 func mapCFVerdict(verdict *string) string {

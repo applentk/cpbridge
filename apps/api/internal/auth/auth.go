@@ -2,17 +2,18 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/cpbridge/api/internal/idgen"
+	"github.com/cpbridge/api/internal/ratelimit"
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -51,57 +52,46 @@ type Service struct {
 }
 
 func NewService(db *sql.DB) *Service {
-	secret := os.Getenv("JWT_SECRET")
-	env := os.Getenv("ENV")
+	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	if secret == "" {
+		// NewService is retained for package-level tests and local callers. The
+		// server uses NewServiceFromEnv, which fails closed outside development.
+		secret = randomSecret()
+	}
+	return &Service{db: db, jwtSecret: []byte(secret)}
+}
+
+// NewServiceFromEnv is the startup constructor. A deployment must explicitly
+// opt into development mode to run without a configured JWT_SECRET.
+func NewServiceFromEnv(db *sql.DB) (*Service, error) {
+	secret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("ENV")))
 	if env == "" {
-		env = os.Getenv("NODE_ENV")
+		env = strings.ToLower(strings.TrimSpace(os.Getenv("NODE_ENV")))
 	}
-	isProd := env == "production" || env == "prod"
+	isDevelopment := env == "development" || env == "dev" || env == "test"
+	if !isDevelopment && secret == "" {
+		return nil, errors.New("JWT_SECRET is required unless ENV is explicitly development")
+	}
+	if secret != "" && len(secret) < 32 {
+		return nil, errors.New("JWT_SECRET must be at least 32 characters long")
+	}
+	if secret == "" {
+		secret = randomSecret()
+	}
+	return &Service{db: db, jwtSecret: []byte(secret)}, nil
+}
 
-	if isProd {
-		if secret == "" {
-			log.Fatal("FATAL: JWT_SECRET environment variable is required in production")
-		}
-		if len(secret) < 32 {
-			log.Fatal("FATAL: JWT_SECRET must be at least 32 characters long in production")
-		}
-	} else if secret == "" {
-		secret = "cp-hub-super-secret-key-change-in-production-2026-min-32-bytes"
+func randomSecret() string {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		panic("failed to generate JWT secret")
 	}
-
-	s := &Service{
-		db:        db,
-		jwtSecret: []byte(secret),
-	}
-	return s
+	return fmt.Sprintf("%x", buf)
 }
 
 func (s *Service) SetJWTSecret(secret string) {
 	s.jwtSecret = []byte(secret)
-}
-
-func (s *Service) BootstrapInitialAdmin(ctx context.Context) error {
-	initialEmail := strings.TrimSpace(strings.ToLower(os.Getenv("INITIAL_ADMIN_EMAIL")))
-	if initialEmail == "" {
-		return nil
-	}
-
-	var adminCount int
-	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = $1 AND is_active = true", RoleAdmin).Scan(&adminCount)
-	if err != nil {
-		return err
-	}
-
-	if adminCount == 0 {
-		res, err := s.db.ExecContext(ctx, "UPDATE users SET role = $1, is_active = true WHERE LOWER(email) = LOWER($2)", RoleAdmin, initialEmail)
-		if err != nil {
-			return err
-		}
-		if rows, _ := res.RowsAffected(); rows > 0 {
-			log.Printf("Promoted initial admin email %s to ADMIN role", initialEmail)
-		}
-	}
-	return nil
 }
 
 func (s *Service) Register(ctx context.Context, email, username, password string) (*User, string, error) {
@@ -123,22 +113,12 @@ func (s *Service) Register(ctx context.Context, email, username, password string
 		return nil, "", fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	role := RoleUser
-	initialEmail := strings.TrimSpace(strings.ToLower(os.Getenv("INITIAL_ADMIN_EMAIL")))
-	if initialEmail != "" && email == initialEmail {
-		var adminCount int
-		_ = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = $1 AND is_active = true", RoleAdmin).Scan(&adminCount)
-		if adminCount == 0 {
-			role = RoleAdmin
-		}
-	}
-
 	user := &User{
 		ID:           idgen.New(idgen.PrefixUser),
 		Email:        email,
 		Username:     username,
 		PasswordHash: string(hash),
-		Role:         role,
+		Role:         RoleUser,
 		IsActive:     true,
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
@@ -445,10 +425,11 @@ func GetUserFromContext(ctx context.Context) *Claims {
 
 type Handler struct {
 	service *Service
+	limiter *ratelimit.Limiter
 }
 
 func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+	return &Handler{service: service, limiter: ratelimit.New(10000)}
 }
 
 func (h *Handler) Routes() chi.Router {
@@ -474,7 +455,11 @@ type loginReq struct {
 }
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
+	if !h.allowAuthRequest(w, r, "register") {
+		return
+	}
 	var req registerReq
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -499,11 +484,18 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	if !h.allowAuthRequest(w, r, "login") {
+		return
+	}
 	var req loginReq
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+	if !h.allowAuthRequest(w, r, "login:"+strings.ToLower(strings.TrimSpace(req.EmailOrUsername))) {
 		return
 	}
 
@@ -524,6 +516,29 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		"user":  user,
 		"token": token,
 	})
+}
+
+func (h *Handler) allowAuthRequest(w http.ResponseWriter, r *http.Request, key string) bool {
+	if h.limiter == nil {
+		h.limiter = ratelimit.New(10000)
+	}
+	limit := 60
+	if strings.HasPrefix(key, "login:") {
+		limit = 10
+	}
+	ok, retryAfter := h.limiter.Allow(ratelimit.ClientIP(r)+"|"+key, limit, time.Minute, time.Now())
+	if ok {
+		return true
+	}
+	seconds := int(retryAfter.Seconds())
+	if seconds < 1 {
+		seconds = 1
+	}
+	w.Header().Set("Retry-After", fmt.Sprintf("%d", seconds))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": "too many authentication attempts"})
+	return false
 }
 
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {

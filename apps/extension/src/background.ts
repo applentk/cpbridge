@@ -13,6 +13,27 @@ import { checkAtCoderSession, submitAtCoder, pollAtCoderStatus } from './platfor
 
 const DISPATCH_STORAGE_PREFIX = 'cp_hub_dispatch:';
 
+const TRUSTED_PAGE_ORIGINS = new Set([
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:8080',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:8080',
+  'https://cphub.dev',
+  'https://app.cphub.dev'
+]);
+
+function isTrustedSender(sender: chrome.runtime.MessageSender): boolean {
+  const pageURL = sender.tab?.url;
+  if (!pageURL) return false;
+  try {
+    return TRUSTED_PAGE_ORIGINS.has(new URL(pageURL).origin);
+  } catch {
+    return false;
+  }
+}
+
 type StoredDispatch = ExtensionRecoveredSubmission;
 
 const inFlightSubmissions = new Map<string, Promise<ExtensionSubmissionCreatedResponse | ExtensionSubmissionFailedResponse>>();
@@ -100,7 +121,16 @@ async function dispatchSubmission(message: ExtensionSubmitRequest): Promise<Exte
   }
 }
 
-chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
+  if (!isTrustedSender(sender)) {
+    sendResponse({
+      type: 'SUBMISSION_FAILED',
+      submissionId: 'submissionId' in message ? String(message.submissionId || '') : '',
+      error: 'PLATFORM_UNAVAILABLE',
+      message: 'Untrusted page origin'
+    });
+    return false;
+  }
   handleMessage(message)
     .then(sendResponse)
     .catch((err) => {
