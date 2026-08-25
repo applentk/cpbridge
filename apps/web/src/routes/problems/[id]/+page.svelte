@@ -854,8 +854,8 @@
     </div>
   {/if}
 
-  <div class={contest ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-6 items-start' : 'space-y-4'}>
-    <main class={contest ? 'min-w-0 space-y-4' : 'space-y-4'}>
+  <div class={contest ? 'grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-6 items-start' : 'space-y-4'}>
+    <main class={contest ? 'min-w-0 space-y-4 lg:col-start-2 lg:row-start-1' : 'space-y-4'}>
       {#if loading}
         <!-- Problem Section Skeleton -->
         <div class="space-y-4">
@@ -1495,7 +1495,7 @@
       </main>
 
       {#if contest && contestProblems.length > 0}
-        <aside class="lg:sticky lg:top-4 p-4 rounded-2xl border border-zinc-800 bg-zinc-900/70 shadow-xl space-y-3">
+        <aside class="lg:col-start-1 lg:row-start-1 lg:sticky lg:top-20 self-start p-4 rounded-2xl border border-zinc-800 bg-zinc-900/70 shadow-xl space-y-3">
           <div class="flex items-center justify-between text-xs text-zinc-400">
             <div class="flex items-center space-x-1.5 font-semibold uppercase tracking-wider text-[11px]">
               <Layers class="w-3.5 h-3.5" />
