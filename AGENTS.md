@@ -102,7 +102,10 @@ cd apps/api && go test -v ./...
 # 4. Run frontend tests (MANDATORY even when only modifying apps/api)
 rtk pnpm --filter @cpbridge/web test
 
-# 5. Build browser extension & frontend web app
+# 5. Run browser extension unit tests
+rtk pnpm --filter @cpbridge/extension test
+
+# 6. Build browser extension & frontend web app
 rtk pnpm --filter @cpbridge/extension build
 rtk pnpm --filter @cpbridge/web build
 ```

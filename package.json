@@ -11,6 +11,7 @@
     "package:ext": "pnpm --filter @cpbridge/extension package",
     "build": "pnpm --recursive run build",
     "test:api": "cd apps/api && go test -v ./...",
+    "test:extension": "pnpm --filter @cpbridge/extension test",
     "test:web": "pnpm --filter @cpbridge/web test",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

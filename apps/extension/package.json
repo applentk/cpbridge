@@ -9,7 +9,8 @@
     "package": "vite build && node scripts/package.js",
     "check": "tsc --noEmit",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "@cpbridge/contracts": "workspace:*"

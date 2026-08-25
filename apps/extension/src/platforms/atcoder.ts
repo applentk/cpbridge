@@ -3,7 +3,7 @@ import type { LanguageId } from '@cpbridge/contracts';
 // Fallbacks only. AtCoder's language IDs change when compiler versions change;
 // submitAtCoder reads the current IDs from the submit form first.
 const AC_LANGUAGE_MAP: Record<LanguageId, string> = {
-  cpp23: '5052', python3: '5078', java21: '5005'
+  cpp23: '6017', python3: '6082', java21: '6056'
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -15,7 +15,8 @@ function cleanOptionText(value: string): string {
 function getOptionValue(html: string, language: LanguageId): string | undefined {
   const wanted: Record<LanguageId, RegExp[]> = {
     cpp23: [/c\+\+\s*23/, /c\+\+\s*20/, /c\+\+/],
-    python3: [/python.*3/, /pypy.*3/], java21: [/java\s*21/, /java\s*17/, /java/]
+    python3: [/python.*3/, /pypy.*3/],
+    java21: [/^java\s*24\b/, /^java\s*21\b/, /^java\s*17\b/, /^java(?:\s*\d+|\s*\()/]
   };
   const options = [...html.matchAll(/<option\b[^>]*value=["']([^"']+)["'][^>]*>([\s\S]*?)<\/option>/gi)];
   for (const pattern of wanted[language]) {
@@ -166,7 +167,7 @@ async function submitAtCoderFromSameOriginPage(
         const languagePatterns: Record<string, RegExp[]> = {
           cpp23: [/c\+\+\s*23.*gcc/i, /c\+\+\s*20.*gcc/i, /c\+\+/i],
           python3: [/python.*cpython.*3/i, /python.*3/i, /pypy.*3/i],
-          java21: [/java\s*21/i, /java\s*17/i, /java/i]
+          java21: [/^java\s*24\b/i, /^java\s*21\b/i, /^java\s*17\b/i, /^java(?:\s*\d+|\s*\()/i]
         };
         const taskLanguageSelect = document
           .getElementById(`select-lang-${args.taskId}`)

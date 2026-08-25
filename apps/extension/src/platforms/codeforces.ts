@@ -3,7 +3,7 @@ import type { LanguageId } from '@cpbridge/contracts';
 // Fallbacks only: Codeforces changes compiler IDs periodically. The submit form
 // is the source of truth whenever it is available.
 const CF_LANGUAGE_MAP: Record<LanguageId, string> = {
-  cpp23: '89', python3: '70', java21: '87'
+  cpp23: '91', python3: '70', java21: '87'
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -28,7 +28,10 @@ function htmlText(value: string): string {
 function getOptionValue(html: string, language: LanguageId): string | undefined {
   const wanted: Record<LanguageId, RegExp[]> = {
     cpp23: [/c\+\+\s*23/, /gnu c\+\+\s*23/, /c\+\+\s*20/],
-    python3: [/python.*3/, /pypy.*3/], java21: [/java\s*21/, /java\s*17/]
+    python3: [/python.*3/, /pypy.*3/],
+    // Some contests expose only an older Java runtime. Prefer Java 21, then
+    // fall back to another real Java compiler without matching JavaScript.
+    java21: [/^java\s*21\b/, /^java\s*17\b/, /^java(?:\s*\d+|\s*\()/]
   };
   const options = [...html.matchAll(/<option\b[^>]*value=["']([^"']+)["'][^>]*>([\s\S]*?)<\/option>/gi)];
   for (const pattern of wanted[language]) {
