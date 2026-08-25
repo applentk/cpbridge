@@ -4,6 +4,7 @@ import type {
   ExtensionRecoverSubmissionsResponse,
   ExtensionSubmissionCreatedResponse,
   ExtensionSubmissionFailedResponse,
+  ExtensionStatusPollResponse,
   LanguageId,
   PlatformType,
 } from '@cpbridge/contracts';
@@ -17,7 +18,7 @@ export interface ExtensionBridgeStatus {
   platforms: Record<PlatformType, { loggedIn: boolean; username?: string }>;
 }
 
-const pendingCallbacks = new Map<string, (response: any) => void>();
+const pendingCallbacks = new Map<string, (response: unknown) => void>();
 
 if (typeof window !== 'undefined') {
   window.addEventListener('message', (event) => {
@@ -99,7 +100,7 @@ export async function pollStatusViaExtension(
   url: string
 ): Promise<{ status: string } | null> {
   try {
-    const res = await sendToExtension<any>({
+    const res = await sendToExtension<ExtensionStatusPollResponse>({
       type: 'POLL_STATUS',
       platform,
       externalSubmissionId,

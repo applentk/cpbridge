@@ -8,7 +8,7 @@
   export let state: ContestState;
 
   let remainingText = '';
-  let interval: any;
+  let interval: ReturnType<typeof setInterval> | undefined;
 
   function update() {
     const now = Date.now();

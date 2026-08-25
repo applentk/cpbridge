@@ -27,8 +27,8 @@
       ]);
       stats = statsRes;
       recentContests = contestsRes.slice(0, 5);
-    } catch (err: any) {
-      error = err.message || 'Failed to load dashboard statistics';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load dashboard statistics';
     } finally {
       loading = false;
     }

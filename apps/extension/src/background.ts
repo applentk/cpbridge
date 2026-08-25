@@ -83,12 +83,12 @@ async function dispatchSubmission(message: ExtensionSubmitRequest): Promise<Exte
       externalSubmissionId
     });
     return successResp;
-  } catch (err: any) {
-    const messageText = err.message || 'Unknown extension error';
+  } catch (err) {
+    const messageText = err instanceof Error ? err.message : 'Unknown extension error';
     const errResp: ExtensionSubmissionFailedResponse = {
       type: 'SUBMISSION_FAILED',
       submissionId: message.submissionId,
-      error: err.message === 'NOT_LOGGED_IN' ? 'NOT_LOGGED_IN' : 'SUBMISSION_FAILED',
+      error: messageText === 'NOT_LOGGED_IN' ? 'NOT_LOGGED_IN' : 'SUBMISSION_FAILED',
       message: messageText
     };
     await storeDispatch({
@@ -104,17 +104,18 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
   handleMessage(message)
     .then(sendResponse)
     .catch((err) => {
+      const submissionId = 'submissionId' in message ? String(message.submissionId || '') : '';
       sendResponse({
         type: 'SUBMISSION_FAILED',
-        submissionId: (message as any).submissionId || '',
+        submissionId,
         error: 'UNKNOWN',
-        message: err.message || 'Unknown extension error'
+        message: err instanceof Error ? err.message : 'Unknown extension error'
       });
     });
   return true; // keep channel open for async response
 });
 
-async function handleMessage(message: ExtensionMessage): Promise<any> {
+async function handleMessage(message: ExtensionMessage): Promise<unknown> {
   if (message.type === 'PING') {
     const [cf, ac] = await Promise.all([
       checkCodeforcesSession(),
@@ -212,7 +213,7 @@ async function handleMessage(message: ExtensionMessage): Promise<any> {
     const pollResp: ExtensionStatusPollResponse = {
       type: 'POLL_STATUS_RESULT',
       externalSubmissionId: message.externalSubmissionId,
-      status: resultStatus as any
+      status: resultStatus as ExtensionStatusPollResponse['status']
     };
     return pollResp;
   }

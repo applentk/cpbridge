@@ -16,8 +16,8 @@
     error = '';
     try {
       user = await api.get<User>(`/admin/users/${userId}`);
-    } catch (err: any) {
-      error = err.message || 'Failed to load user';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load user';
     } finally {
       loading = false;
     }
@@ -30,11 +30,12 @@
       successMsg = `Role changed to ${newRole}!`;
       setTimeout(() => (successMsg = ''), 4000);
       await loadUser();
-    } catch (err: any) {
-      if (err.message === 'LAST_ADMIN') {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '';
+      if (errMsg === 'LAST_ADMIN') {
         alert('Action rejected: You cannot demote the last active administrator.');
       } else {
-        alert(err.message || 'Failed to change role');
+        alert(errMsg || 'Failed to change role');
       }
     }
   }
@@ -50,11 +51,12 @@
       successMsg = `Account "${user.username}" is now ${nextStatus ? 'active' : 'disabled'}!`;
       setTimeout(() => (successMsg = ''), 4000);
       await loadUser();
-    } catch (err: any) {
-      if (err.message === 'LAST_ADMIN') {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '';
+      if (errMsg === 'LAST_ADMIN') {
         alert('Action rejected: You cannot disable the last active administrator.');
       } else {
-        alert(err.message || 'Failed to change status');
+        alert(errMsg || 'Failed to change status');
       }
     }
   }

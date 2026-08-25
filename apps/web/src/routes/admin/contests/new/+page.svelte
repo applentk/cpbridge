@@ -38,8 +38,8 @@
       if (problemSets.length > 0 && !selectedSetId) {
         selectedSetId = problemSets[0].id;
       }
-    } catch (err: any) {
-      error = err.message || 'Failed to load problem sets';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load problem sets';
     } finally {
       _loading = false;
     }
@@ -80,7 +80,7 @@
 
       const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
 
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         name: name.trim(),
         description: description.trim(),
         startAt: startTime.toISOString(),
@@ -98,8 +98,8 @@
 
       await api.post('/admin/contests', payload);
       goto('/admin/contests');
-    } catch (err: any) {
-      error = err.message || 'Failed to create contest';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to create contest';
     } finally {
       submitting = false;
     }

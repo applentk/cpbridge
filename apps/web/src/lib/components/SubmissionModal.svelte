@@ -9,7 +9,7 @@
   export let onClose: () => void = () => {};
 
   let copied = false;
-  let copyTimeout: any = null;
+  let copyTimeout: ReturnType<typeof setTimeout> | null = null;
 
   function judgingOutput(error: unknown): string {
     if (typeof error !== 'string') return '';

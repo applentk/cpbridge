@@ -12,7 +12,7 @@
   let standings: Standings | null = null;
   let loading = true;
   let error = '';
-  let interval: any;
+  let interval: ReturnType<typeof setInterval> | undefined;
 
   async function loadData() {
     try {
@@ -22,8 +22,8 @@
       ]);
       contest = cRes;
       standings = sRes;
-    } catch (err: any) {
-      error = err.message || 'Failed to load standings';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load standings';
     } finally {
       loading = false;
     }

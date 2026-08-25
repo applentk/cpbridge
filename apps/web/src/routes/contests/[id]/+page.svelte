@@ -13,14 +13,14 @@
   let problems: ContestProblem[] = [];
   let loading = true;
   let error = '';
-  let interval: any;
+  let interval: ReturnType<typeof setInterval> | undefined;
 
   async function loadContest() {
     try {
       contest = await api.get<Contest>(`/contests/${contestId}`);
       problems = contest.problems || [];
-    } catch (err: any) {
-      error = err.message || 'Failed to load contest';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load contest';
     } finally {
       loading = false;
     }
@@ -34,8 +34,8 @@
     try {
       await api.post(`/contests/${contestId}/join`);
       await loadContest();
-    } catch (err: any) {
-      alert(err.message || 'Failed to join contest');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to join contest');
     }
   }
 

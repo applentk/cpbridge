@@ -26,7 +26,7 @@ export interface Submission {
   sourceUrl?: string | null;
   submittedAt: string;
   judgedAt?: string | null;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   username?: string;
   problemTitle?: string;
 }
@@ -44,5 +44,5 @@ export interface UpdateSubmissionDispatchedRequest {
 
 export interface UpdateSubmissionResultRequest {
   status: SubmissionStatus;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }

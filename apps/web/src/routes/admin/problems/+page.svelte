@@ -59,8 +59,8 @@
       const res = await api.get<{ problems: Problem[]; total: number }>(url);
       problems = res.problems;
       _total = res.total;
-    } catch (err: any) {
-      error = err.message || 'Failed to load problems';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load problems';
     } finally {
       loading = false;
     }
@@ -77,8 +77,8 @@
       successMsg = 'Problem imported successfully!';
       setTimeout(() => (successMsg = ''), 4000);
       await loadProblems();
-    } catch (err: any) {
-      importError = err.message || 'Failed to import problem';
+    } catch (err) {
+      importError = err instanceof Error ? err.message : 'Failed to import problem';
     } finally {
       importing = false;
     }
@@ -112,8 +112,8 @@
       successMsg = 'Custom problem created successfully!';
       setTimeout(() => (successMsg = ''), 4000);
       await loadProblems();
-    } catch (err: any) {
-      createError = err.message || 'Failed to create problem';
+    } catch (err) {
+      createError = err instanceof Error ? err.message : 'Failed to create problem';
     } finally {
       creating = false;
     }
@@ -148,8 +148,8 @@
       successMsg = 'Problem updated successfully!';
       setTimeout(() => (successMsg = ''), 4000);
       await loadProblems();
-    } catch (err: any) {
-      editError = err.message || 'Failed to update problem';
+    } catch (err) {
+      editError = err instanceof Error ? err.message : 'Failed to update problem';
     } finally {
       updating = false;
     }
@@ -162,11 +162,12 @@
       successMsg = 'Problem deleted successfully!';
       setTimeout(() => (successMsg = ''), 4000);
       await loadProblems();
-    } catch (err: any) {
-      if (err.message === 'PROBLEM_IN_USE') {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '';
+      if (errMsg === 'PROBLEM_IN_USE') {
         alert('Cannot delete this problem because it is currently used in an active or scheduled contest.');
       } else {
-        alert(err.message || 'Failed to delete problem');
+        alert(errMsg || 'Failed to delete problem');
       }
     }
   }

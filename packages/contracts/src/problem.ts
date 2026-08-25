@@ -34,7 +34,7 @@ export interface Problem {
   url: string;
   difficulty: number | null;
   tags: string[];
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -61,7 +61,7 @@ export interface UpdateProblemRequest {
   url?: string;
   difficulty?: number | null;
   tags?: string[];
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ExtractStatementRequest {

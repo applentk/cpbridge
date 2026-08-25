@@ -18,8 +18,8 @@
   let startAt = '';
   let endAt = '';
   let visibility = 'PUBLIC';
-  let scoringType: any = 'ICPC';
-  let publicationStatus: any = 'PUBLISHED';
+  let scoringType: Contest['scoringType'] = 'ICPC';
+  let publicationStatus: Contest['publicationStatus'] = 'PUBLISHED';
   let saving = false;
 
   // Add Problem Modal
@@ -41,8 +41,8 @@
       visibility = contest.visibility;
       scoringType = contest.scoringType;
       publicationStatus = contest.publicationStatus;
-    } catch (err: any) {
-      error = err.message || 'Failed to load contest';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load contest';
     } finally {
       loading = false;
     }
@@ -52,7 +52,7 @@
     if (!name.trim()) return;
     saving = true;
     try {
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         name: name.trim(),
         description: description.trim(),
         endAt: new Date(endAt).toISOString(),
@@ -69,8 +69,8 @@
       successMsg = 'Contest details updated successfully!';
       setTimeout(() => (successMsg = ''), 4000);
       await loadContest();
-    } catch (err: any) {
-      alert(err.message || 'Failed to save contest');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to save contest');
     } finally {
       saving = false;
     }
@@ -99,8 +99,8 @@
       successMsg = `Added problem "${prob.title}"!`;
       setTimeout(() => (successMsg = ''), 4000);
       await loadContest();
-    } catch (err: any) {
-      alert(err.message || 'Failed to add problem');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to add problem');
     }
   }
 
@@ -109,8 +109,8 @@
     try {
       await api.delete(`/admin/contests/${contestId}/problems/${problemId}`);
       await loadContest();
-    } catch (err: any) {
-      alert(err.message || 'Failed to remove problem');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to remove problem');
     }
   }
 
@@ -127,8 +127,8 @@
     const pids = problems.map((cp) => cp.problemId);
     try {
       await api.patch(`/admin/contests/${contestId}/problem-order`, { problemIds: pids });
-    } catch (err: any) {
-      alert(err.message || 'Failed to reorder problems');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to reorder problems');
       await loadContest();
     }
   }

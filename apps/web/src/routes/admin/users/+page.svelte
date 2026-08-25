@@ -17,8 +17,8 @@
       let url = '/admin/users';
       if (searchQuery.trim()) url += `?search=${encodeURIComponent(searchQuery.trim())}`;
       users = await api.get<User[]>(url);
-    } catch (err: any) {
-      error = err.message || 'Failed to load users';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load users';
     } finally {
       loading = false;
     }
@@ -31,11 +31,12 @@
       successMsg = `Updated ${user.username}'s role to ${newRole}!`;
       setTimeout(() => (successMsg = ''), 4000);
       await loadUsers();
-    } catch (err: any) {
-      if (err.message === 'LAST_ADMIN') {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '';
+      if (errMsg === 'LAST_ADMIN') {
         alert('Action rejected: You cannot demote the last active administrator.');
       } else {
-        alert(err.message || 'Failed to update user role');
+        alert(errMsg || 'Failed to update user role');
       }
     }
   }
@@ -50,11 +51,12 @@
       successMsg = `Account "${user.username}" is now ${nextStatus ? 'active' : 'disabled'}!`;
       setTimeout(() => (successMsg = ''), 4000);
       await loadUsers();
-    } catch (err: any) {
-      if (err.message === 'LAST_ADMIN') {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '';
+      if (errMsg === 'LAST_ADMIN') {
         alert('Action rejected: You cannot disable the last active administrator.');
       } else {
-        alert(err.message || 'Failed to update user status');
+        alert(errMsg || 'Failed to update user status');
       }
     }
   }

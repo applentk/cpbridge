@@ -23,8 +23,8 @@
       });
       auth.setAuth(res.user, res.token);
       await goto(res.user.role === 'ADMIN' ? '/admin' : '/dashboard');
-    } catch (err: any) {
-      error = err.message || 'Registration failed';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Registration failed';
     } finally {
       loading = false;
     }

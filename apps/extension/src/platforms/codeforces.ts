@@ -167,11 +167,12 @@ export async function submitCodeforces(contestId: string, index: string, languag
       const id = await waitForCodeforcesSubmission(contestId, index, knownIds);
       if (id) return { externalSubmissionId: id };
       throw new Error('Codeforces accepted the request, but it could not uniquely identify your new submission. Check the Codeforces submissions page.');
-    } catch (err: any) {
-      if (err.message === 'NOT_LOGGED_IN') throw err;
+    } catch (err: unknown) {
+      const errObj = err instanceof Error ? err : undefined;
+      if (errObj?.message === 'NOT_LOGGED_IN') throw err;
       // Some browser/network exceptions have an empty `message` (or are
       // thrown as strings). Never surface a blank "Codeforces: " error.
-      const errorText = typeof err === 'string' ? err.trim() : String(err?.message || '').trim();
+      const errorText = typeof err === 'string' ? err.trim() : String(errObj?.message || '').trim();
       lastError = errorText || `Request failed while ${postSent ? 'sending the submission to' : 'opening'} Codeforces`;
       if (postSent) throw new Error(`Codeforces: ${lastError}`, { cause: err });
     }
@@ -185,9 +186,9 @@ export async function pollCodeforcesStatus(contestId: string, externalSubmission
     const res = await fetch(`https://codeforces.com/api/contest.status?contestId=${contestId}&from=1&count=100`, { method: 'GET', credentials: 'include' });
     if (res.ok) {
       const data = await res.json();
-      const sub = data.status === 'OK' && Array.isArray(data.result) ? data.result.find((item: any) => String(item.id) === String(externalSubmissionId)) : undefined;
+      const sub = data.status === 'OK' && Array.isArray(data.result) ? data.result.find((item: { id?: number | string; verdict?: string }) => String(item.id) === String(externalSubmissionId)) : undefined;
       if (sub?.verdict) {
-        const verdicts: Record<string, any> = {
+        const verdicts: Record<string, 'JUDGING' | 'ACCEPTED' | 'WRONG_ANSWER' | 'TIME_LIMIT' | 'MEMORY_LIMIT' | 'RUNTIME_ERROR' | 'COMPILE_ERROR' | 'FAILED'> = {
           OK: 'ACCEPTED', WRONG_ANSWER: 'WRONG_ANSWER', TIME_LIMIT_EXCEEDED: 'TIME_LIMIT', MEMORY_LIMIT_EXCEEDED: 'MEMORY_LIMIT',
           COMPILATION_ERROR: 'COMPILE_ERROR', RUNTIME_ERROR: 'RUNTIME_ERROR', CHALLENGED: 'FAILED', SKIPPED: 'FAILED', FAILED: 'FAILED',
           SECURITY_VIOLATED: 'FAILED', CRASHED: 'FAILED'

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { setupApiMocks, loginAs } from './fixtures/api-mock';
-import { mockAdminUser, mockRegularUser, mockProblems } from './fixtures/mock-data';
+import { mockAdminUser, mockRegularUser } from './fixtures/mock-data';
 
 test.describe('Admin Dashboard & Management', () => {
   test('admin dashboard renders system overview statistics and quick actions', async ({ page }) => {
@@ -186,9 +186,7 @@ test.describe('Admin Dashboard & Management', () => {
   });
 
   test('PROBLEM_IN_USE deletion prevention rejects deleting problem in active contest', async ({ page }) => {
-    let alertMessage = '';
     page.on('dialog', async (dialog) => {
-      alertMessage = dialog.message();
       await dialog.accept();
     });
 

@@ -22,8 +22,8 @@
     error = '';
     try {
       problemSets = await api.get<ProblemSet[]>('/admin/problem-sets');
-    } catch (err: any) {
-      error = err.message || 'Failed to load problem sets';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load problem sets';
     } finally {
       loading = false;
     }
@@ -48,8 +48,8 @@
       successMsg = 'Problem Set created successfully!';
       setTimeout(() => (successMsg = ''), 4000);
       await loadProblemSets();
-    } catch (err: any) {
-      createError = err.message || 'Failed to create problem set';
+    } catch (err) {
+      createError = err instanceof Error ? err.message : 'Failed to create problem set';
     } finally {
       creating = false;
     }
@@ -62,8 +62,8 @@
       successMsg = 'Problem Set deleted!';
       setTimeout(() => (successMsg = ''), 4000);
       await loadProblemSets();
-    } catch (err: any) {
-      alert(err.message || 'Failed to delete problem set');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete problem set');
     }
   }
 

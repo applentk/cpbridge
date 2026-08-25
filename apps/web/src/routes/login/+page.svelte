@@ -21,8 +21,8 @@
       });
       auth.setAuth(res.user, res.token);
       await goto(res.user.role === 'ADMIN' ? '/admin' : '/dashboard');
-    } catch (err: any) {
-      error = err.message || 'Login failed';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Login failed';
     } finally {
       loading = false;
     }

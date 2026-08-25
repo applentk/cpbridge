@@ -14,8 +14,8 @@
     error = '';
     try {
       contests = await api.get<Contest[]>('/admin/contests');
-    } catch (err: any) {
-      error = err.message || 'Failed to load contests';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load contests';
     } finally {
       loading = false;
     }
@@ -28,8 +28,8 @@
       successMsg = `Contest is now ${nextStatus}!`;
       setTimeout(() => (successMsg = ''), 4000);
       await loadContests();
-    } catch (err: any) {
-      alert(err.message || 'Failed to update publication status');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update publication status');
     }
   }
 
@@ -40,8 +40,8 @@
       successMsg = 'Contest deleted successfully!';
       setTimeout(() => (successMsg = ''), 4000);
       await loadContests();
-    } catch (err: any) {
-      alert(err.message || 'Failed to delete contest');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete contest');
     }
   }
 

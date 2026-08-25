@@ -10,7 +10,7 @@
   let submissions: Submission[] = [];
   let loading = true;
   let filterUser = '';
-  let interval: any = null;
+  let interval: ReturnType<typeof setInterval> | null = null;
   let viewingSubmission: Submission | null = null;
 
   async function loadSubmissions(silent = false) {
@@ -146,7 +146,7 @@
                   }">
                     {s.status}
                   </span>
-                  {#if s.metadata && s.metadata.error}
+                  {#if s.metadata && typeof s.metadata.error === 'string'}
                     <div class="text-[11px] font-sans text-rose-400 max-w-xs truncate" title={s.metadata.error}>
                       {s.metadata.error}
                     </div>

@@ -76,7 +76,7 @@
   let submissionsLoading = false;
   let submissionsInitialized = false;
   let viewingSubmission: Submission | null = null;
-  let pollInterval: any = null;
+  let pollInterval: ReturnType<typeof setInterval> | null = null;
 
   let uploadSuccessMessage = '';
   let fileInputElement: HTMLInputElement;
@@ -219,7 +219,7 @@
       }
 
       const qParam = cId ? `?contestId=${encodeURIComponent(cId)}` : '';
-      const primaryPromises: Promise<any>[] = [
+      const primaryPromises: [Promise<Problem>, Promise<void>, Promise<void>?] = [
         api.get<Problem>(`/problems/${pId}${qParam}`),
         loadStatement(pId, cId)
       ];
@@ -244,8 +244,8 @@
       // Submission history is intentionally independent: it can be slow due
       // to verdict synchronization, but must never delay the statement.
       void loadInitialSubmissions(pId, cId);
-    } catch (err: any) {
-      error = err.message || 'Failed to load problem';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load problem';
     } finally {
       loading = false;
     }
@@ -439,7 +439,7 @@
             }
           } catch {}
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error('Polling error:', err);
       }
     }, 2500);
@@ -554,20 +554,21 @@
       }
 
       await loadSubmissions(problem.id, contestId);
-    } catch (err: any) {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err || 'Unknown error');
       const dispatchMayStillBeRunning = extensionDispatchStarted;
       if (!dispatchMayStillBeRunning && isDuplicateSubmissionError(err)) {
         submitStatus = 'This exact solution was already submitted. It was not sent to the external judge.';
       } else {
         submitStatus = dispatchMayStillBeRunning
           ? 'Dispatch is still being completed by the extension. You can safely reload this page.'
-          : `Submission error: ${err.message}`;
+          : `Submission error: ${errMsg}`;
       }
       if (createdSub && !dispatchMayStillBeRunning) {
         try {
           await api.post(`/submissions/${createdSub.id}/result`, {
             status: 'FAILED',
-            metadata: { error: err.message }
+            metadata: { error: errMsg }
           });
           if (activeSubmission) activeSubmission.status = 'FAILED';
         } catch {}

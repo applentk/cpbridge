@@ -15,7 +15,7 @@
   // Metadata form
   let editName = '';
   let editDescription = '';
-  let editVisibility: any = 'PUBLIC';
+  let editVisibility: ProblemSet['visibility'] = 'PUBLIC';
   let savingMeta = false;
 
   // Add Problem Modal
@@ -33,8 +33,8 @@
       editName = set.name;
       editDescription = set.description;
       editVisibility = set.visibility;
-    } catch (err: any) {
-      error = err.message || 'Failed to load problem set';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load problem set';
     } finally {
       loading = false;
     }
@@ -52,8 +52,8 @@
       successMsg = 'Problem set updated successfully!';
       setTimeout(() => (successMsg = ''), 4000);
       await loadSet();
-    } catch (err: any) {
-      alert(err.message || 'Failed to update metadata');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update metadata');
     } finally {
       savingMeta = false;
     }
@@ -82,8 +82,8 @@
       successMsg = `Added problem "${prob.title}"!`;
       setTimeout(() => (successMsg = ''), 4000);
       await loadSet();
-    } catch (err: any) {
-      alert(err.message || 'Failed to add problem');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to add problem');
     }
   }
 
@@ -91,8 +91,8 @@
     try {
       await api.delete(`/admin/problem-sets/${setId}/problems/${problemId}`);
       await loadSet();
-    } catch (err: any) {
-      alert(err.message || 'Failed to remove problem');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to remove problem');
     }
   }
 
@@ -109,8 +109,8 @@
     const pids = items.map((it) => it.problemId);
     try {
       await api.patch(`/admin/problem-sets/${setId}/order`, { problemIds: pids });
-    } catch (err: any) {
-      alert(err.message || 'Failed to reorder problems');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to reorder problems');
       await loadSet();
     }
   }

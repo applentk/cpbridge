@@ -25,7 +25,7 @@ export interface SetupApiMocksOptions {
   submissionError?: string;
   extensionPlatforms?: Record<string, { loggedIn: boolean; username?: string }>;
   extensionPollVerdict?: string;
-  recoveredSubmissions?: any[];
+  recoveredSubmissions?: unknown[];
 }
 
 export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = {}) {
@@ -35,7 +35,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
   const contestsList = options.contests ? [...options.contests] : [...mockContests];
   const problemSetsList = options.problemSets ? [...options.problemSets] : [...mockProblemSets];
   const submissionsList = options.submissions ? [...options.submissions] : [...mockSubmissions];
-  let currentStandings = options.standings ? JSON.parse(JSON.stringify(options.standings)) : JSON.parse(JSON.stringify(mockStandings));
+  const currentStandings = options.standings ? JSON.parse(JSON.stringify(options.standings)) : JSON.parse(JSON.stringify(mockStandings));
 
   // Provide mock Chrome Extension postMessage responder unless disabled
   if (!options.disableExtension) {
@@ -64,8 +64,8 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
                 payload: {
                   type: 'SUBMISSION_FAILED',
                   submissionId: payload.submissionId,
-                  error: 'SUBMISSION_FAILED',
-                  message: opts.submissionError,
+                  error: opts.submissionError,
+                  message: 'Platform submission failed',
                 },
               }, '*');
             } else {
@@ -75,7 +75,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
                 payload: {
                   type: 'SUBMISSION_CREATED',
                   submissionId: payload.submissionId,
-                  externalSubmissionId: `ext_${Date.now()}`,
+                  externalSubmissionId: `cf_${Date.now()}`,
                 },
               }, '*');
             }
@@ -110,7 +110,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
   }
 
   // Helper to reply with JSON
-  const jsonResponse = (route: Route, data: any, status = 200) => {
+  const jsonResponse = (route: Route, data: unknown, status = 200) => {
     return route.fulfill({
       status,
       contentType: 'application/json',
@@ -281,7 +281,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
         updatedAt: new Date().toISOString(),
         items: [],
       };
-      problemSetsList.push(newSet as any);
+      problemSetsList.push(newSet as ProblemSet);
       return jsonResponse(route, newSet);
     }
 
@@ -398,7 +398,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       const body = JSON.parse(route.request().postData() || '{}');
       const contest = contestsList.find((c) => c.id === cId);
       if (contest && contest.problems && Array.isArray(body.problemIds)) {
-        const reordered: any[] = [];
+        const reordered: NonNullable<Contest['problems']> = [];
         body.problemIds.forEach((pid: string, idx: number) => {
           const cp = contest.problems?.find((p) => p.problemId === pid);
           if (cp) {
@@ -430,7 +430,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
 
     if (path === '/admin/contests' && method === 'POST') {
       const body = JSON.parse(route.request().postData() || '{}');
-      let snapshottedProblems: any[] = [];
+      let snapshottedProblems: NonNullable<Contest['problems']> = [];
       if (body.problemSetId) {
         const sourceSet = problemSetsList.find((s) => s.id === body.problemSetId);
         if (sourceSet && sourceSet.items) {
@@ -497,7 +497,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
         externalSubmissionId: `cf_${Date.now()}`,
         language: body.language,
         sourceCode: body.sourceCode || '// Solution submitted in test',
-        status: options.extensionPollVerdict && options.extensionPollVerdict !== 'ACCEPTED' ? (options.extensionPollVerdict as any) : 'ACCEPTED',
+        status: (options.extensionPollVerdict && options.extensionPollVerdict !== 'ACCEPTED' ? options.extensionPollVerdict : 'ACCEPTED') as Submission['status'],
         submittedAt: new Date().toISOString(),
         judgedAt: new Date().toISOString(),
         problemTitle: 'Codehorses T-shirts',
@@ -510,7 +510,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
 
       // If contest submission, update mock standings
       if (body.contestId === 'con_active_icpc' && currentStandings) {
-        const userRow = currentStandings.standings.find((s: any) => s.userId === (currentUser?.id || 'usr_reg_123'));
+        const userRow = currentStandings.standings.find((s: { userId: string; problemScores: Record<string, { attempts: number }> }) => s.userId === (currentUser?.id || 'usr_reg_123'));
         if (userRow && userRow.problemScores[body.problemId]) {
           userRow.problemScores[body.problemId].attempts += 1;
         }
@@ -535,7 +535,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       const subId = submissionSyncMatch[1];
       const found = submissionsList.find((s) => s.id === subId) || submissionsList[0];
       if (options.extensionPollVerdict) {
-        found.status = options.extensionPollVerdict as any;
+        found.status = options.extensionPollVerdict as Submission['status'];
       } else {
         found.status = 'ACCEPTED';
       }

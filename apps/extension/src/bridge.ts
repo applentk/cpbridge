@@ -50,7 +50,8 @@ window.addEventListener('message', async (event) => {
       },
       currentOrigin
     );
-  } catch (err: any) {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Extension communication failed';
     window.postMessage(
       {
         source: EXTENSION_ORIGIN,
@@ -59,7 +60,7 @@ window.addEventListener('message', async (event) => {
           type: 'SUBMISSION_FAILED',
           submissionId: payload?.submissionId || '',
           error: 'PLATFORM_UNAVAILABLE',
-          message: err.message || 'Extension communication failed'
+          message
         }
       },
       currentOrigin
