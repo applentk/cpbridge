@@ -19,21 +19,21 @@ var (
 	titlePrefixRegex   = regexp.MustCompile(`(?i)^[a-z0-9]+\s*[-.:)]\s*`)
 	contestSuffixRegex = regexp.MustCompile(`(?i)\s+-\s+atcoder.*$`)
 
-	taskStatementRegex      = regexp.MustCompile(`(?s)<div id="task-statement">(.*?)</div>\s*<span class="center-block`)
-	taskStatementRegex2     = regexp.MustCompile(`(?s)<div id="task-statement">(.*)`)
-	langEnRegex             = regexp.MustCompile(`(?s)<span class="lang-en">(.*?)</span>\s*</span>`)
-	langJaRegex             = regexp.MustCompile(`(?is)<span class="lang-ja">.*?</span>`)
 	timeLimitRegex          = regexp.MustCompile(`Time Limit:\s*([0-9\.]+\s*sec)`)
-	memoryLimitRegex        = regexp.MustCompile(`Memory Limit:\s*([0-9\.]+\s*MB)`)
+	memoryLimitRegex        = regexp.MustCompile(`Memory Limit:\s*([0-9\.]+\s*(?:Mi?B|KB))`)
+	htmlTagRegex            = regexp.MustCompile(`(?is)<(/?)([a-z][a-z0-9:-]*)\b[^>]*>`)
+	idAttributeRegex        = regexp.MustCompile(`(?is)\bid\s*=\s*["']([^"']+)["']`)
+	classAttributeRegex     = regexp.MustCompile(`(?is)\bclass\s*=\s*["']([^"']+)["']`)
 	submissionTaskRegex     = regexp.MustCompile(`(?is)<th[^>]*>\s*Task\s*</th>\s*<td[^>]*>.*?/contests/([^/"']+)/tasks/([^"']+)`)
 	submissionLanguageRegex = regexp.MustCompile(`(?is)<th[^>]*>\s*Language\s*</th>\s*<td[^>]*>(.*?)</td>`)
 	submissionUserRegex     = regexp.MustCompile(`(?is)<a[^>]+href=["']/users/([^"']+)["']`)
 	submissionTimeRegex     = regexp.MustCompile(`(?is)<th[^>]*>\s*(?:Submitted At|Submission Time)\s*</th>\s*<td[^>]*>(.*?)</td>`)
-	sampleInputRegex        = regexp.MustCompile(`(?s)<h3>\s*Sample Input\s*\d*\s*</h3>\s*<pre>(.*?)</pre>`)
-	sampleOutputRegex       = regexp.MustCompile(`(?s)<h3>\s*Sample Output\s*\d*\s*</h3>\s*<pre>(.*?)</pre>`)
+	sampleInputRegex        = regexp.MustCompile(`(?is)<h3\b[^>]*>\s*Sample Input\s*\d*\s*</h3>\s*<pre[^>]*>(.*?)</pre>`)
+	sampleOutputRegex       = regexp.MustCompile(`(?is)<h3\b[^>]*>\s*Sample Output\s*\d*\s*</h3>\s*<pre[^>]*>(.*?)</pre>`)
 
 	// Cleaners for footer and duplicate sample blocks in statement html
-	sampleSectionRegex           = regexp.MustCompile(`(?is)<hr\s*/?>\s*<div class="part">\s*<section>\s*<h3>\s*Sample (?:Input|Output).*`)
+	sampleHeadingRegex           = regexp.MustCompile(`(?is)<h3\b[^>]*>\s*Sample (?:Input|Output)\s*\d*\s*</h3>`)
+	trailingHorizontalRuleRegex  = regexp.MustCompile(`(?is)<hr\s*/?>\s*$`)
 	atcoderScoreHeadingRegex     = regexp.MustCompile(`(?is)<h[1-6][^>]*>\s*Score\s*:\s*.*?</h[1-6]>`)
 	atcoderScoreParagraphRegex   = regexp.MustCompile(`(?is)<p[^>]*>\s*Score\s*:.*?</p>`)
 	atcoderStatementHeadingRegex = regexp.MustCompile(`(?is)<h[1-6][^>]*>\s*(?:###\s*)?Problem Statement\s*</h[1-6]>`)
@@ -72,21 +72,20 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 	contestID, taskID := parts[0], parts[1]
 	officialURL := fmt.Sprintf("https://atcoder.jp/contests/%s/tasks/%s", contestID, taskID)
 
-	title := fmt.Sprintf("%s (%s)", taskID, contestID)
-	req, err := http.NewRequestWithContext(ctx, "GET", officialURL, nil)
-	if err == nil {
-		req.Header.Set("User-Agent", "Mozilla/5.0 cpbridge/1.0")
-		resp, err := a.client.Do(req)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			defer resp.Body.Close()
-			bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*100))
-			if m := titleRegex.FindStringSubmatch(string(bodyBytes)); len(m) == 2 {
-				cleanTitle := normalizeProblemTitle(m[1])
-				if cleanTitle != "" {
-					title = cleanTitle
-				}
-			}
-		}
+	htmlStr, err := a.fetchTaskPage(ctx, officialURL)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := taskStatementHTML(htmlStr); !ok {
+		return nil, fmt.Errorf("AtCoder response did not include a task statement")
+	}
+
+	title := ""
+	if m := titleRegex.FindStringSubmatch(htmlStr); len(m) == 2 {
+		title = normalizeProblemTitle(m[1])
+	}
+	if title == "" {
+		return nil, fmt.Errorf("AtCoder response did not include a problem title")
 	}
 
 	return &platform.NormalizedProblem{
@@ -110,6 +109,100 @@ func normalizeProblemTitle(title string) string {
 	return strings.TrimSpace(title)
 }
 
+func (a *Adapter) fetchTaskPage(ctx context.Context, officialURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, officialURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 cpbridge/1.0")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch AtCoder problem: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("AtCoder returned %s for problem", resp.Status)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return "", fmt.Errorf("read AtCoder problem response: %w", err)
+	}
+	return string(body), nil
+}
+
+// extractTaskStatement gets the English statement when available. It finds the
+// matching element boundary instead of relying on the next closing tag, since
+// AtCoder statements contain nested div and span elements.
+func extractTaskStatement(htmlStr string) string {
+	taskStatement, ok := taskStatementHTML(htmlStr)
+	if !ok {
+		return ""
+	}
+
+	if english, ok := findElementInnerHTML(taskStatement, "span", func(openTag string) bool {
+		return hasCSSClass(attributeValue(openTag, classAttributeRegex), "lang-en")
+	}); ok {
+		return english
+	}
+
+	return taskStatement
+}
+
+func taskStatementHTML(htmlStr string) (string, bool) {
+	return findElementInnerHTML(htmlStr, "div", func(openTag string) bool {
+		return strings.EqualFold(attributeValue(openTag, idAttributeRegex), "task-statement")
+	})
+}
+
+func findElementInnerHTML(htmlStr, element string, match func(openTag string) bool) (string, bool) {
+	tags := htmlTagRegex.FindAllStringIndex(htmlStr, -1)
+	for tagIndex, tagRange := range tags {
+		tag := htmlStr[tagRange[0]:tagRange[1]]
+		parts := htmlTagRegex.FindStringSubmatch(tag)
+		if len(parts) != 3 || parts[1] == "/" || !strings.EqualFold(parts[2], element) || !match(tag) {
+			continue
+		}
+
+		depth := 1
+		for _, closingRange := range tags[tagIndex+1:] {
+			candidate := htmlStr[closingRange[0]:closingRange[1]]
+			candidateParts := htmlTagRegex.FindStringSubmatch(candidate)
+			if len(candidateParts) != 3 || !strings.EqualFold(candidateParts[2], element) {
+				continue
+			}
+			if candidateParts[1] == "/" {
+				depth--
+				if depth == 0 {
+					return htmlStr[tagRange[1]:closingRange[0]], true
+				}
+			} else if !strings.HasSuffix(strings.TrimSpace(candidate), "/>") {
+				depth++
+			}
+		}
+	}
+
+	return "", false
+}
+
+func attributeValue(openTag string, attributeRegex *regexp.Regexp) string {
+	if match := attributeRegex.FindStringSubmatch(openTag); len(match) == 2 {
+		return match[1]
+	}
+	return ""
+}
+
+func hasCSSClass(classes, want string) bool {
+	for _, class := range strings.Fields(classes) {
+		if class == want {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platform.ProblemStatement, error) {
 	parts := strings.Split(externalID, "/")
 	if len(parts) != 2 {
@@ -118,32 +211,12 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 	contestID, taskID := parts[0], parts[1]
 	officialURL := fmt.Sprintf("https://atcoder.jp/contests/%s/tasks/%s", contestID, taskID)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", officialURL, nil)
+	htmlStr, err := a.fetchTaskPage(ctx, officialURL)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
 
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch problem statement: %w", err)
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024*2))
-	if err != nil {
-		return nil, err
-	}
-	htmlStr := string(bodyBytes)
-
-	var statementHTML string
-	if m := langEnRegex.FindStringSubmatch(htmlStr); len(m) > 1 {
-		statementHTML = m[1]
-	} else if m := taskStatementRegex.FindStringSubmatch(htmlStr); len(m) > 1 {
-		statementHTML = m[1]
-	} else if m := taskStatementRegex2.FindStringSubmatch(htmlStr); len(m) > 1 {
-		statementHTML = m[1]
-	}
+	statementHTML := extractTaskStatement(htmlStr)
 
 	var timeLimit, memoryLimit string
 	if m := timeLimitRegex.FindStringSubmatch(htmlStr); len(m) > 1 {
@@ -154,8 +227,8 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 	}
 
 	var sampleCases []platform.SampleCase
-	inputs := sampleInputRegex.FindAllStringSubmatch(htmlStr, -1)
-	outputs := sampleOutputRegex.FindAllStringSubmatch(htmlStr, -1)
+	inputs := sampleInputRegex.FindAllStringSubmatch(statementHTML, -1)
+	outputs := sampleOutputRegex.FindAllStringSubmatch(statementHTML, -1)
 	minLen := min(len(inputs), len(outputs))
 
 	for i := range minLen {
@@ -171,9 +244,8 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 
 	// Clean statement HTML
 	if statementHTML != "" {
-		statementHTML = langJaRegex.ReplaceAllString(statementHTML, "")
 		statementHTML = cleanStatementHTML(statementHTML)
-		statementHTML = sampleSectionRegex.ReplaceAllString(statementHTML, "")
+		statementHTML = removeSampleSections(statementHTML)
 	}
 
 	if statementHTML == "" {
@@ -194,6 +266,14 @@ func cleanStatementHTML(statementHTML string) string {
 	statementHTML = atcoderStatementHeadingRegex.ReplaceAllString(statementHTML, "")
 	statementHTML = atcoderScoreTextRegex.ReplaceAllString(statementHTML, "")
 	statementHTML = atcoderStatementTextRegex.ReplaceAllString(statementHTML, "")
+	return strings.TrimSpace(statementHTML)
+}
+
+func removeSampleSections(statementHTML string) string {
+	if sampleStart := sampleHeadingRegex.FindStringIndex(statementHTML); sampleStart != nil {
+		statementHTML = statementHTML[:sampleStart[0]]
+		statementHTML = trailingHorizontalRuleRegex.ReplaceAllString(statementHTML, "")
+	}
 	return strings.TrimSpace(statementHTML)
 }
 

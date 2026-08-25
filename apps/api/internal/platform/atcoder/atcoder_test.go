@@ -1,6 +1,9 @@
 package atcoder
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -18,6 +21,7 @@ func TestNormalizeProblemTitle(t *testing.T) {
 		},
 		{name: "removes task label", input: "B: Some Task", want: "Some Task"},
 		{name: "decodes entities", input: "C - A &amp; B - AtCoder Regular Contest 001 | AtCoder", want: "A & B"},
+		{name: "current AtCoder page title", input: "A - Product", want: "Product"},
 	}
 
 	for _, tt := range tests {
@@ -26,6 +30,40 @@ func TestNormalizeProblemTitle(t *testing.T) {
 				t.Fatalf("normalizeProblemTitle(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestExtractTaskStatementUsesEnglishAndStopsAtTaskBoundary(t *testing.T) {
+	page := `<main><div id="task-statement">
+<span class="lang"><span class="lang-ja"><p>日本語の問題文</p></span>
+<span class="lang-en"><p>Score : <var>100</var> points</p><div class="part"><section><h3>Problem Statement</h3><p>Solve this in English.</p></section></div>
+<hr /><div class="part"><section><h3>Sample Input 1</h3><pre>1 2</pre></section></div>
+<div class="part"><section><h3>Sample Output 1</h3><pre>3</pre></section></div></span></span>
+</div></main><footer>Unrelated page footer</footer>`
+
+	statement := extractTaskStatement(page)
+	if strings.Contains(statement, "日本語") || strings.Contains(statement, "Unrelated page footer") {
+		t.Fatalf("extractTaskStatement() returned content outside the English task statement: %q", statement)
+	}
+
+	statement = removeSampleSections(cleanStatementHTML(statement))
+	if strings.Contains(statement, "Score") || strings.Contains(statement, "Problem Statement") || strings.Contains(statement, "Sample Input") {
+		t.Fatalf("statement cleanup kept metadata or samples: %q", statement)
+	}
+	if !strings.Contains(statement, "Solve this in English.") {
+		t.Fatalf("statement cleanup removed the English problem body: %q", statement)
+	}
+}
+
+func TestFetchTaskPageRejectsNonSuccessfulResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	_, err := New().fetchTaskPage(context.Background(), server.URL)
+	if err == nil || !strings.Contains(err.Error(), "404") {
+		t.Fatalf("fetchTaskPage() error = %v, want an HTTP-status error", err)
 	}
 }
 
