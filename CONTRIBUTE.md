@@ -69,9 +69,9 @@ docker-compose up -d
 ```
 
 PostgreSQL will be available on `localhost:5432` with:
-- **Database**: `cphub_db`
-- **Username**: `cphub`
-- **Password**: `cphub_password`
+- **Database**: `cpbridge_db`
+- **Username**: `cpbridge`
+- **Password**: `cpbridge_password`
 
 Redis will be available on `localhost:6379` without a password in the local Compose configuration.
 

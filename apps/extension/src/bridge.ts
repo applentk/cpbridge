@@ -1,8 +1,8 @@
 // Bridge script injected into cpbridge web application pages.
 // Facilitates message passing between the cpbridge Web App and the Chrome Extension background worker.
 
-const EXTENSION_ORIGIN = 'CP_HUB_EXTENSION';
-const WEB_APP_ORIGIN = 'CP_HUB_WEB';
+const EXTENSION_ORIGIN = 'CPBRIDGE_EXTENSION';
+const WEB_APP_ORIGIN = 'CPBRIDGE_WEB';
 
 function isAllowedOrigin(origin: string): boolean {
   if (!origin) return false;

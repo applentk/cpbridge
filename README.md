@@ -125,4 +125,4 @@ Create an idempotent local demo account, problem set, and active contest with fi
 pnpm seed:demo
 ```
 
-The default account is `demo@cphub.local` with password `demo1234`. The seed command refuses to run when `ENV` or `NODE_ENV` is set to `production`.
+The default account is `demo@cpbridge.local` with password `demo1234`. The seed command refuses to run when `ENV` or `NODE_ENV` is set to `production`.

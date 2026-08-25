@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	demoEmail    = "demo@cphub.local"
+	demoEmail    = "demo@cpbridge.local"
 	demoUsername = "demo"
 	demoPassword = "demo1234"
 	setName      = "cpbridge Demo Problem Set"

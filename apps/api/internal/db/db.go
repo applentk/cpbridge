@@ -22,15 +22,15 @@ func Connect() (*sql.DB, error) {
 		}
 		user := os.Getenv("POSTGRES_USER")
 		if user == "" {
-			user = "cphub"
+			user = "cpbridge"
 		}
 		password := os.Getenv("POSTGRES_PASSWORD")
 		if password == "" {
-			password = "cphub_password"
+			password = "cpbridge_password"
 		}
 		dbname := os.Getenv("POSTGRES_DB")
 		if dbname == "" {
-			dbname = "cphub_db"
+			dbname = "cpbridge_db"
 		}
 		sslmode := os.Getenv("POSTGRES_SSLMODE")
 		if sslmode == "" {

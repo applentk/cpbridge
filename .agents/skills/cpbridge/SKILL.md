@@ -1,5 +1,5 @@
 ---
-name: cphub-development
+name: cpbridge
 description: >-
   Comprehensive guide and step-by-step procedures for implementing features, platform adapters,
   database migrations, contest scoring logic, web components, and extension bridges in cpbridge.
@@ -154,4 +154,3 @@ rtk pnpm --filter @cpbridge/web test
 rtk pnpm --filter @cpbridge/extension build
 rtk pnpm --filter @cpbridge/web build
 ```
-

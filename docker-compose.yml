@@ -3,25 +3,25 @@ version: '3.8'
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: cphub_postgres
+    container_name: cpbridge_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: cphub
-      POSTGRES_PASSWORD: cphub_password
-      POSTGRES_DB: cphub_db
+      POSTGRES_USER: cpbridge
+      POSTGRES_PASSWORD: cpbridge_password
+      POSTGRES_DB: cpbridge_db
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cphub -d cphub_db"]
+      test: ["CMD-SHELL", "pg_isready -U cpbridge -d cpbridge_db"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: cphub_redis
+    container_name: cpbridge_redis
     restart: unless-stopped
     ports:
       - "6379:6379"
