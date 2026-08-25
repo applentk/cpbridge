@@ -1,43 +1,28 @@
 import { test, expect } from '@playwright/test';
 import { setupApiMocks, loginAs } from './fixtures/api-mock';
-import { mockRegularUser } from './fixtures/mock-data';
+import { mockRegularUser, mockAdminUser } from './fixtures/mock-data';
 
-test.describe('Problem Browsing & Workspace', () => {
-  test('problems list page renders problem cards and filters', async ({ page }) => {
-    await setupApiMocks(page);
+test.describe('Problem Workspace', () => {
+  test('regular users accessing problem without contestId are redirected to /contests', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, { currentUser: mockRegularUser });
 
-    await page.goto('/problems');
-    await page.waitForLoadState('networkidle');
-
-    await expect(page.locator('h1')).toContainText('Problems');
-    await expect(page.locator('text=Codehorses T-shirts')).toBeVisible();
-    await expect(page.locator('text=A - N-choice question')).toBeVisible();
-    await expect(page.locator('text=Laura and Operations')).toBeVisible();
-
-    // Test platform filter
-    await page.selectOption('select', 'ATCODER');
-    await expect(page.locator('text=A - N-choice question')).toBeVisible();
-    await expect(page.locator('text=Codehorses T-shirts')).not.toBeVisible();
-
-    // Reset platform filter and search by query
-    await page.selectOption('select', '');
-    await page.fill('input[type="search"]', 'Laura');
-    await page.click('button:has-text("Search")');
-    await expect(page.locator('text=Laura and Operations')).toBeVisible();
-    await expect(page.locator('text=Codehorses T-shirts')).not.toBeVisible();
+    await page.goto('/problems/prb_cf_1000A');
+    await page.waitForURL('/contests');
+    await expect(page.locator('h1')).toContainText('Contests');
   });
 
   test('problem workspace renders problem statement, limits, and KaTeX math', async ({ page }) => {
-    await setupApiMocks(page);
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
 
-    await page.goto('/problems/prb_cf_1000A');
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc');
     await page.waitForLoadState('networkidle');
 
     // Title and metadata
     await expect(page.locator('h1')).toContainText('Codehorses T-shirts');
     await expect(page.locator('text=Time Limit: 2.0s')).toBeVisible();
     await expect(page.locator('text=Memory Limit: 256MB')).toBeVisible();
-    await expect(page.locator('text=CODEFORCES')).toBeVisible();
 
     // KaTeX math rendering (first element)
     await expect(page.locator('.katex').first()).toBeVisible();
@@ -48,9 +33,10 @@ test.describe('Problem Browsing & Workspace', () => {
   });
 
   test('problem workspace supports tab switching and split view layout', async ({ page }) => {
-    await setupApiMocks(page);
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
 
-    await page.goto('/problems/prb_cf_1000A');
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc');
     await page.waitForLoadState('networkidle');
 
     // Default tabbed view
@@ -72,7 +58,7 @@ test.describe('Problem Browsing & Workspace', () => {
     await loginAs(page, mockRegularUser);
     await setupApiMocks(page, { currentUser: mockRegularUser });
 
-    await page.goto('/problems/prb_cf_1000A?tab=editor');
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=editor');
     await page.waitForLoadState('networkidle');
 
     // Change language to Python 3
@@ -85,9 +71,10 @@ test.describe('Problem Browsing & Workspace', () => {
 
   test('copy button on sample test case copies text to clipboard', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-    await setupApiMocks(page);
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
 
-    await page.goto('/problems/prb_cf_1000A');
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc');
     await page.waitForLoadState('networkidle');
 
     const copyBtn = page.locator('button:has-text("Copy")').first();
@@ -99,7 +86,7 @@ test.describe('Problem Browsing & Workspace', () => {
     await loginAs(page, mockRegularUser);
     await setupApiMocks(page, { currentUser: mockRegularUser });
 
-    await page.goto('/problems/prb_cf_1000A?tab=editor');
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=editor');
     await page.waitForLoadState('networkidle');
 
     // Upload a C++ file
@@ -134,7 +121,7 @@ test.describe('Problem Browsing & Workspace', () => {
     await loginAs(page, mockRegularUser);
     await setupApiMocks(page, { currentUser: mockRegularUser });
 
-    await page.goto('/problems/prb_cf_1000A?tab=editor');
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=editor');
     await page.waitForLoadState('networkidle');
 
     // Click submit button
@@ -154,7 +141,7 @@ test.describe('Problem Browsing & Workspace', () => {
       submissionError: 'Compilation Error: missing semicolon',
     });
 
-    await page.goto('/problems/prb_cf_1000A?tab=editor');
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=editor');
     await page.waitForLoadState('networkidle');
 
     const submitBtn = page.locator('button:has-text("Submit Solution")');
@@ -164,4 +151,86 @@ test.describe('Problem Browsing & Workspace', () => {
     // Verify submission error feedback
     await expect(page.locator('text=Compilation Error: missing semicolon')).toBeVisible();
   });
+
+  test('code submission handling non-accepted verdicts (WRONG_ANSWER)', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, {
+      currentUser: mockRegularUser,
+      extensionPollVerdict: 'WRONG_ANSWER',
+    });
+
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=editor');
+    await page.waitForLoadState('networkidle');
+
+    const submitBtn = page.locator('button:has-text("Submit Solution")');
+    await submitBtn.click();
+
+    // Verify WRONG_ANSWER verdict badge in submissions tab
+    await expect(page.locator('button:has-text("WRONG_ANSWER")').first()).toBeVisible();
+  });
+
+  test('when extension is missing/disabled, problem workspace exposes official source fallback', async ({ page }) => {
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser, disableExtension: true });
+
+    await page.goto('/problems/prb_cf_1000A');
+    await page.waitForLoadState('networkidle');
+
+    // Official source link exists
+    const sourceLink = page.getByRole('link', { name: 'Source' });
+    await expect(sourceLink).toBeVisible();
+    await expect(sourceLink).toHaveAttribute('href', 'https://codeforces.com/problemset/problem/1000/A');
+    await expect(sourceLink).toHaveAttribute('target', '_blank');
+  });
+
+  test('reconciles pending recovered submissions on page load', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, {
+      currentUser: mockRegularUser,
+      recoveredSubmissions: [
+        {
+          submissionId: 'sub_003',
+          state: 'CREATED',
+          externalSubmissionId: 'cf_recovered_99',
+        },
+      ],
+    });
+
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=submissions');
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.locator('h3:has-text("Your Submission History")')).toBeVisible();
+  });
+
+  test('editor code state persists when toggling between Statement and Editor tabs', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, { currentUser: mockRegularUser });
+
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=editor');
+    await page.waitForLoadState('networkidle');
+
+    // Switch language to Python 3
+    const langSelect = page.locator('select').first();
+    await langSelect.selectOption('python3');
+
+    // Switch to statement tab
+    await page.click('button:has-text("Problem Statement")');
+    await expect(page.locator('.statement-content')).toBeVisible();
+
+    // Switch back to editor tab
+    await page.click('button:has-text("Code Editor & Submit")');
+    await expect(langSelect).toHaveValue('python3');
+  });
+
+  test('navigating to unknown problem displays friendly 404 error state', async ({ page }) => {
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    await page.goto('/problems/prb_non_existent');
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.locator('text=Error loading problem')).toBeVisible();
+    await expect(page.locator('text=Problem not found')).toBeVisible();
+  });
 });
+

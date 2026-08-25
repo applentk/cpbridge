@@ -65,6 +65,18 @@ export const mockProblems: Problem[] = [
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
   },
+  {
+    id: 'prb_in_use',
+    platform: 'CODEFORCES',
+    externalId: '2000C',
+    title: 'Problem In Active Contest',
+    url: 'https://codeforces.com/problemset/problem/2000/C',
+    difficulty: 1500,
+    tags: ['data structures'],
+    metadata: {},
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  },
 ];
 
 export const mockStatement: ProblemStatement = {
@@ -199,6 +211,33 @@ export const mockContests: Contest[] = [
     problems: [
       {
         contestId: 'con_finished_99',
+        problemId: 'prb_cf_1000A',
+        position: 1,
+        label: 'A',
+        points: 100,
+        problem: mockProblems[0],
+      },
+    ],
+  },
+  {
+    id: 'con_draft_01',
+    ownerId: 'usr_adm_999',
+    ownerUsername: 'root_admin',
+    name: 'Draft Secret Contest',
+    description: 'Draft contest that should only be visible to administrators.',
+    startAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+    endAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
+    visibility: 'PUBLIC',
+    scoringType: 'ICPC',
+    publicationStatus: 'DRAFT',
+    state: 'UPCOMING',
+    participantCount: 0,
+    isParticipant: false,
+    createdAt: '2026-01-20T00:00:00Z',
+    updatedAt: '2026-01-20T00:00:00Z',
+    problems: [
+      {
+        contestId: 'con_draft_01',
         problemId: 'prb_cf_1000A',
         position: 1,
         label: 'A',

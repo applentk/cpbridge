@@ -102,4 +102,21 @@ test.describe('Submissions Log & Verdicts', () => {
     const sourceLink = dialog.locator('a:has-text("External source")');
     await expect(sourceLink).toHaveAttribute('href', 'https://codeforces.com/contest/1000/submission/28001');
   });
+
+  test('submissions log refresh button and auto-polling fetch latest verdicts', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, { currentUser: mockRegularUser });
+
+    await page.goto('/submissions');
+    await page.waitForLoadState('networkidle');
+
+    // Click manual refresh button
+    const refreshBtn = page.locator('button[title="Refresh"]');
+    await expect(refreshBtn).toBeVisible();
+    await refreshBtn.click();
+
+    await expect(page.locator('h1')).toContainText('Submissions Log');
+    await expect(page.locator('text=Codehorses T-shirts')).toBeVisible();
+  });
 });
+

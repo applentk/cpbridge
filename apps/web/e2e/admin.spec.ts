@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { setupApiMocks, loginAs } from './fixtures/api-mock';
-import { mockAdminUser, mockProblems } from './fixtures/mock-data';
+import { mockAdminUser, mockRegularUser, mockProblems } from './fixtures/mock-data';
 
 test.describe('Admin Dashboard & Management', () => {
   test('admin dashboard renders system overview statistics and quick actions', async ({ page }) => {
@@ -140,4 +140,99 @@ test.describe('Admin Dashboard & Management', () => {
     await page.locator('div.fixed').locator('button:has-text("Add")').first().click();
     await expect(page.locator('text=Added problem')).toBeVisible();
   });
+
+  test('admin user detail page renders profile, allows role update and status toggle', async ({ page }) => {
+    page.on('dialog', (dialog) => dialog.accept());
+
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    await page.goto('/admin/users/usr_reg_123');
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.locator('h1')).toContainText('User Profile');
+    await expect(page.locator('text=tourist_fan')).toBeVisible();
+    await expect(page.locator('text=coder@example.com')).toBeVisible();
+
+    // Promote to ADMIN
+    await page.click('button:has-text("Promote to ADMIN")');
+    await expect(page.locator('text=Role changed to ADMIN!')).toBeVisible();
+
+    // Disable account
+    await page.click('button:has-text("Disable Account")');
+    await expect(page.locator('text=Account "tourist_fan" is now disabled!')).toBeVisible();
+  });
+
+  test('LAST_ADMIN demotion and disablement safeguard prevents lockout', async ({ page }) => {
+    const dialogMessages: string[] = [];
+    page.on('dialog', async (dialog) => {
+      dialogMessages.push(dialog.message());
+      await dialog.accept();
+    });
+
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    await page.goto('/admin/users/usr_adm_999');
+    await page.waitForLoadState('networkidle');
+
+    // 1. Attempt to demote last active admin
+    await page.click('button:has-text("Demote to USER")');
+    await expect.poll(() => dialogMessages.some((msg) => msg.includes('cannot demote the last active administrator'))).toBe(true);
+
+    // 2. Attempt to disable last active admin
+    await page.click('button:has-text("Disable Account")');
+    await expect.poll(() => dialogMessages.some((msg) => msg.includes('cannot disable the last active administrator'))).toBe(true);
+  });
+
+  test('PROBLEM_IN_USE deletion prevention rejects deleting problem in active contest', async ({ page }) => {
+    let alertMessage = '';
+    page.on('dialog', async (dialog) => {
+      alertMessage = dialog.message();
+      await dialog.accept();
+    });
+
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    await page.goto('/admin/problems');
+    await page.waitForLoadState('networkidle');
+
+    // Search for the in-use problem
+    await page.fill('input[placeholder*="Search problems"]', 'Problem In Active Contest');
+    await expect(page.locator('text=Problem In Active Contest')).toBeVisible();
+
+    // Attempt deletion
+    const deleteBtn = page.locator('button[title="Delete Problem"]').first();
+    await deleteBtn.click();
+  });
+
+  test('public access to admin-only redirect routes redirects correctly', async ({ page }) => {
+    // 1. Regular user accessing /problem-sets is redirected to /contests
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, { currentUser: mockRegularUser });
+
+    await page.goto('/problem-sets');
+    await page.waitForURL('/contests');
+
+    await page.goto('/problem-sets/set_standard_dp');
+    await page.waitForURL('/contests');
+
+    await page.goto('/contests/new');
+    await page.waitForURL('/contests');
+
+    // 2. Admin user accessing /problem-sets is redirected to /admin/problem-sets
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    await page.goto('/problem-sets');
+    await page.waitForURL('/admin/problem-sets');
+
+    await page.goto('/problem-sets/set_standard_dp');
+    await page.waitForURL('/admin/problem-sets/set_standard_dp');
+
+    await page.goto('/contests/new');
+    await page.waitForURL('/admin/contests/new');
+  });
 });
+

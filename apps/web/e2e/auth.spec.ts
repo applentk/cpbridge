@@ -118,4 +118,56 @@ test.describe('Authentication & Route Guard Flows', () => {
     await expect(page).toHaveURL('/admin');
     await expect(page.locator('h1')).toContainText('Admin Dashboard');
   });
+
+  test('expired JWT in localStorage is cleared on 401 and resets user to guest state', async ({ page }) => {
+    // Inject invalid token but mock /auth/me to return 401
+    await page.addInitScript(() => {
+      localStorage.setItem('cp_token', 'expired_or_invalid_jwt');
+    });
+    await setupApiMocks(page, { currentUser: null });
+
+    await page.goto('/contests');
+    await page.waitForLoadState('networkidle');
+
+    // Navbar should reflect guest mode
+    await expect(page.locator('nav').first()).toContainText('Sign In');
+    await expect(page.locator('nav').first()).toContainText('Sign Up');
+
+    // cp_token must be removed
+    const token = await page.evaluate(() => localStorage.getItem('cp_token'));
+    expect(token).toBeNull();
+  });
+
+  test('page reload preserves authenticated session', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, { currentUser: mockRegularUser });
+
+    await page.goto('/dashboard');
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.locator('nav').first()).toContainText('tourist_fan');
+
+    // Reload page
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+
+    // Remains authenticated
+    await expect(page.locator('nav').first()).toContainText('tourist_fan');
+    await expect(page).toHaveURL('/dashboard');
+  });
+
+  test('registration form validates short passwords', async ({ page }) => {
+    await setupApiMocks(page, { currentUser: null });
+
+    await page.goto('/register');
+    await page.waitForLoadState('networkidle');
+
+    await page.fill('input#reg-username', 'short_pass_user');
+    await page.fill('input#reg-email', 'short@example.com');
+    await page.fill('input#reg-password', '123'); // < 6 chars
+    await page.click('button[type="submit"]');
+
+    await expect(page.locator('text=Password must be at least 6 characters')).toBeVisible();
+  });
 });
+

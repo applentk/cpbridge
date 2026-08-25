@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test';
-import type { User, Problem, Contest, Submission, ProblemSet } from '@cpbridge/contracts';
+import type { User, Problem, Contest, Submission, ProblemSet, Standings } from '@cpbridge/contracts';
 import {
   mockAdminUser,
   mockRegularUser,
@@ -20,8 +20,12 @@ export interface SetupApiMocksOptions {
   contests?: Contest[];
   problemSets?: ProblemSet[];
   submissions?: Submission[];
+  standings?: Standings;
   disableExtension?: boolean;
   submissionError?: string;
+  extensionPlatforms?: Record<string, { loggedIn: boolean; username?: string }>;
+  extensionPollVerdict?: string;
+  recoveredSubmissions?: any[];
 }
 
 export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = {}) {
@@ -31,6 +35,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
   const contestsList = options.contests ? [...options.contests] : [...mockContests];
   const problemSetsList = options.problemSets ? [...options.problemSets] : [...mockProblemSets];
   const submissionsList = options.submissions ? [...options.submissions] : [...mockSubmissions];
+  let currentStandings = options.standings ? JSON.parse(JSON.stringify(options.standings)) : JSON.parse(JSON.stringify(mockStandings));
 
   // Provide mock Chrome Extension postMessage responder unless disabled
   if (!options.disableExtension) {
@@ -45,7 +50,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
               payload: {
                 type: 'PONG',
                 version: '1.0.0',
-                platforms: {
+                platforms: opts.extensionPlatforms || {
                   CODEFORCES: { loggedIn: true, username: 'tourist_fan' },
                   ATCODER: { loggedIn: true, username: 'tourist_fan' },
                 },
@@ -81,7 +86,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
               payload: {
                 type: 'POLL_STATUS_RESULT',
                 externalSubmissionId: payload.externalSubmissionId,
-                status: 'ACCEPTED',
+                status: opts.extensionPollVerdict || 'ACCEPTED',
               },
             }, '*');
           } else if (payload?.type === 'RECOVER_SUBMISSIONS') {
@@ -90,13 +95,18 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
               id,
               payload: {
                 type: 'RECOVER_SUBMISSIONS_RESULT',
-                submissions: [],
+                submissions: opts.recoveredSubmissions || [],
               },
             }, '*');
           }
         }
       });
-    }, { submissionError: options.submissionError });
+    }, {
+      submissionError: options.submissionError,
+      extensionPlatforms: options.extensionPlatforms,
+      extensionPollVerdict: options.extensionPollVerdict,
+      recoveredSubmissions: options.recoveredSubmissions,
+    });
   }
 
   // Helper to reply with JSON
@@ -133,6 +143,9 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
 
     if (path === '/auth/register' && method === 'POST') {
       const body = JSON.parse(route.request().postData() || '{}');
+      if (body.password && body.password.length < 6) {
+        return jsonResponse(route, { error: 'Password must be at least 6 characters' }, 400);
+      }
       const newUser: User = {
         id: `usr_${Date.now()}`,
         email: body.email || 'new@example.com',
@@ -148,6 +161,9 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
 
     // 2. Problems routes
     if ((path === '/problems' || path === '/admin/problems') && method === 'GET') {
+      if (path === '/problems' && currentUser?.role !== 'ADMIN') {
+        return jsonResponse(route, { error: 'only administrators can browse the global problem library' }, 403);
+      }
       const query = url.searchParams.get('query')?.toLowerCase();
       const platform = url.searchParams.get('platform');
       let list = [...problemsList];
@@ -160,9 +176,6 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
             p.title.toLowerCase().includes(query) ||
             p.externalId.toLowerCase().includes(query)
         );
-      }
-      if (path.startsWith('/admin')) {
-        return jsonResponse(route, { problems: list, total: list.length });
       }
       return jsonResponse(route, { problems: list, total: list.length });
     }
@@ -205,13 +218,28 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
 
     const problemStatementMatch = path.match(/^\/problems\/([^/]+)\/statement$/);
     if (problemStatementMatch && method === 'GET') {
+      const pId = problemStatementMatch[1];
+      const contestId = url.searchParams.get('contestId');
+      if (currentUser?.role !== 'ADMIN' && !contestId) {
+        return jsonResponse(route, { error: 'contestId parameter is required to access statement' }, 400);
+      }
+      if (pId === 'prb_non_existent') {
+        return jsonResponse(route, { error: 'Problem not found' }, 404);
+      }
       return jsonResponse(route, mockStatement);
     }
 
     const problemDetailMatch = path.match(/^\/(?:admin\/)?problems\/([^/]+)$/);
     if (problemDetailMatch && method === 'GET') {
       const pId = problemDetailMatch[1];
-      const found = problemsList.find((p) => p.id === pId) || problemsList[0];
+      const contestId = url.searchParams.get('contestId');
+      if (!path.startsWith('/admin') && currentUser?.role !== 'ADMIN' && !contestId) {
+        return jsonResponse(route, { error: 'contestId parameter is required to access problem' }, 400);
+      }
+      const found = problemsList.find((p) => p.id === pId);
+      if (!found) {
+        return jsonResponse(route, { error: 'Problem not found' }, 404);
+      }
       return jsonResponse(route, found);
     }
 
@@ -293,12 +321,16 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
 
     // 4. Contests routes
     if ((path === '/contests' || path === '/admin/contests') && method === 'GET') {
-      return jsonResponse(route, contestsList);
+      let list = [...contestsList];
+      if (!path.startsWith('/admin') && currentUser?.role !== 'ADMIN') {
+        list = list.filter((c) => c.publicationStatus !== 'DRAFT');
+      }
+      return jsonResponse(route, list);
     }
 
     const contestStandingsMatch = path.match(/^\/contests\/([^/]+)\/standings$/);
     if (contestStandingsMatch && method === 'GET') {
-      return jsonResponse(route, mockStandings);
+      return jsonResponse(route, currentStandings);
     }
 
     const contestJoinMatch = path.match(/^\/contests\/([^/]+)\/join$/);
@@ -318,7 +350,13 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
     const contestDetailMatch = path.match(/^\/(?:admin\/)?contests\/([^/]+)$/);
     if (contestDetailMatch && method === 'GET') {
       const cId = contestDetailMatch[1];
-      const found = contestsList.find((c) => c.id === cId) || contestsList[0];
+      const found = contestsList.find((c) => c.id === cId);
+      if (!found) {
+        return jsonResponse(route, { error: 'Contest not found' }, 404);
+      }
+      if (found.publicationStatus === 'DRAFT' && currentUser?.role !== 'ADMIN') {
+        return jsonResponse(route, { error: 'Contest not found' }, 404);
+      }
       return jsonResponse(route, found);
     }
 
@@ -356,6 +394,23 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
 
     const contestProblemOrderMatch = path.match(/^\/admin\/contests\/([^/]+)\/problem-order$/);
     if (contestProblemOrderMatch && method === 'PATCH') {
+      const cId = contestProblemOrderMatch[1];
+      const body = JSON.parse(route.request().postData() || '{}');
+      const contest = contestsList.find((c) => c.id === cId);
+      if (contest && contest.problems && Array.isArray(body.problemIds)) {
+        const reordered: any[] = [];
+        body.problemIds.forEach((pid: string, idx: number) => {
+          const cp = contest.problems?.find((p) => p.problemId === pid);
+          if (cp) {
+            reordered.push({
+              ...cp,
+              position: idx + 1,
+              label: String.fromCharCode(65 + idx),
+            });
+          }
+        });
+        contest.problems = reordered;
+      }
       return jsonResponse(route, { success: true });
     }
 
@@ -365,12 +420,31 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       const contest = contestsList.find((c) => c.id === cId);
       if (contest && contest.problems) {
         contest.problems = contest.problems.filter((cp) => cp.problemId !== pId);
+        contest.problems.forEach((cp, idx) => {
+          cp.position = idx + 1;
+          cp.label = String.fromCharCode(65 + idx);
+        });
       }
       return jsonResponse(route, { success: true });
     }
 
     if (path === '/admin/contests' && method === 'POST') {
       const body = JSON.parse(route.request().postData() || '{}');
+      let snapshottedProblems: any[] = [];
+      if (body.problemSetId) {
+        const sourceSet = problemSetsList.find((s) => s.id === body.problemSetId);
+        if (sourceSet && sourceSet.items) {
+          snapshottedProblems = sourceSet.items.map((item, idx) => ({
+            contestId: `con_${Date.now()}`,
+            problemId: item.problemId,
+            position: idx + 1,
+            label: String.fromCharCode(65 + idx),
+            points: 100,
+            problem: item.problem,
+          }));
+        }
+      }
+
       const createdContest: Contest = {
         id: `con_${Date.now()}`,
         ownerId: currentUser?.id || 'usr_adm_999',
@@ -383,6 +457,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
         scoringType: body.scoringType || 'ICPC',
         publicationStatus: body.publicationStatus || 'PUBLISHED',
         state: 'UPCOMING',
+        problems: snapshottedProblems,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -394,10 +469,12 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
     if (path === '/submissions' && method === 'GET') {
       const pId = url.searchParams.get('problemId');
       const cId = url.searchParams.get('contestId');
+      const uId = url.searchParams.get('userId');
       const myOnly = url.searchParams.get('myOnly');
       let list = [...submissionsList];
       if (pId) list = list.filter((s) => s.problemId === pId);
       if (cId) list = list.filter((s) => s.contestId === cId);
+      if (uId) list = list.filter((s) => s.userId === uId);
       if (myOnly === 'true' && currentUser) {
         list = list.filter((s) => s.userId === currentUser?.id);
       }
@@ -420,7 +497,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
         externalSubmissionId: `cf_${Date.now()}`,
         language: body.language,
         sourceCode: body.sourceCode || '// Solution submitted in test',
-        status: 'ACCEPTED',
+        status: options.extensionPollVerdict && options.extensionPollVerdict !== 'ACCEPTED' ? (options.extensionPollVerdict as any) : 'ACCEPTED',
         submittedAt: new Date().toISOString(),
         judgedAt: new Date().toISOString(),
         problemTitle: 'Codehorses T-shirts',
@@ -430,6 +507,15 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
         },
       };
       submissionsList.unshift(newSub);
+
+      // If contest submission, update mock standings
+      if (body.contestId === 'con_active_icpc' && currentStandings) {
+        const userRow = currentStandings.standings.find((s: any) => s.userId === (currentUser?.id || 'usr_reg_123'));
+        if (userRow && userRow.problemScores[body.problemId]) {
+          userRow.problemScores[body.problemId].attempts += 1;
+        }
+      }
+
       return jsonResponse(route, newSub);
     }
 
@@ -448,7 +534,11 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
     if (submissionSyncMatch && method === 'POST') {
       const subId = submissionSyncMatch[1];
       const found = submissionsList.find((s) => s.id === subId) || submissionsList[0];
-      found.status = 'ACCEPTED';
+      if (options.extensionPollVerdict) {
+        found.status = options.extensionPollVerdict as any;
+      } else {
+        found.status = 'ACCEPTED';
+      }
       return jsonResponse(route, found);
     }
 
@@ -474,6 +564,16 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       return jsonResponse(route, mockAdminStats);
     }
 
+    const adminUserDetailMatch = path.match(/^\/admin\/users\/([^/]+)$/);
+    if (adminUserDetailMatch && method === 'GET') {
+      const uId = adminUserDetailMatch[1];
+      const found = usersList.find((u) => u.id === uId);
+      if (found) {
+        return jsonResponse(route, found);
+      }
+      return jsonResponse(route, { error: 'User not found' }, 404);
+    }
+
     if (path.startsWith('/admin/users') && method === 'GET') {
       const search = url.searchParams.get('search')?.toLowerCase();
       let list = [...usersList];
@@ -493,6 +593,9 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       const body = JSON.parse(route.request().postData() || '{}');
       const uIndex = usersList.findIndex((u) => u.id === uId);
       if (uIndex !== -1) {
+        if (usersList[uIndex].id === mockAdminUser.id && body.role === 'USER') {
+          return jsonResponse(route, { error: 'LAST_ADMIN', message: 'LAST_ADMIN' }, 400);
+        }
         usersList[uIndex] = { ...usersList[uIndex], role: body.role };
       }
       return jsonResponse(route, { success: true });
@@ -504,6 +607,9 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       const body = JSON.parse(route.request().postData() || '{}');
       const uIndex = usersList.findIndex((u) => u.id === uId);
       if (uIndex !== -1) {
+        if (usersList[uIndex].id === mockAdminUser.id && body.isActive === false) {
+          return jsonResponse(route, { error: 'LAST_ADMIN', message: 'LAST_ADMIN' }, 400);
+        }
         usersList[uIndex] = { ...usersList[uIndex], isActive: body.isActive };
       }
       return jsonResponse(route, { success: true });
