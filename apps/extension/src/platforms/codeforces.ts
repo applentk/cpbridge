@@ -110,13 +110,29 @@ function platformError(html: string): string | undefined {
 
 class RetryableEndpointRejection extends Error {}
 
-function retryableEndpointRejection(html: string, error?: string): string | undefined {
+export class CodeforcesUserActionRequired extends Error {
+  readonly knownSubmissionIds?: string[];
+
+  constructor(message: string, knownSubmissionIds?: Iterable<string>) {
+    super(message);
+    this.name = 'CodeforcesUserActionRequired';
+    this.knownSubmissionIds = knownSubmissionIds ? [...knownSubmissionIds] : undefined;
+  }
+}
+
+function endpointRejection(html: string, error?: string): { kind: 'ANTIBOT' | 'NOT_REGISTERED'; message: string } | undefined {
   const text = error || htmlText(html);
-  if (/anti[- ]?bot verification|complete (?:the )?verification to submit/i.test(text)) {
-    return 'Codeforces requires anti-bot verification for this account. Open https://codeforces.com/problemset/submit in the same browser, complete the verification, then retry.';
+  if (/anti[- ]?bot|complete (?:the )?verification|verify (?:that )?you are (?:a )?human|confirm (?:that )?you are not a robot|captcha|cf-turnstile|challenge-platform|just a moment/i.test(text)) {
+    return {
+      kind: 'ANTIBOT',
+      message: 'Codeforces requires an interactive anti-bot check. Complete the verification and submit in the Codeforces tab that cpbridge opened.'
+    };
   }
   if (/not registered (?:for|in) (?:the )?contest/i.test(text)) {
-    return 'This Codeforces account is not registered for the original contest.';
+    return {
+      kind: 'NOT_REGISTERED',
+      message: 'This Codeforces account is not registered for the original contest.'
+    };
   }
   return undefined;
 }
@@ -176,6 +192,11 @@ export async function submitCodeforces(contestId: string, index: string, languag
       const csrfToken = getCsrfToken(html);
       if (!csrfToken) {
         if (html.includes('Enter Codeforces') || html.includes('handleOrEmail')) throw new Error('NOT_LOGGED_IN');
+        const rejection = endpointRejection(html);
+        if (rejection?.kind === 'ANTIBOT') {
+          const knownIds = await snapshotMyCodeforcesSubmissionIds(contestId, index);
+          throw new CodeforcesUserActionRequired(rejection.message, knownIds);
+        }
         lastError = `Could not find the Codeforces CSRF token at ${submitUrl}`;
         continue;
       }
@@ -197,12 +218,14 @@ export async function submitCodeforces(contestId: string, index: string, languag
       if (!submitRes.ok) throw new Error(`Codeforces returned HTTP ${submitRes.status}`);
       const error = platformError(responseHtml);
       if (error && !/has been submitted|success/i.test(error)) {
-        const retryableMessage = retryableEndpointRejection(responseHtml, error);
-        if (retryableMessage) throw new RetryableEndpointRejection(retryableMessage);
+        const rejection = endpointRejection(responseHtml, error);
+        if (rejection?.kind === 'ANTIBOT') throw new CodeforcesUserActionRequired(rejection.message, knownIds);
+        if (rejection?.kind === 'NOT_REGISTERED') throw new RetryableEndpointRejection(rejection.message);
         throw new Error(error);
       }
-      const retryableMessage = retryableEndpointRejection(responseHtml);
-      if (retryableMessage) throw new RetryableEndpointRejection(retryableMessage);
+      const rejection = endpointRejection(responseHtml);
+      if (rejection?.kind === 'ANTIBOT') throw new CodeforcesUserActionRequired(rejection.message, knownIds);
+      if (rejection?.kind === 'NOT_REGISTERED') throw new RetryableEndpointRejection(rejection.message);
 
       const id = await waitForCodeforcesSubmission(contestId, index, knownIds);
       if (id) return { externalSubmissionId: id };
@@ -210,6 +233,7 @@ export async function submitCodeforces(contestId: string, index: string, languag
     } catch (err: unknown) {
       const errObj = err instanceof Error ? err : undefined;
       if (errObj?.message === 'NOT_LOGGED_IN') throw err;
+      if (err instanceof CodeforcesUserActionRequired) throw err;
       // Some browser/network exceptions have an empty `message` (or are
       // thrown as strings). Never surface a blank "Codeforces: " error.
       const errorText = typeof err === 'string' ? err.trim() : String(errObj?.message || '').trim();
@@ -224,6 +248,22 @@ export async function submitCodeforces(contestId: string, index: string, languag
     }
   }
   throw new Error(`Codeforces: ${lastError || 'Failed to open the submission form.'}`);
+}
+
+export async function detectManualCodeforcesSubmission(
+  contestId: string,
+  problemIndex: string,
+  knownSubmissionIds: Iterable<string>
+): Promise<string | undefined> {
+  return waitForCodeforcesSubmission(contestId, problemIndex, new Set(knownSubmissionIds));
+}
+
+export async function snapshotCodeforcesSubmissionIds(
+  contestId: string,
+  problemIndex: string
+): Promise<string[] | undefined> {
+  const ids = await snapshotMyCodeforcesSubmissionIds(contestId, problemIndex);
+  return ids ? [...ids] : undefined;
 }
 
 export async function pollCodeforcesStatus(contestId: string, externalSubmissionId: string): Promise<{ status: 'JUDGING' | 'ACCEPTED' | 'WRONG_ANSWER' | 'TIME_LIMIT' | 'MEMORY_LIMIT' | 'RUNTIME_ERROR' | 'COMPILE_ERROR' | 'FAILED' }> {

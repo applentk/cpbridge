@@ -2,6 +2,7 @@ import type {
   ExtensionMessage,
   ExtensionPingResponse,
   ExtensionRecoverSubmissionsResponse,
+  ExtensionSubmissionActionRequiredResponse,
   ExtensionSubmissionCreatedResponse,
   ExtensionSubmissionFailedResponse,
   ExtensionStatusPollResponse,
@@ -10,8 +11,8 @@ import type {
 } from '@cpbridge/contracts';
 import { LATEST_EXTENSION_VERSION } from '@cpbridge/contracts';
 
-const EXTENSION_ORIGIN = 'CP_HUB_EXTENSION';
-const WEB_APP_ORIGIN = 'CP_HUB_WEB';
+const EXTENSION_ORIGIN = 'CPBRIDGE_EXTENSION';
+const WEB_APP_ORIGIN = 'CPBRIDGE_WEB';
 
 export interface ExtensionBridgeStatus {
   isInstalled: boolean;
@@ -93,7 +94,7 @@ export async function submitViaExtension(
   url: string,
   language: LanguageId,
   source: string
-): Promise<ExtensionSubmissionCreatedResponse | ExtensionSubmissionFailedResponse> {
+): Promise<ExtensionSubmissionCreatedResponse | ExtensionSubmissionFailedResponse | ExtensionSubmissionActionRequiredResponse> {
   const extension = await pingExtension();
   if (extension && !isExtensionVersionCompatible(extension.version)) {
     return {
@@ -104,7 +105,7 @@ export async function submitViaExtension(
     };
   }
 
-  return sendToExtension<ExtensionSubmissionCreatedResponse | ExtensionSubmissionFailedResponse>({
+  return sendToExtension<ExtensionSubmissionCreatedResponse | ExtensionSubmissionFailedResponse | ExtensionSubmissionActionRequiredResponse>({
     type: 'SUBMIT',
     submissionId,
     platform,
@@ -112,6 +113,15 @@ export async function submitViaExtension(
     language,
     source,
   }, 30000);
+}
+
+export function completeManualSubmission(
+  submissionId: string
+): Promise<ExtensionSubmissionCreatedResponse | ExtensionSubmissionFailedResponse | ExtensionSubmissionActionRequiredResponse> {
+  return sendToExtension<ExtensionSubmissionCreatedResponse | ExtensionSubmissionFailedResponse | ExtensionSubmissionActionRequiredResponse>({
+    type: 'COMPLETE_MANUAL_SUBMISSION',
+    submissionId
+  }, 15000);
 }
 
 export async function pollStatusViaExtension(

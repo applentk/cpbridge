@@ -6,6 +6,7 @@ The extension is a Manifest V3 Chrome extension built from `apps/extension`. It 
 
 - `apps/extension/src/bridge.ts`: content script injected into allowed cpbridge origins; forwards messages between the page and `chrome.runtime`.
 - `apps/extension/src/background.ts`: service worker; checks sessions, submits code, and polls verdicts.
+- `apps/extension/src/codeforces-submit.ts`: interactive Codeforces handoff; prefills the visible official form without submitting it.
 - `apps/extension/src/platforms/codeforces.ts`: Codeforces form/API/HTML submission logic.
 - `apps/extension/src/platforms/atcoder.ts`: AtCoder form/API/HTML submission logic.
 - `apps/web/src/lib/extension/bridge.ts`: web-side request/response wrapper.
@@ -13,7 +14,7 @@ The extension is a Manifest V3 Chrome extension built from `apps/extension`. It 
 
 ## Transport and origin checks
 
-The web page sends a message with `source: CP_HUB_WEB` using `window.postMessage`. The content script accepts only messages from the same window and an allowlisted origin. It forwards the payload to the background worker and posts the response back with `source: CP_HUB_EXTENSION`.
+The web page sends a message with `source: CPBRIDGE_WEB` using `window.postMessage`. The content script accepts only messages from the same window and an allowlisted origin. It forwards the payload to the background worker and posts the response back with `source: CPBRIDGE_EXTENSION`.
 
 Allowed origins include local development hosts, `https://cpbridge.applentk.com`, and `https://*.applentk.com`.
 
@@ -34,7 +35,7 @@ Checks Codeforces and AtCoder sessions.
 ```json
 {
   "type": "PONG",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "platforms": {
     "CODEFORCES": { "loggedIn": true, "username": "tourist" },
     "ATCODER": { "loggedIn": false }
@@ -44,7 +45,7 @@ Checks Codeforces and AtCoder sessions.
 
 The response version comes from `chrome.runtime.getManifest()`. The example above matches the current manifest.
 
-### `SUBMIT` → `SUBMISSION_CREATED` or `SUBMISSION_FAILED`
+### `SUBMIT` → `SUBMISSION_CREATED`, `SUBMISSION_ACTION_REQUIRED`, or `SUBMISSION_FAILED`
 
 The web app sends the cpbridge submission ID, normalized platform problem ID, language, and source code.
 
@@ -72,9 +73,26 @@ On success, the extension returns the external judge submission ID:
 }
 ```
 
+When Codeforces requires interactive anti-bot verification, the extension opens the official submit page, prefills the problem, compiler, and source, and returns:
+
+```json
+{
+  "type": "SUBMISSION_ACTION_REQUIRED",
+  "submissionId": "sub_018f9...",
+  "platform": "CODEFORCES",
+  "action": "COMPLETE_ANTIBOT",
+  "submitUrl": "https://codeforces.com/problemset/submit#cpbridge=sub_018f9...",
+  "message": "Complete the Codeforces verification and submit the prefilled solution."
+}
+```
+
+The extension never attempts to solve or bypass the challenge, and it never auto-clicks the final submit button in this flow. Source code is retained only in `chrome.storage.session` long enough to prefill the official page; it is not stored in the recoverable local dispatch record.
+
+After the user submits on Codeforces, the web app sends `COMPLETE_MANUAL_SUBMISSION`. The extension checks the signed-in account's `/my` page and accepts only one new submission for the expected problem compared with the pre-handoff snapshot. It then returns `SUBMISSION_CREATED`; if no unique submission is visible yet, it returns `SUBMISSION_ACTION_REQUIRED` again.
+
 On failure, it returns one of the shared error codes: `NOT_LOGGED_IN`, `PLATFORM_UNAVAILABLE`, `RATE_LIMITED`, `UNSUPPORTED_LANGUAGE`, `PROBLEM_NOT_FOUND`, `SUBMISSION_FAILED`, or `UNKNOWN`. Current platform-dispatch failures are generally mapped to `NOT_LOGGED_IN` or `SUBMISSION_FAILED`; bridge/runtime failures use `PLATFORM_UNAVAILABLE` or `UNKNOWN`.
 
-The background worker deduplicates concurrent `SUBMIT` messages by cpbridge submission ID. It also persists a compact handoff record under `cp_hub_dispatch:{submissionId}` in `chrome.storage.local`. The stored record contains the cpbridge ID, state, and external ID or error; it does not contain source code or platform credentials.
+The background worker deduplicates concurrent `SUBMIT` messages by cpbridge submission ID. It also persists a compact handoff record under `cpbridge_dispatch:{submissionId}` in `chrome.storage.local`. The stored record contains the cpbridge ID, state, and external ID or error; it does not contain source code or platform credentials.
 
 ### `RECOVER_SUBMISSIONS` → `RECOVER_SUBMISSIONS_RESULT`
 
@@ -99,7 +117,7 @@ After a reload, the web app asks for dispatches whose API handoff may not have c
 }
 ```
 
-States are `DISPATCHING`, `CREATED`, or `FAILED`. If the original in-memory dispatch is still running, recovery waits up to 15 seconds for that same operation; it never starts a duplicate platform submission.
+States are `DISPATCHING`, `AWAITING_USER_ACTION`, `CREATED`, or `FAILED`. An awaiting record includes the official action URL and a user-facing message, but not source code. If the original in-memory dispatch is still running, recovery waits up to 15 seconds for that same operation; it never starts a duplicate platform submission.
 
 ### `ACK_SUBMISSION` → `ACK_SUBMISSION_RESULT`
 
@@ -146,10 +164,10 @@ After the extension returns an external ID, the web app calls `/api/submissions/
 
 On page startup and before submission-history loads, the web app runs the recovery handshake. A recovered `CREATED` result completes the `/dispatched` call; a recovered `FAILED` result updates `/result`; acknowledgement happens only after the API call succeeds.
 
-Codeforces submits directly from the service worker and identifies the new ID from the signed-in user's `/my` page. AtCoder normally submits directly too, but browser verification can require an inactive same-origin submit tab. That tab may briefly appear and is always closed after the attempt.
+Codeforces normally submits directly from the service worker and identifies the new ID from the signed-in user's `/my` page. An explicit “not registered” rejection is safely retried through the problemset endpoint. An anti-bot response instead switches to the visible, user-completed handoff described above. AtCoder normally submits directly too, but browser verification can require an inactive same-origin submit tab. That tab may briefly appear and is always closed after the attempt.
 
 ## Required Chrome permissions
 
 The manifest requests `cookies`, `activeTab`, `scripting`, and `storage`, plus host permissions for Codeforces, AtCoder, local cpbridge development hosts, and the production cpbridge hosts. These permissions allow the extension to use the user's existing platform session, retain recoverable handoff state, and, for AtCoder fallback submission, open a same-origin submit page and execute the form request there.
 
-`pnpm --filter @cpbridge/extension build` writes the two scripts under `apps/extension/dist` and packages the manifest plus `dist/` into ZIP files for local installation and web download.
+`pnpm --filter @cpbridge/extension build` writes the bridge, background worker, and Codeforces prefill scripts under `apps/extension/dist` and packages the manifest plus `dist/` into ZIP files for local installation and web download.

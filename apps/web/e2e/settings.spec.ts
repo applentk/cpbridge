@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { setupApiMocks } from './fixtures/api-mock';
 
-const LATEST_EXTENSION_VERSION = '1.0.7';
+const LATEST_EXTENSION_VERSION = '1.0.8';
 
 test.describe('Platform Integrations Settings', () => {
   test('renders integrations page, zero-cookie notice, extension guide, and platform cards when active', async ({ page }) => {
@@ -32,11 +32,11 @@ test.describe('Platform Integrations Settings', () => {
     // Delay the mock extension reply to observe skeleton
     await page.addInitScript((latestVersion) => {
       window.addEventListener('message', (event) => {
-        if (event.data && event.data.source === 'CP_HUB_WEB' && event.data.payload?.type === 'PING') {
+        if (event.data && event.data.source === 'CPBRIDGE_WEB' && event.data.payload?.type === 'PING') {
           const { id } = event.data;
           setTimeout(() => {
             window.postMessage({
-              source: 'CP_HUB_EXTENSION',
+              source: 'CPBRIDGE_EXTENSION',
               id,
               payload: {
                 type: 'PONG',

@@ -202,7 +202,7 @@ test.describe('Problem Workspace', () => {
 
     await page.locator('button:has-text("Submit Solution")').click();
 
-    await expect(page.locator('text=Extension update required. Install v1.0.7 before submitting.')).toBeVisible();
+    await expect(page.locator('text=Extension update required. Install v1.0.8 before submitting.')).toBeVisible();
     expect(submissionCreateRequests).toBe(0);
   });
 
@@ -222,6 +222,27 @@ test.describe('Problem Workspace', () => {
 
     // Verify submission error feedback
     await expect(page.locator('text=Compilation Error: missing semicolon')).toBeVisible();
+  });
+
+  test('hands interactive Codeforces verification to the user and verifies the completed submission', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, {
+      currentUser: mockRegularUser,
+      manualSubmissionRequired: true,
+    });
+
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=editor');
+    await page.locator('button:has-text("Submit Solution")').click();
+
+    const actions = page.getByTestId('manual-submission-actions');
+    await expect(actions).toBeVisible();
+    await expect(actions.getByRole('button', { name: 'Open Codeforces' })).toBeVisible();
+    await expect(actions.getByRole('button', { name: 'Copy code' })).toBeVisible();
+
+    await actions.getByRole('button', { name: 'I submitted — check now' }).click();
+
+    await expect(actions).toBeHidden();
+    await expect(page.locator('text=Submitted! Status: JUDGING')).toBeVisible();
   });
 
   test('code submission handling non-accepted verdicts (WRONG_ANSWER)', async ({ page }) => {

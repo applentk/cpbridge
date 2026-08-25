@@ -8,7 +8,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         background: resolve(__dirname, 'src/background.ts'),
-        bridge: resolve(__dirname, 'src/bridge.ts')
+        bridge: resolve(__dirname, 'src/bridge.ts'),
+        'codeforces-submit': resolve(__dirname, 'src/codeforces-submit.ts')
       },
       output: {
         entryFileNames: '[name].js',

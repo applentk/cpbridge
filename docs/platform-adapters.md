@@ -73,6 +73,8 @@ The extension parses the current platform submit form to choose a compiler. Its 
 
 Before submitting, the extension snapshots the authenticated user's matching submissions. Codeforces uses `/contest/{contest}/my`; AtCoder uses `/contests/{contest}/submissions/me`. After the form request it accepts an ID only when one new submission can be identified, avoiding accidental association with another concurrent submission.
 
+If Codeforces requires interactive anti-bot verification, the extension opens the official problemset submit page and waits until it can safely snapshot the signed-in account. It then prefills the form but leaves verification and the final Submit click to the user. cpbridge verifies the result against that snapshot before attaching the external submission ID.
+
 AtCoder's submit form can include browser-generated verification data. When that protection is present (or a direct form POST returns HTTP 403), the extension opens an inactive, short-lived AtCoder submit tab, serializes the real same-origin form after verification completes, submits it, and closes the tab in a `finally` path.
 
 ## Adding another platform

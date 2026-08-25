@@ -3,6 +3,7 @@ import { afterEach, describe, test } from 'node:test';
 
 import {
   checkCodeforcesSession,
+  CodeforcesUserActionRequired,
   pollCodeforcesStatus,
   submitCodeforces
 } from '../dist/test/codeforces.js';
@@ -106,7 +107,38 @@ describe('Codeforces adapter', () => {
     assert.equal(submittedForm?.get('programTypeId'), '91');
   });
 
-  test('falls back to problemset submission when a new account is blocked at the contest endpoint', async () => {
+  test('requires an interactive handoff when Codeforces returns an anti-bot challenge', async () => {
+    let myPageReads = 0;
+    const postUrls = [];
+    globalThis.fetch = async (input, init = {}) => {
+      const url = String(input);
+      if (url.endsWith('/contest/123/submit') && init.method === 'GET') {
+        return htmlResponse('<input name="_tta" value="1234"><script>var csrf_token = "contest-csrf";</script>');
+      }
+      if (url.endsWith('/contest/123/my')) {
+        myPageReads += 1;
+        return htmlResponse(codeforcesSubmissionRow('500'));
+      }
+      if (url.includes('/contest/123/submit?') && init.method === 'POST') {
+        postUrls.push(url);
+        return htmlResponse('<span class="error">Please complete anti-bot verification to submit a solution</span>');
+      }
+      throw new Error(`Unexpected request: ${init.method || 'GET'} ${url}`);
+    };
+
+    await assert.rejects(
+      submitCodeforces('123', 'A', 'cpp23', '#include <iostream>'),
+      (error) => error instanceof CodeforcesUserActionRequired
+        && error.knownSubmissionIds.length === 1
+        && error.knownSubmissionIds[0] === '500'
+    );
+
+    assert.equal(myPageReads, 1);
+    assert.equal(postUrls.length, 1);
+    assert.match(postUrls[0], /\/contest\/123\/submit\?/);
+  });
+
+  test('falls back to problemset submission when the account is not registered for the contest', async () => {
     let myPageReads = 0;
     const postUrls = [];
     globalThis.fetch = async (input, init = {}) => {
@@ -119,11 +151,11 @@ describe('Codeforces adapter', () => {
       }
       if (url.endsWith('/contest/123/my')) {
         myPageReads += 1;
-        return htmlResponse(codeforcesSubmissionRow(myPageReads <= 2 ? '500' : '501'));
+        return htmlResponse(codeforcesSubmissionRow(myPageReads <= 2 ? '600' : '601'));
       }
       if (url.includes('/contest/123/submit?') && init.method === 'POST') {
         postUrls.push(url);
-        return htmlResponse('<span class="error">Please complete anti-bot verification to submit a solution</span>');
+        return htmlResponse('<span class="error">You are not registered for the contest</span>');
       }
       if (url.includes('/problemset/submit?') && init.method === 'POST') {
         postUrls.push(url);
@@ -134,7 +166,7 @@ describe('Codeforces adapter', () => {
 
     const result = await submitCodeforces('123', 'A', 'cpp23', '#include <iostream>');
 
-    assert.deepEqual(result, { externalSubmissionId: '501' });
+    assert.deepEqual(result, { externalSubmissionId: '601' });
     assert.equal(postUrls.length, 2);
     assert.match(postUrls[0], /\/contest\/123\/submit\?/);
     assert.match(postUrls[1], /\/problemset\/submit\?/);

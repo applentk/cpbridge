@@ -5,7 +5,7 @@
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
-  import { isExtensionVersionCompatible, pingExtension, submitViaExtension, pollStatusViaExtension, recoverPendingSubmissions, acknowledgeRecoveredSubmission } from '$lib/extension/bridge';
+  import { isExtensionVersionCompatible, pingExtension, submitViaExtension, completeManualSubmission, pollStatusViaExtension, recoverPendingSubmissions, acknowledgeRecoveredSubmission } from '$lib/extension/bridge';
   import { syncActivePlatformIdentities } from '$lib/extension/identity';
   import { reconcileExtensionSubmissions } from '$lib/extension/reconcile';
   import { renderMathInHtml } from '$lib/utils/math';
@@ -13,6 +13,7 @@
     type Problem,
     type LanguageId,
     type Submission,
+    type ExtensionSubmissionActionRequiredResponse,
     type ProblemStatement,
     type Contest,
     type ContestProblem,
@@ -22,6 +23,7 @@
   import MonacoEditor from '$lib/components/MonacoEditor.svelte';
   import SubmissionModal from '$lib/components/SubmissionModal.svelte';
   import ContestTimer from '$lib/components/ContestTimer.svelte';
+  import ManualSubmissionActions from '$lib/components/ManualSubmissionActions.svelte';
   import {
     ExternalLink,
     Send,
@@ -74,6 +76,10 @@
   let submitting = false;
   let submitStatus = '';
   let activeSubmission: Submission | null = null;
+  let manualSubmissionAction: ExtensionSubmissionActionRequiredResponse | null = null;
+  let manualSourceCode = '';
+  let checkingManualSubmission = false;
+  let manualCodeCopied = false;
   let recentSubmissions: Submission[] = [];
   let submissionsLoading = false;
   let submissionsInitialized = false;
@@ -204,6 +210,10 @@
     error = '';
     stopSubmissionPolling();
     activeSubmission = null;
+    manualSubmissionAction = null;
+    manualSourceCode = '';
+    checkingManualSubmission = false;
+    manualCodeCopied = false;
     submitStatus = '';
     recentSubmissions = [];
     submissionsInitialized = false;
@@ -322,6 +332,28 @@
       const submissions = await api.get<Submission[]>(query);
       if (pId === problemId && cId === contestId) {
         recentSubmissions = submissions;
+        const recovered = await recoverPendingSubmissions();
+        const awaiting = recovered.find((dispatch) =>
+          dispatch.state === 'AWAITING_USER_ACTION' &&
+          Boolean(dispatch.actionUrl) &&
+          submissions.some((submission) => submission.id === dispatch.submissionId)
+        );
+        if (awaiting?.actionUrl) {
+          const pendingSubmission = submissions.find((submission) => submission.id === awaiting.submissionId);
+          if (pendingSubmission) {
+            activeSubmission = pendingSubmission;
+            manualSourceCode = pendingSubmission.sourceCode;
+            manualSubmissionAction = {
+              type: 'SUBMISSION_ACTION_REQUIRED',
+              submissionId: awaiting.submissionId,
+              platform: 'CODEFORCES',
+              action: 'COMPLETE_ANTIBOT',
+              submitUrl: awaiting.actionUrl,
+              message: awaiting.actionMessage || 'Complete the Codeforces verification and submit the prefilled solution.'
+            };
+            submitStatus = manualSubmissionAction.message;
+          }
+        }
       }
       return submissions;
     } catch {
@@ -342,6 +374,7 @@
     if (pId !== problemId || cId !== contestId || submissions.length === 0) return;
 
     const latest = submissions[0];
+    if (manualSubmissionAction?.submissionId === latest.id) return;
     if (latest.status === 'JUDGING' || latest.status === 'PENDING' || latest.status === 'DISPATCHING') {
       activeSubmission = latest;
       submitStatus = `Judging in progress... Status: ${latest.status}`;
@@ -456,6 +489,58 @@
     viewMode = 'tabbed';
   }
 
+  function openManualSubmitPage() {
+    if (!manualSubmissionAction) return;
+    window.open(manualSubmissionAction.submitUrl, '_blank', 'noopener,noreferrer');
+  }
+
+  async function copyManualSource() {
+    const code = manualSourceCode || activeSubmission?.sourceCode || sourceCode;
+    await navigator.clipboard.writeText(code);
+    manualCodeCopied = true;
+    setTimeout(() => {
+      manualCodeCopied = false;
+    }, 2000);
+  }
+
+  async function markSubmissionDispatched(submission: Submission, externalSubmissionId: string) {
+    await api.post(`/submissions/${submission.id}/dispatched`, { externalSubmissionId });
+    activeSubmission = { ...submission, status: 'JUDGING', externalSubmissionId };
+    const idx = recentSubmissions.findIndex((item) => item.id === submission.id);
+    if (idx !== -1) {
+      recentSubmissions[idx] = { ...recentSubmissions[idx], status: 'JUDGING', externalSubmissionId };
+      recentSubmissions = [...recentSubmissions];
+    }
+    manualSubmissionAction = null;
+    manualSourceCode = '';
+    submitStatus = 'Submitted! Status: JUDGING (Polling verdict...)';
+    startSubmissionPolling(submission.id);
+  }
+
+  async function checkManualSubmission() {
+    if (!manualSubmissionAction || !activeSubmission || checkingManualSubmission) return;
+    checkingManualSubmission = true;
+    try {
+      const response = await completeManualSubmission(activeSubmission.id);
+      if (response.type === 'SUBMISSION_CREATED' && response.externalSubmissionId) {
+        await markSubmissionDispatched(activeSubmission, response.externalSubmissionId);
+        if (problem) await loadSubmissions(problem.id, contestId);
+      } else if (response.type === 'SUBMISSION_ACTION_REQUIRED') {
+        manualSubmissionAction = response;
+        submitStatus = response.message;
+      } else if (response.type === 'SUBMISSION_FAILED') {
+        submitStatus = `Could not verify the Codeforces submission: ${response.message || response.error}. Keep this page open and try again after submitting.`;
+      } else {
+        submitStatus = 'Codeforces did not return a submission ID yet. Keep this page open and try again after submitting.';
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'The extension did not respond';
+      submitStatus = `Could not verify the Codeforces submission: ${message}. You can safely try again.`;
+    } finally {
+      checkingManualSubmission = false;
+    }
+  }
+
   async function handleSubmit() {
     if (!$auth.user) {
       alert('Please log in to submit a solution');
@@ -539,19 +624,16 @@
 
       if (extRes.type === 'SUBMISSION_CREATED' && extRes.externalSubmissionId) {
         extensionDispatchCompleted = true;
-        submitStatus = 'Submitted! Status: JUDGING (Polling verdict...)';
-        await api.post(`/submissions/${sub.id}/dispatched`, {
-          externalSubmissionId: extRes.externalSubmissionId
-        });
-        activeSubmission.status = 'JUDGING';
-        activeSubmission.externalSubmissionId = extRes.externalSubmissionId;
-        const idx = recentSubmissions.findIndex((s) => s.id === sub.id);
-        if (idx !== -1) {
-          recentSubmissions[idx] = { ...recentSubmissions[idx], status: 'JUDGING', externalSubmissionId: extRes.externalSubmissionId };
-          recentSubmissions = [...recentSubmissions];
-        }
-        startSubmissionPolling(sub.id);
+        await markSubmissionDispatched(sub, extRes.externalSubmissionId);
+      } else if (extRes.type === 'SUBMISSION_ACTION_REQUIRED') {
+        extensionDispatchCompleted = true;
+        manualSubmissionAction = extRes;
+        manualSourceCode = sourceCode;
+        manualCodeCopied = false;
+        submitStatus = extRes.message;
+        setActiveTab('editor');
       } else if (extRes.type === 'SUBMISSION_FAILED') {
+        manualSubmissionAction = null;
         const errorMsg = extRes.message || extRes.error || 'Submission was not accepted on platform';
         submitStatus = `Submission failed: ${errorMsg}`;
         await api.post(`/submissions/${sub.id}/result`, {
@@ -1034,6 +1116,16 @@
                 {/if}
               </div>
               <p class="text-xs text-zinc-400">{submitStatus}</p>
+              {#if manualSubmissionAction}
+                <ManualSubmissionActions
+                  action={manualSubmissionAction}
+                  checking={checkingManualSubmission}
+                  copied={manualCodeCopied}
+                  onCheck={checkManualSubmission}
+                  onOpen={openManualSubmitPage}
+                  onCopy={copyManualSource}
+                />
+              {/if}
             </div>
           {/if}
         </div>
@@ -1218,6 +1310,16 @@
                 </div>
 
                 <p class="text-xs text-zinc-400 font-mono">{submitStatus}</p>
+                {#if manualSubmissionAction}
+                  <ManualSubmissionActions
+                    action={manualSubmissionAction}
+                    checking={checkingManualSubmission}
+                    copied={manualCodeCopied}
+                    onCheck={checkManualSubmission}
+                    onOpen={openManualSubmitPage}
+                    onCopy={copyManualSource}
+                  />
+                {/if}
               </div>
             {/if}
           </div>

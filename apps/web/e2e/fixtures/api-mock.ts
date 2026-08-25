@@ -13,7 +13,7 @@ import {
   mockUsersList,
 } from './mock-data';
 
-const LATEST_EXTENSION_VERSION = '1.0.7';
+const LATEST_EXTENSION_VERSION = '1.0.8';
 
 export interface SetupApiMocksOptions {
   currentUser?: User | null;
@@ -25,6 +25,7 @@ export interface SetupApiMocksOptions {
   standings?: Standings;
   disableExtension?: boolean;
   submissionError?: string;
+  manualSubmissionRequired?: boolean;
   extensionPlatforms?: Record<string, { loggedIn: boolean; username?: string }>;
   extensionVersion?: string;
   extensionPollVerdict?: string;
@@ -48,11 +49,11 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
   if (!options.disableExtension) {
     await page.addInitScript((opts) => {
       window.addEventListener('message', (event) => {
-        if (event.data && event.data.source === 'CP_HUB_WEB') {
+        if (event.data && event.data.source === 'CPBRIDGE_WEB') {
           const { id, payload } = event.data;
           if (payload?.type === 'PING') {
             window.postMessage({
-              source: 'CP_HUB_EXTENSION',
+              source: 'CPBRIDGE_EXTENSION',
               id,
               payload: {
                 type: 'PONG',
@@ -64,9 +65,22 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
               },
             }, '*');
           } else if (payload?.type === 'SUBMIT') {
-            if (opts.submissionError) {
+            if (opts.manualSubmissionRequired) {
               window.postMessage({
-                source: 'CP_HUB_EXTENSION',
+                source: 'CPBRIDGE_EXTENSION',
+                id,
+                payload: {
+                  type: 'SUBMISSION_ACTION_REQUIRED',
+                  submissionId: payload.submissionId,
+                  platform: 'CODEFORCES',
+                  action: 'COMPLETE_ANTIBOT',
+                  submitUrl: `https://codeforces.com/problemset/submit#cpbridge=${payload.submissionId}`,
+                  message: 'Complete the Codeforces verification and submit the prefilled solution.',
+                },
+              }, '*');
+            } else if (opts.submissionError) {
+              window.postMessage({
+                source: 'CPBRIDGE_EXTENSION',
                 id,
                 payload: {
                   type: 'SUBMISSION_FAILED',
@@ -77,7 +91,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
               }, '*');
             } else {
               window.postMessage({
-                source: 'CP_HUB_EXTENSION',
+                source: 'CPBRIDGE_EXTENSION',
                 id,
                 payload: {
                   type: 'SUBMISSION_CREATED',
@@ -86,9 +100,19 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
                 },
               }, '*');
             }
+          } else if (payload?.type === 'COMPLETE_MANUAL_SUBMISSION') {
+            window.postMessage({
+              source: 'CPBRIDGE_EXTENSION',
+              id,
+              payload: {
+                type: 'SUBMISSION_CREATED',
+                submissionId: payload.submissionId,
+                externalSubmissionId: `cf_${Date.now()}`,
+              },
+            }, '*');
           } else if (payload?.type === 'POLL_STATUS') {
             window.postMessage({
-              source: 'CP_HUB_EXTENSION',
+              source: 'CPBRIDGE_EXTENSION',
               id,
               payload: {
                 type: 'POLL_STATUS_RESULT',
@@ -98,11 +122,21 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
             }, '*');
           } else if (payload?.type === 'RECOVER_SUBMISSIONS') {
             window.postMessage({
-              source: 'CP_HUB_EXTENSION',
+              source: 'CPBRIDGE_EXTENSION',
               id,
               payload: {
                 type: 'RECOVER_SUBMISSIONS_RESULT',
                 submissions: opts.recoveredSubmissions || [],
+              },
+            }, '*');
+          } else if (payload?.type === 'ACK_SUBMISSION') {
+            window.postMessage({
+              source: 'CPBRIDGE_EXTENSION',
+              id,
+              payload: {
+                type: 'ACK_SUBMISSION_RESULT',
+                submissionId: payload.submissionId,
+                acknowledged: true,
               },
             }, '*');
           }
@@ -110,6 +144,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       });
     }, {
       submissionError: options.submissionError,
+      manualSubmissionRequired: options.manualSubmissionRequired,
       extensionPlatforms: options.extensionPlatforms,
       extensionVersion: options.extensionVersion || LATEST_EXTENSION_VERSION,
       extensionPollVerdict: options.extensionPollVerdict,

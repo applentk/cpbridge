@@ -3,15 +3,26 @@ import type {
   ExtensionPingResponse,
   ExtensionRecoverSubmissionsResponse,
   ExtensionRecoveredSubmission,
+  ExtensionSubmissionActionRequiredResponse,
   ExtensionSubmissionCreatedResponse,
   ExtensionSubmissionFailedResponse,
   ExtensionSubmitRequest,
-  ExtensionStatusPollResponse
+  ExtensionStatusPollResponse,
+  LanguageId
 } from '@cpbridge/contracts';
-import { checkCodeforcesSession, submitCodeforces, pollCodeforcesStatus } from './platforms/codeforces.js';
+import {
+  checkCodeforcesSession,
+  CodeforcesUserActionRequired,
+  detectManualCodeforcesSubmission,
+  snapshotCodeforcesSubmissionIds,
+  submitCodeforces,
+  pollCodeforcesStatus
+} from './platforms/codeforces.js';
 import { checkAtCoderSession, submitAtCoder, pollAtCoderStatus } from './platforms/atcoder.js';
 
-const DISPATCH_STORAGE_PREFIX = 'cp_hub_dispatch:';
+const DISPATCH_STORAGE_PREFIX = 'cpbridge_dispatch:';
+const MANUAL_STORAGE_PREFIX = 'cpbridge_manual:';
+const MANUAL_SOURCE_STORAGE_PREFIX = 'cpbridge_manual_source:';
 
 function isAllowedOrigin(origin: string): boolean {
   if (!origin) return false;
@@ -51,12 +62,47 @@ function isTrustedSender(sender: chrome.runtime.MessageSender): boolean {
   }
 }
 
-type StoredDispatch = ExtensionRecoveredSubmission;
+function isCodeforcesSender(sender: chrome.runtime.MessageSender): boolean {
+  const pageURL = sender.tab?.url;
+  if (!pageURL) return false;
+  try {
+    return new URL(pageURL).origin === 'https://codeforces.com';
+  } catch {
+    return false;
+  }
+}
 
-const inFlightSubmissions = new Map<string, Promise<ExtensionSubmissionCreatedResponse | ExtensionSubmissionFailedResponse>>();
+type StoredDispatch = ExtensionRecoveredSubmission;
+type DispatchResponse = ExtensionSubmissionCreatedResponse | ExtensionSubmissionFailedResponse | ExtensionSubmissionActionRequiredResponse;
+
+interface ManualCodeforcesSubmission {
+  submissionId: string;
+  contestId: string;
+  problemIndex: string;
+  language: LanguageId;
+  knownSubmissionIds?: string[];
+  submitUrl: string;
+  message: string;
+  createdAt: number;
+}
+
+interface CodeforcesPrefillRequest {
+  type: 'GET_CODEFORCES_PREFILL';
+  submissionId: string;
+}
+
+const inFlightSubmissions = new Map<string, Promise<DispatchResponse>>();
 
 function dispatchStorageKey(submissionId: string): string {
   return `${DISPATCH_STORAGE_PREFIX}${submissionId}`;
+}
+
+function manualStorageKey(submissionId: string): string {
+  return `${MANUAL_STORAGE_PREFIX}${submissionId}`;
+}
+
+function manualSourceStorageKey(submissionId: string): string {
+  return `${MANUAL_SOURCE_STORAGE_PREFIX}${submissionId}`;
 }
 
 async function storeDispatch(dispatch: StoredDispatch): Promise<void> {
@@ -90,7 +136,127 @@ async function acknowledgeDispatch(submissionId: string): Promise<boolean> {
   }
 }
 
-async function dispatchSubmission(message: ExtensionSubmitRequest): Promise<ExtensionSubmissionCreatedResponse | ExtensionSubmissionFailedResponse> {
+async function storeManualSubmission(pending: ManualCodeforcesSubmission, source: string): Promise<void> {
+  await chrome.storage.local.set({ [manualStorageKey(pending.submissionId)]: pending });
+  await chrome.storage.session.set({ [manualSourceStorageKey(pending.submissionId)]: source });
+}
+
+async function storeManualMetadata(pending: ManualCodeforcesSubmission): Promise<void> {
+  await chrome.storage.local.set({ [manualStorageKey(pending.submissionId)]: pending });
+}
+
+async function readManualSubmission(submissionId: string): Promise<ManualCodeforcesSubmission | undefined> {
+  const stored = await chrome.storage.local.get(manualStorageKey(submissionId));
+  return stored[manualStorageKey(submissionId)] as ManualCodeforcesSubmission | undefined;
+}
+
+async function clearManualSubmission(submissionId: string): Promise<void> {
+  await Promise.all([
+    chrome.storage.local.remove(manualStorageKey(submissionId)),
+    chrome.storage.session.remove(manualSourceStorageKey(submissionId))
+  ]);
+}
+
+function actionRequiredResponse(pending: ManualCodeforcesSubmission): ExtensionSubmissionActionRequiredResponse {
+  return {
+    type: 'SUBMISSION_ACTION_REQUIRED',
+    submissionId: pending.submissionId,
+    platform: 'CODEFORCES',
+    action: 'COMPLETE_ANTIBOT',
+    submitUrl: pending.submitUrl,
+    message: pending.message
+  };
+}
+
+async function beginInteractiveCodeforcesSubmission(
+  message: ExtensionSubmitRequest,
+  contestId: string,
+  problemIndex: string,
+  actionError: CodeforcesUserActionRequired
+): Promise<ExtensionSubmissionActionRequiredResponse> {
+  const submitUrl = `https://codeforces.com/problemset/submit#cpbridge=${encodeURIComponent(message.submissionId)}`;
+  const pending: ManualCodeforcesSubmission = {
+    submissionId: message.submissionId,
+    contestId,
+    problemIndex,
+    language: message.language,
+    knownSubmissionIds: actionError.knownSubmissionIds,
+    submitUrl,
+    message: actionError.message,
+    createdAt: Date.now()
+  };
+  await storeManualSubmission(pending, message.source);
+  await storeDispatch({
+    submissionId: message.submissionId,
+    state: 'AWAITING_USER_ACTION',
+    actionUrl: submitUrl,
+    actionMessage: actionError.message
+  });
+  try {
+    await chrome.tabs.create({ url: submitUrl, active: true });
+  } catch (err) {
+    console.warn('[cpbridge Extension] Could not open interactive Codeforces tab:', err);
+  }
+  return actionRequiredResponse(pending);
+}
+
+async function completeManualCodeforcesSubmission(submissionId: string): Promise<DispatchResponse> {
+  const pending = await readManualSubmission(submissionId);
+  if (!pending) {
+    return {
+      type: 'SUBMISSION_FAILED',
+      submissionId,
+      error: 'SUBMISSION_FAILED',
+      message: 'The interactive Codeforces handoff expired. Start the submission again from cpbridge.'
+    };
+  }
+
+  if (!pending.knownSubmissionIds) {
+    pending.message = 'Codeforces verification is still preparing the safe submission check. Finish the browser verification and wait for the form to be prefilled before submitting.';
+    await storeManualMetadata(pending);
+    await storeDispatch({
+      submissionId,
+      state: 'AWAITING_USER_ACTION',
+      actionUrl: pending.submitUrl,
+      actionMessage: pending.message
+    });
+    return actionRequiredResponse(pending);
+  }
+
+  const externalSubmissionId = await detectManualCodeforcesSubmission(
+    pending.contestId,
+    pending.problemIndex,
+    pending.knownSubmissionIds
+  );
+  if (!externalSubmissionId) {
+    pending.message = 'No new Codeforces submission was found yet. Submit in the opened Codeforces tab, then click “I submitted — check now” again.';
+    await storeDispatch({
+      submissionId,
+      state: 'AWAITING_USER_ACTION',
+      actionUrl: pending.submitUrl,
+      actionMessage: pending.message
+    });
+    return actionRequiredResponse(pending);
+  }
+
+  await storeDispatch({ submissionId, state: 'CREATED', externalSubmissionId });
+  await clearManualSubmission(submissionId);
+  return { type: 'SUBMISSION_CREATED', submissionId, externalSubmissionId };
+}
+
+async function prepareCodeforcesPrefill(submissionId: string): Promise<ManualCodeforcesSubmission | undefined> {
+  const pending = await readManualSubmission(submissionId);
+  if (!pending || pending.knownSubmissionIds) return pending;
+
+  const knownSubmissionIds = await snapshotCodeforcesSubmissionIds(pending.contestId, pending.problemIndex);
+  if (!knownSubmissionIds) return undefined;
+
+  pending.knownSubmissionIds = knownSubmissionIds;
+  await storeManualMetadata(pending);
+  return pending;
+}
+
+async function dispatchSubmission(message: ExtensionSubmitRequest): Promise<DispatchResponse> {
   await storeDispatch({ submissionId: message.submissionId, state: 'DISPATCHING' });
 
   try {
@@ -99,8 +265,15 @@ async function dispatchSubmission(message: ExtensionSubmitRequest): Promise<Exte
     if (message.platform === 'CODEFORCES') {
       const parts = message.problem.externalId.split('/');
       if (parts.length !== 2) throw new Error('Invalid Codeforces externalId');
-      const res = await submitCodeforces(parts[0], parts[1], message.language, message.source);
-      externalSubmissionId = res.externalSubmissionId;
+      try {
+        const res = await submitCodeforces(parts[0], parts[1], message.language, message.source);
+        externalSubmissionId = res.externalSubmissionId;
+      } catch (err) {
+        if (err instanceof CodeforcesUserActionRequired) {
+          return beginInteractiveCodeforcesSubmission(message, parts[0], parts[1], err);
+        }
+        throw err;
+      }
     } else if (message.platform === 'ATCODER') {
       const parts = message.problem.externalId.split('/');
       if (parts.length !== 2) throw new Error('Invalid AtCoder externalId');
@@ -138,7 +311,30 @@ async function dispatchSubmission(message: ExtensionSubmitRequest): Promise<Exte
   }
 }
 
-chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: ExtensionMessage | CodeforcesPrefillRequest, sender, sendResponse) => {
+  if (message.type === 'GET_CODEFORCES_PREFILL') {
+    if (!isCodeforcesSender(sender)) {
+      sendResponse({ type: 'CODEFORCES_PREFILL_RESULT', error: 'Untrusted Codeforces page' });
+      return false;
+    }
+    Promise.all([
+      prepareCodeforcesPrefill(message.submissionId),
+      chrome.storage.session.get(manualSourceStorageKey(message.submissionId))
+    ]).then(([pending, sourceStore]) => {
+      sendResponse({
+        type: 'CODEFORCES_PREFILL_RESULT',
+        pending,
+        source: sourceStore[manualSourceStorageKey(message.submissionId)] as string | undefined
+      });
+    }).catch((err) => {
+      sendResponse({
+        type: 'CODEFORCES_PREFILL_RESULT',
+        error: err instanceof Error ? err.message : 'Could not prepare the pending submission'
+      });
+    });
+    return true;
+  }
+
   if (!isTrustedSender(sender)) {
     sendResponse({
       type: 'SUBMISSION_FAILED',
@@ -197,6 +393,10 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
         externalSubmissionId: stored.externalSubmissionId
       } satisfies ExtensionSubmissionCreatedResponse;
     }
+    if (stored?.state === 'AWAITING_USER_ACTION') {
+      const pending = await readManualSubmission(message.submissionId);
+      if (pending) return actionRequiredResponse(pending);
+    }
 
     const dispatchPromise = dispatchSubmission(message);
     inFlightSubmissions.set(message.submissionId, dispatchPromise);
@@ -205,6 +405,10 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
     } finally {
       inFlightSubmissions.delete(message.submissionId);
     }
+  }
+
+  if (message.type === 'COMPLETE_MANUAL_SUBMISSION') {
+    return completeManualCodeforcesSubmission(message.submissionId);
   }
 
   if (message.type === 'RECOVER_SUBMISSIONS') {
