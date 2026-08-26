@@ -6,7 +6,7 @@
   import type { Contest, ContestProblem, Submission } from '@cpbridge/contracts';
   import ContestTimer from '$lib/components/ContestTimer.svelte';
   import ProblemCard from '$lib/components/ProblemCard.svelte';
-  import { Trophy, Users, Lock, RefreshCw, Edit3 } from 'lucide-svelte';
+  import { Trophy, Users, Lock, Edit3 } from 'lucide-svelte';
 
   let contestId = $page.params.id;
   let contest: Contest | null = null;
@@ -18,11 +18,19 @@
   let interval: ReturnType<typeof setInterval> | undefined;
   let lastLoadedAuthUserId: string | null = null;
 
-  async function loadContest() {
+  async function loadContest(options: { fetchSubmissions?: boolean } = {}) {
+    const { fetchSubmissions = false } = options;
     try {
       contest = await api.get<Contest>(`/contests/${contestId}`);
       problems = contest.problems || [];
-      if ($auth.user) {
+
+      // Stop polling once the contest has started and problems are unlocked
+      if (contest.state !== 'UPCOMING' && interval) {
+        clearInterval(interval);
+        interval = undefined;
+      }
+
+      if (fetchSubmissions && $auth.user) {
         await loadSubmissions();
       }
     } catch (err) {
@@ -73,16 +81,18 @@
     }
     try {
       await api.post(`/contests/${contestId}/join`);
-      await loadContest();
+      await loadContest({ fetchSubmissions: true });
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to join contest');
     }
   }
 
-  onMount(() => {
-    loadContest();
-    // Poll contest state every 5 seconds to auto-reveal problems when contest starts
-    interval = setInterval(loadContest, 5000);
+  onMount(async () => {
+    await loadContest({ fetchSubmissions: true });
+    // Poll contest state only if UPCOMING to auto-reveal problems when contest starts
+    if (contest?.state === 'UPCOMING') {
+      interval = setInterval(() => loadContest({ fetchSubmissions: false }), 5000);
+    }
   });
 
   onDestroy(() => {
@@ -186,14 +196,6 @@
             <span class="text-xs font-mono text-zinc-500">({problems.length})</span>
           {/if}
         </h2>
-
-        <button
-          on:click={loadContest}
-          class="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
-          title="Refresh"
-        >
-          <RefreshCw class="w-4 h-4" />
-        </button>
       </div>
 
       {#if contest.state === 'UPCOMING' && $auth.user?.role !== 'ADMIN'}
