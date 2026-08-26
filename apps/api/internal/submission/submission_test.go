@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/cpbridge/api/internal/auth"
 	"github.com/cpbridge/api/internal/contest"
 	"github.com/cpbridge/api/internal/db"
@@ -562,3 +563,231 @@ func TestScoreboardPenaltyAndAttemptRules(t *testing.T) {
 	assert.Equal(t, 2, scoreD.ProblemScores[prob.ID].Attempts, "Only WA and RE should count as attempts; CE and Failed ignored")
 	assert.Equal(t, 0, scoreD.ProblemScores[prob.ID].PenaltyMinutes)
 }
+
+func TestScoreboardDeterministicOrderingAndTiedRanks(t *testing.T) {
+	database, err := db.Connect()
+	if err != nil {
+		t.Skipf("Skipping database integration tests: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+	if err := database.Ping(); err != nil {
+		t.Skipf("Skipping database integration tests: %v", err)
+	}
+	require.NoError(t, db.EnsureSchema(database))
+
+	suffix := time.Now().UnixNano()
+	ownerEmail := fmt.Sprintf("tie_owner_%d@test.com", suffix)
+	userAlphaEmail := fmt.Sprintf("tie_alpha_%d@test.com", suffix)
+	userBetaEmail := fmt.Sprintf("tie_beta_%d@test.com", suffix)
+	userGammaEmail := fmt.Sprintf("tie_gamma_%d@test.com", suffix)
+	probExtID := fmt.Sprintf("tie_p_%d", suffix)
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		tx, err := database.BeginTx(ctx, nil)
+		if err != nil {
+			return
+		}
+		defer tx.Rollback()
+
+		_, _ = tx.ExecContext(ctx, `DELETE FROM submissions WHERE user_id IN (SELECT id FROM users WHERE email IN ($1, $2, $3, $4))`, ownerEmail, userAlphaEmail, userBetaEmail, userGammaEmail)
+		_, _ = tx.ExecContext(ctx, `DELETE FROM contests WHERE owner_id IN (SELECT id FROM users WHERE email = $1)`, ownerEmail)
+		_, _ = tx.ExecContext(ctx, `DELETE FROM problems WHERE external_id = $1`, probExtID)
+		_, _ = tx.ExecContext(ctx, `DELETE FROM users WHERE email IN ($1, $2, $3, $4)`, ownerEmail, userAlphaEmail, userBetaEmail, userGammaEmail)
+		_ = tx.Commit()
+	})
+
+	ctx := context.Background()
+	authSvc := auth.NewService(database)
+	platReg := platform.NewRegistry()
+	probSvc := problem.NewService(database, platReg)
+	setSvc := problemset.NewService(database)
+	contestSvc := contest.NewService(database, setSvc)
+	subSvc := submission.NewService(database, contestSvc, probSvc, platReg)
+
+	owner, _, err := authSvc.Register(ctx, ownerEmail, fmt.Sprintf("owner_%d", suffix), "password123")
+	require.NoError(t, err)
+	// Create usernames: "alpha_user", "beta_user", "gamma_user"
+	userAlpha, _, err := authSvc.Register(ctx, userAlphaEmail, fmt.Sprintf("alpha_%d", suffix), "password123")
+	require.NoError(t, err)
+	userBeta, _, err := authSvc.Register(ctx, userBetaEmail, fmt.Sprintf("beta_%d", suffix), "password123")
+	require.NoError(t, err)
+	userGamma, _, err := authSvc.Register(ctx, userGammaEmail, fmt.Sprintf("gamma_%d", suffix), "password123")
+	require.NoError(t, err)
+
+	prob, err := probSvc.CreateCustom(ctx, problem.CreateCustomReq{
+		Title:       "Tied Score Problem",
+		Platform:    platform.Codeforces,
+		ExternalID:  probExtID,
+		Statement:   "Statement",
+		TimeLimit:   "1.0s",
+		MemoryLimit: "256MB",
+	})
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	startAt := now.Add(-1 * time.Hour)
+	endAt := now.Add(1 * time.Hour)
+
+	con, err := contestSvc.Create(ctx, contest.CreateContestParams{
+		OwnerID:           owner.ID,
+		ProblemIDs:        []string{prob.ID},
+		Name:              "Tied Score Contest",
+		StartAt:           startAt,
+		EndAt:             endAt,
+		Visibility:        "PUBLIC",
+		ScoringType:       contest.ICPC,
+		PublicationStatus: contest.PublicationPublished,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, contestSvc.Join(ctx, con.ID, userAlpha.ID))
+	require.NoError(t, contestSvc.Join(ctx, con.ID, userBeta.ID))
+	require.NoError(t, contestSvc.Join(ctx, con.ID, userGamma.ID))
+
+	// Both Alpha and Beta solve at identical timestamp (10m from start) -> Solved: 1, Penalty: 10
+	subTime := startAt.Add(10 * time.Minute)
+	_, err = database.ExecContext(ctx, `
+		INSERT INTO submissions (id, user_id, problem_id, contest_id, platform, language, source_code, status, submitted_at, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, fmt.Sprintf("sub_alpha_%d", suffix), userAlpha.ID, prob.ID, con.ID, prob.Platform, "cpp23", "code", submission.Accepted, subTime, "{}")
+	require.NoError(t, err)
+
+	_, err = database.ExecContext(ctx, `
+		INSERT INTO submissions (id, user_id, problem_id, contest_id, platform, language, source_code, status, submitted_at, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, fmt.Sprintf("sub_beta_%d", suffix), userBeta.ID, prob.ID, con.ID, prob.Platform, "cpp23", "code", submission.Accepted, subTime, "{}")
+	require.NoError(t, err)
+
+	// Gamma and Owner have 0 solves, 0 penalty.
+
+	// Perform multiple syncs (standings calculations) to verify absolute deterministic stability across calls
+	var firstSyncUserIDs []string
+	for i := 0; i < 20; i++ {
+		res, err := subSvc.CalculateStandings(ctx, con.ID, owner.ID, true)
+		require.NoError(t, err)
+		require.Len(t, res.Standings, 4) // owner, alpha, beta, gamma
+
+		// Check tied rank assignments
+		// Alpha & Beta tied for 1st place -> both Rank 1
+		assert.Equal(t, 1, res.Standings[0].Rank)
+		assert.Equal(t, 1, res.Standings[0].SolvedCount)
+		assert.Equal(t, 10, res.Standings[0].TotalPenalty)
+
+		assert.Equal(t, 1, res.Standings[1].Rank)
+		assert.Equal(t, 1, res.Standings[1].SolvedCount)
+		assert.Equal(t, 10, res.Standings[1].TotalPenalty)
+
+		// Alpha comes before Beta because "alpha_..." < "beta_..."
+		assert.Equal(t, userAlpha.ID, res.Standings[0].UserID)
+		assert.Equal(t, userBeta.ID, res.Standings[1].UserID)
+
+		// Gamma & Owner tied with 0 solves -> both Rank 3
+		assert.Equal(t, 3, res.Standings[2].Rank)
+		assert.Equal(t, 0, res.Standings[2].SolvedCount)
+		assert.Equal(t, 0, res.Standings[2].TotalPenalty)
+
+		assert.Equal(t, 3, res.Standings[3].Rank)
+		assert.Equal(t, 0, res.Standings[3].SolvedCount)
+		assert.Equal(t, 0, res.Standings[3].TotalPenalty)
+
+		currentUserIDs := []string{
+			res.Standings[0].UserID,
+			res.Standings[1].UserID,
+			res.Standings[2].UserID,
+			res.Standings[3].UserID,
+		}
+		if i == 0 {
+			firstSyncUserIDs = currentUserIDs
+		} else {
+			assert.Equal(t, firstSyncUserIDs, currentUserIDs, "Scoreboard order must be identical across all syncs")
+		}
+	}
+}
+
+func TestSubmissionListPagination(t *testing.T) {
+	database, err := db.Connect()
+	if err != nil {
+		t.Skipf("Skipping database integration tests: %v", err)
+	}
+	defer database.Close()
+
+	if err := database.Ping(); err != nil {
+		t.Skipf("Skipping database integration tests: %v", err)
+	}
+
+	err = db.EnsureSchema(database)
+	require.NoError(t, err)
+
+	suffix := time.Now().UnixNano()
+	userEmail := fmt.Sprintf("pag_user_%d@test.com", suffix)
+	probExtID := fmt.Sprintf("pag_prob_%d", suffix)
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		tx, err := database.BeginTx(ctx, nil)
+		if err != nil {
+			return
+		}
+		defer tx.Rollback()
+
+		_, _ = tx.ExecContext(ctx, `DELETE FROM submissions WHERE user_id IN (SELECT id FROM users WHERE email = $1)`, userEmail)
+		_, _ = tx.ExecContext(ctx, `DELETE FROM problems WHERE external_id = $1`, probExtID)
+		_, _ = tx.ExecContext(ctx, `DELETE FROM users WHERE email = $1`, userEmail)
+		_ = tx.Commit()
+	})
+
+	ctx := context.Background()
+	authSvc := auth.NewService(database)
+	platReg := platform.NewRegistry()
+	probSvc := problem.NewService(database, platReg)
+	setSvc := problemset.NewService(database)
+	contestSvc := contest.NewService(database, setSvc)
+	subSvc := submission.NewService(database, contestSvc, probSvc, platReg)
+
+	user, _, err := authSvc.Register(ctx, userEmail, fmt.Sprintf("paguser_%d", suffix), "password123")
+	require.NoError(t, err)
+
+	prb, err := probSvc.CreateCustom(ctx, problem.CreateCustomReq{
+		Platform:   platform.Codeforces,
+		ExternalID: probExtID,
+		Title:      "Pagination Test Problem",
+		URL:        fmt.Sprintf("https://codeforces.com/problemset/problem/%d/A", suffix),
+		Statement:  "Solve it",
+	})
+	require.NoError(t, err)
+
+	// Create 5 submissions (as admin to bypass contest requirement)
+	var createdIDs []string
+	for i := 1; i <= 5; i++ {
+		sub, err := subSvc.Create(ctx, user.ID, true, prb.ID, nil, "cpp23", fmt.Sprintf("// solution variant %d", i))
+		require.NoError(t, err)
+		createdIDs = append([]string{sub.ID}, createdIDs...) // newest first
+	}
+
+	// Test page 1 with limit 2
+	page1, err := subSvc.ListForViewer(ctx, user.ID, "", "", 2, 0, false)
+	require.NoError(t, err)
+	require.Len(t, page1, 2)
+	assert.Equal(t, createdIDs[0], page1[0].ID)
+	assert.Equal(t, createdIDs[1], page1[1].ID)
+
+	// Test page 2 with limit 2 (offset 2)
+	page2, err := subSvc.ListForViewer(ctx, user.ID, "", "", 2, 2, false)
+	require.NoError(t, err)
+	require.Len(t, page2, 2)
+	assert.Equal(t, createdIDs[2], page2[0].ID)
+	assert.Equal(t, createdIDs[3], page2[1].ID)
+
+	// Test page 3 with limit 2 (offset 4) -> 1 remaining item
+	page3, err := subSvc.ListForViewer(ctx, user.ID, "", "", 2, 4, false)
+	require.NoError(t, err)
+	require.Len(t, page3, 1)
+	assert.Equal(t, createdIDs[4], page3[0].ID)
+}
+
+

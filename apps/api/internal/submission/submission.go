@@ -958,11 +958,21 @@ func (s *Service) CalculateStandings(ctx context.Context, contestID string, requ
 		if standings[i].SolvedCount != standings[j].SolvedCount {
 			return standings[i].SolvedCount > standings[j].SolvedCount
 		}
-		return standings[i].TotalPenalty < standings[j].TotalPenalty
+		if standings[i].TotalPenalty != standings[j].TotalPenalty {
+			return standings[i].TotalPenalty < standings[j].TotalPenalty
+		}
+		if standings[i].Username != standings[j].Username {
+			return standings[i].Username < standings[j].Username
+		}
+		return standings[i].UserID < standings[j].UserID
 	})
 
 	for i := range standings {
-		standings[i].Rank = i + 1
+		if i > 0 && standings[i].SolvedCount == standings[i-1].SolvedCount && standings[i].TotalPenalty == standings[i-1].TotalPenalty {
+			standings[i].Rank = standings[i-1].Rank
+		} else {
+			standings[i].Rank = i + 1
+		}
 	}
 
 	if standings == nil {
