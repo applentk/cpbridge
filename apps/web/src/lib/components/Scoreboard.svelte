@@ -1,8 +1,17 @@
 <script lang="ts">
   import type { Standings } from '@cpbridge/contracts';
   import { Trophy } from 'lucide-svelte';
+  import Pagination from '$lib/components/Pagination.svelte';
 
   export let standings: Standings;
+
+  let currentPage = 1;
+  let pageSize = 20;
+
+  $: paginatedStandings = standings.standings.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  $: if (currentPage > Math.max(1, Math.ceil(standings.standings.length / pageSize))) {
+    currentPage = Math.max(1, Math.ceil(standings.standings.length / pageSize));
+  }
 </script>
 
 <div class="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/60 shadow-lg">
@@ -31,9 +40,9 @@
         </tr>
       {/if}
 
-      {#each standings.standings as participant}
+      {#each paginatedStandings as participant}
         <tr class="hover:bg-zinc-800/40 transition {participant.rank === 1 ? 'bg-zinc-800/20' : ''}">
-          <td class="py-3 px-4 text-center font-bold font-mono">
+          <td class="py-3 px-4 text-center font-bold font-mono align-middle">
             {#if participant.rank === 1}
               <span class="inline-flex items-center justify-center text-white">
                 <Trophy class="w-4 h-4 inline mr-1 text-white" /> 1
@@ -47,24 +56,26 @@
             {/if}
           </td>
 
-          <td class="py-3 px-4 font-semibold text-zinc-100 flex items-center space-x-2">
-            <div class="w-6 h-6 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs text-white font-mono">
-              {participant.username.slice(0, 1).toUpperCase()}
+          <td class="py-3 px-4 font-semibold text-zinc-100 align-middle">
+            <div class="flex items-center space-x-2">
+              <div class="w-6 h-6 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs text-white font-mono shrink-0">
+                {participant.username.slice(0, 1).toUpperCase()}
+              </div>
+              <span>{participant.username}</span>
             </div>
-            <span>{participant.username}</span>
           </td>
 
-          <td class="py-3 px-4 text-center font-bold text-base text-white font-mono">
+          <td class="py-3 px-4 text-center font-bold text-base text-white font-mono align-middle">
             {participant.solvedCount}
           </td>
 
-          <td class="py-3 px-4 text-center font-mono text-zinc-400 text-sm">
+          <td class="py-3 px-4 text-center font-mono text-zinc-400 text-sm align-middle">
             {participant.totalPenalty}
           </td>
 
           {#each standings.problems as prob}
             {@const pScore = participant.problemScores[prob.problemId]}
-            <td class="py-3 px-4 text-center">
+            <td class="py-3 px-4 text-center align-middle">
               {#if pScore && pScore.solved}
                 <div class="p-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-xs font-bold">
                   <div>+{pScore.attempts > 1 ? pScore.attempts - 1 : ''}</div>
@@ -84,3 +95,16 @@
     </tbody>
   </table>
 </div>
+
+<Pagination
+  {currentPage}
+  {pageSize}
+  totalItems={standings.standings.length}
+  pageSizeOptions={[10, 20, 50, 100]}
+  itemName="participants"
+  on:pageChange={(e) => (currentPage = e.detail)}
+  on:pageSizeChange={(e) => {
+    pageSize = e.detail;
+    currentPage = 1;
+  }}
+/>

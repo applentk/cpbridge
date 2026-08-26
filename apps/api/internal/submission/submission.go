@@ -1,6 +1,7 @@
 package submission
 
 import (
+	"strconv"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -1104,7 +1105,24 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	cid := q.Get("contestId")
 	pid := q.Get("problemId")
 
-	subs, err := h.service.ListForViewer(r.Context(), uid, cid, pid, 50, 0, isAdmin)
+	limit := 50
+	if l := q.Get("limit"); l != "" {
+		if val, err := strconv.Atoi(l); err == nil && val > 0 && val <= 100 {
+			limit = val
+		}
+	}
+	offset := 0
+	if o := q.Get("offset"); o != "" {
+		if val, err := strconv.Atoi(o); err == nil && val >= 0 {
+			offset = val
+		}
+	} else if p := q.Get("page"); p != "" {
+		if pageNum, err := strconv.Atoi(p); err == nil && pageNum > 0 {
+			offset = (pageNum - 1) * limit
+		}
+	}
+
+	subs, err := h.service.ListForViewer(r.Context(), uid, cid, pid, limit, offset, isAdmin)
 	if err != nil {
 		http.Error(w, `{"error":"failed to list submissions"}`, http.StatusInternalServerError)
 		return

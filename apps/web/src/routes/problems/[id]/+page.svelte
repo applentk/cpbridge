@@ -23,6 +23,7 @@
   } from '@cpbridge/contracts';
   import MonacoEditor from '$lib/components/MonacoEditor.svelte';
   import SubmissionModal from '$lib/components/SubmissionModal.svelte';
+  import Pagination from '$lib/components/Pagination.svelte';
   import ContestTimer from '$lib/components/ContestTimer.svelte';
   import ManualSubmissionActions from '$lib/components/ManualSubmissionActions.svelte';
   import {
@@ -37,11 +38,8 @@
     Code2,
     Terminal,
     Upload,
-    Columns,
     ArrowLeft,
     Trophy,
-    ChevronLeft,
-    ChevronRight,
     Layers,
     Lock,
     XCircle,
@@ -72,7 +70,6 @@
 
   type ProblemTab = 'statement' | 'editor' | 'submissions';
 
-  let viewMode: 'tabbed' | 'split' = 'tabbed';
   let activeTab: ProblemTab = 'statement';
   let copiedCaseIndex: string | null = null;
 
@@ -91,6 +88,8 @@
   let submissionsLoading = false;
   let submissionsInitialized = false;
   let viewingSubmission: Submission | null = null;
+  let submissionsPage = 1;
+  let submissionsPageSize = 10;
   let pollInterval: ReturnType<typeof setInterval> | null = null;
   let manualSubmissionPollInterval: ReturnType<typeof setInterval> | null = null;
   let manualSubmissionCheckInFlight = false;
@@ -111,9 +110,10 @@
   };
 
   $: currentContestProblem = contestProblems.find(cp => cp.problemId === problemId);
-  $: currentProblemIndex = contestProblems.findIndex(cp => cp.problemId === problemId);
-  $: prevContestProblem = currentProblemIndex > 0 ? contestProblems[currentProblemIndex - 1] : null;
-  $: nextContestProblem = currentProblemIndex >= 0 && currentProblemIndex < contestProblems.length - 1 ? contestProblems[currentProblemIndex + 1] : null;
+  $: paginatedRecentSubmissions = recentSubmissions.slice((submissionsPage - 1) * submissionsPageSize, submissionsPage * submissionsPageSize);
+  $: if (submissionsPage > Math.max(1, Math.ceil(recentSubmissions.length / submissionsPageSize))) {
+    submissionsPage = Math.max(1, Math.ceil(recentSubmissions.length / submissionsPageSize));
+  }
   $: extensionCompatible = !!extensionInfo && isExtensionVersionCompatible(extensionInfo.version);
   $: externalPlatformConnected = !!problem && !!extensionInfo?.platforms[problem.platform]?.loggedIn && !!extensionInfo.platforms[problem.platform]?.username?.trim();
   $: canUseSubmissionWorkspace = !$auth.loading && !!$auth.user && !extensionCheckLoading && extensionCompatible && externalPlatformConnected;
@@ -537,13 +537,11 @@
 
   function openSubmissionsTab() {
     setActiveTab('submissions');
-    viewMode = 'tabbed';
   }
 
   function navigateToSubmissionsTab() {
     if (!browser) return;
 
-    viewMode = 'tabbed';
     const url = new URL($page.url);
     url.searchParams.set('tab', 'submissions');
     void goto(`${url.pathname}${url.search}${url.hash}`, {
@@ -848,44 +846,9 @@
           </div>
         </div>
 
-        <!-- Timer & Quick Prev/Next Problem Navigation -->
+        <!-- Timer -->
         <div class="flex items-center gap-3 shrink-0">
           <ContestTimer startAt={contest.startAt} endAt={contest.endAt} state={contest.state} />
-
-          <!-- Prev / Next Problem Buttons -->
-          <div class="flex items-center bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
-            {#if prevContestProblem}
-              <a
-                href={`/problems/${prevContestProblem.problemId}?contestId=${contest.id}`}
-                class="px-3 py-1.5 rounded-lg font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition flex items-center space-x-1"
-                title={`Previous: Problem ${prevContestProblem.label}`}
-              >
-                <ChevronLeft class="w-4 h-4" />
-                <span class="hidden sm:inline">Prev ({prevContestProblem.label})</span>
-              </a>
-            {:else}
-              <span class="px-3 py-1.5 rounded-lg text-zinc-600 cursor-not-allowed flex items-center space-x-1">
-                <ChevronLeft class="w-4 h-4" />
-                <span class="hidden sm:inline">Prev</span>
-              </span>
-            {/if}
-
-            {#if nextContestProblem}
-              <a
-                href={`/problems/${nextContestProblem.problemId}?contestId=${contest.id}`}
-                class="px-3 py-1.5 rounded-lg font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition flex items-center space-x-1"
-                title={`Next: Problem ${nextContestProblem.label}`}
-              >
-                <span class="hidden sm:inline">Next ({nextContestProblem.label})</span>
-                <ChevronRight class="w-4 h-4" />
-              </a>
-            {:else}
-              <span class="px-3 py-1.5 rounded-lg text-zinc-600 cursor-not-allowed flex items-center space-x-1">
-                <span class="hidden sm:inline">Next</span>
-                <ChevronRight class="w-4 h-4" />
-              </span>
-            {/if}
-          </div>
         </div>
       </div>
     </div>
@@ -980,26 +943,23 @@
               </div>
 
               <div class="flex items-center space-x-3 shrink-0">
-                <!-- View Layout Toggle (Tabbed vs Split) -->
-                <div class="flex items-center bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
-                  <button
-                    on:click={() => (viewMode = 'tabbed')}
-                    class="px-3 py-1 rounded-lg font-semibold transition {
-                      viewMode === 'tabbed' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'
-                    }"
-                  >
-                    Tabbed View
-                  </button>
-                  <button
-                    on:click={() => (viewMode = 'split')}
-                    class="px-3 py-1 rounded-lg font-semibold transition flex items-center space-x-1 {
-                      viewMode === 'split' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'
-                    }"
-                  >
-                    <Columns class="w-3.5 h-3.5" />
-                    <span>Split View</span>
-                  </button>
-                </div>
+                <!-- Limits (Time Limit & Memory Limit text) -->
+                {#if statement?.timeLimit || statement?.memoryLimit}
+                  <div class="flex flex-col gap-1 text-xs font-mono text-zinc-400">
+                    {#if statement.timeLimit}
+                      <div class="flex items-center space-x-1.5">
+                        <Clock class="w-3.5 h-3.5 text-zinc-500" />
+                        <span>Time Limit: {statement.timeLimit}</span>
+                      </div>
+                    {/if}
+                    {#if statement.memoryLimit}
+                      <div class="flex items-center space-x-1.5">
+                        <Cpu class="w-3.5 h-3.5 text-zinc-500" />
+                        <span>Memory Limit: {statement.memoryLimit}</span>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
 
                 {#if !contest}
                   <a
@@ -1016,58 +976,38 @@
               </div>
             </div>
 
-            <!-- Limits & Metadata Bar -->
-            {#if statement?.timeLimit || statement?.memoryLimit}
-              <div class="flex items-center space-x-5 text-xs font-mono text-zinc-400 pt-2 border-t border-zinc-800/80">
-                {#if statement.timeLimit}
-                  <div class="flex items-center space-x-1.5">
-                    <Clock class="w-3.5 h-3.5 text-zinc-500" />
-                    <span>Time Limit: {statement.timeLimit}</span>
-                  </div>
-                {/if}
-                {#if statement.memoryLimit}
-                  <div class="flex items-center space-x-1.5">
-                    <Cpu class="w-3.5 h-3.5 text-zinc-500" />
-                    <span>Memory Limit: {statement.memoryLimit}</span>
-                  </div>
-                {/if}
-              </div>
-            {/if}
+            <!-- Main Navigation Tabs -->
+            <div class="flex items-center space-x-2 pt-2 border-t border-zinc-800/80">
+              <button
+                on:click={() => setActiveTab('statement')}
+                class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
+                  activeTab === 'statement' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                }"
+              >
+                <BookOpen class="w-4 h-4" />
+                <span>Problem Statement</span>
+              </button>
 
-            <!-- Main Navigation Tabs (Visible in Tabbed Mode) -->
-            {#if viewMode === 'tabbed'}
-              <div class="flex items-center space-x-2 pt-2 border-t border-zinc-800/80">
-                <button
-                  on:click={() => setActiveTab('statement')}
-                  class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
-                    activeTab === 'statement' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
-                  }"
-                >
-                  <BookOpen class="w-4 h-4" />
-                  <span>Problem Statement</span>
-                </button>
+              <button
+                on:click={() => setActiveTab('editor')}
+                class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
+                  activeTab === 'editor' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                }"
+              >
+                <Code2 class="w-4 h-4" />
+                <span>Code Editor & Submit</span>
+              </button>
 
-                <button
-                  on:click={() => setActiveTab('editor')}
-                  class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
-                    activeTab === 'editor' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
-                  }"
-                >
-                  <Code2 class="w-4 h-4" />
-                  <span>Code Editor & Submit</span>
-                </button>
-
-                <button
-                  on:click={() => setActiveTab('submissions')}
-                  class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
-                    activeTab === 'submissions' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
-                  }"
-                >
-                  <Cpu class="w-4 h-4" />
-                  <span>Submissions ({recentSubmissions.length})</span>
-                </button>
-              </div>
-            {/if}
+              <button
+                on:click={() => setActiveTab('submissions')}
+                class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
+                  activeTab === 'submissions' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                }"
+              >
+                <Cpu class="w-4 h-4" />
+                <span>Submissions ({recentSubmissions.length})</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1081,185 +1021,7 @@
     />
 
     <!-- Layout Container -->
-    {#if viewMode === 'split'}
-      <!-- Split View Layout -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-220px)] min-h-162.5">
-        <!-- Left: Statement -->
-        <div class="lg:col-span-6 overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 space-y-6">
-          {#if statementLoading}
-            <div class="space-y-3 py-6">
-              <div class="h-4 bg-zinc-800/60 rounded w-3/4 animate-pulse"></div>
-              <div class="h-4 bg-zinc-800/60 rounded w-5/6 animate-pulse"></div>
-              <div class="h-4 bg-zinc-800/60 rounded w-2/3 animate-pulse"></div>
-            </div>
-          {:else if renderedHtml}
-            <div class="statement-content text-sm text-zinc-300 leading-relaxed space-y-4">
-              {@html renderedHtml}
-            </div>
-
-            <!-- Sample Cases -->
-            {#if statement && statement.sampleCases && statement.sampleCases.length > 0}
-              <div class="space-y-4 pt-4 border-t border-zinc-800">
-                <h3 class="text-base font-bold text-white uppercase tracking-wider flex items-center space-x-2">
-                  <Terminal class="w-5 h-5 text-white" />
-                  <span>Sample Test Cases</span>
-                </h3>
-
-                {#each statement.sampleCases as sc, idx}
-                  <div class="p-4 rounded-xl border border-zinc-800 bg-zinc-950/80 space-y-3">
-                    <div class="text-sm font-bold text-zinc-300 uppercase">Example {idx + 1}</div>
-                    <div class="space-y-1.5">
-                      <div class="flex items-center justify-between text-sm font-mono text-zinc-300">
-                        <span>Input:</span>
-                        <button
-                          on:click={() => copyToClipboard(sc.input, `in_split_${idx}`)}
-                          class="px-2 py-0.5 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
-                        >
-                          {#if copiedCaseIndex === `in_split_${idx}`}
-                            <Check class="w-4 h-4 text-emerald-400" />
-                            <span class="text-xs text-emerald-400">Copied!</span>
-                          {:else}
-                            <Copy class="w-4 h-4" />
-                            <span class="text-xs">Copy</span>
-                          {/if}
-                        </button>
-                      </div>
-                      <pre class="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm md:text-base font-mono text-zinc-200 overflow-x-auto select-all leading-relaxed">{sc.input}</pre>
-                    </div>
-
-                    {#if sc.output}
-                      <div class="space-y-1.5">
-                        <div class="flex items-center justify-between text-sm font-mono text-zinc-300">
-                          <span>Output:</span>
-                          <button
-                            on:click={() => copyToClipboard(sc.output, `out_split_${idx}`)}
-                            class="px-2 py-0.5 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition flex items-center space-x-1"
-                          >
-                            {#if copiedCaseIndex === `out_split_${idx}`}
-                              <Check class="w-4 h-4 text-emerald-400" />
-                              <span class="text-xs text-emerald-400">Copied!</span>
-                            {:else}
-                              <Copy class="w-4 h-4" />
-                              <span class="text-xs">Copy</span>
-                            {/if}
-                          </button>
-                        </div>
-                        <pre class="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm md:text-base font-mono text-zinc-200 overflow-x-auto select-all leading-relaxed">{sc.output}</pre>
-                      </div>
-                    {/if}
-                  </div>
-                {/each}
-              </div>
-            {/if}
-
-            {#if renderedNote}
-              <div class="statement-content text-sm text-zinc-300 leading-relaxed space-y-4 pt-4 border-t border-zinc-800">
-                <h3 class="text-base font-bold text-white uppercase tracking-wider">Note</h3>
-                {@html renderedNote}
-              </div>
-            {/if}
-          {:else}
-            <div class="p-8 text-center text-zinc-400 text-sm">
-              Statement not loaded.
-              {#if !contest}
-                <a href={problem.url} target="_blank" class="text-white underline ml-1">Open source statement</a>
-              {/if}
-            </div>
-          {/if}
-        </div>
-
-        <!-- Right: Code Editor & Upload Toolbar -->
-        <div class="lg:col-span-6 flex flex-col space-y-3 h-full">
-          <div class="flex flex-wrap items-center justify-between gap-2 bg-zinc-900/60 p-3 rounded-2xl border border-zinc-800">
-            <div class="flex items-center space-x-2">
-              <select
-                bind:value={language}
-                on:change={handleLanguageChange}
-                disabled={!canUseSubmissionWorkspace}
-                class="px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-mono focus:border-zinc-400 focus:outline-none disabled:pointer-events-none disabled:opacity-50"
-              >
-                <option value="cpp23">C++23 (GCC)</option>
-                <option value="python3">Python 3</option>
-                <option value="java21">Java 21</option>
-              </select>
-
-              <!-- Upload File Button with Auto-Detect -->
-              <button
-                type="button"
-                on:click={() => fileInputElement.click()}
-                disabled={!canUseSubmissionWorkspace}
-                class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center space-x-1.5 disabled:pointer-events-none disabled:opacity-50"
-                title="Upload code file (.cpp, .py, .java) with auto-detected language"
-              >
-                <Upload class="w-3.5 h-3.5 text-white" />
-                <span>Upload File</span>
-              </button>
-            </div>
-
-            <button
-              on:click={handleSubmit}
-              disabled={submitting || !canUseSubmissionWorkspace}
-              title={!canUseSubmissionWorkspace ? 'Activate the extension and connect the external platform first' : 'Submit code'}
-              class="px-5 py-1.5 rounded-xl font-bold bg-white hover:bg-zinc-200 disabled:opacity-50 text-black shadow-sm transition flex items-center space-x-2 text-xs"
-            >
-              <Send class="w-3.5 h-3.5" />
-              <span>{submitting ? 'Submitting...' : 'Submit Code'}</span>
-            </button>
-          </div>
-
-          {#if uploadSuccessMessage}
-            <div class="px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center space-x-2">
-              <CheckCircle2 class="w-3.5 h-3.5 shrink-0 text-emerald-400" />
-              <span>{uploadSuccessMessage}</span>
-            </div>
-          {/if}
-
-          {#if duplicateSubmission}
-            <div class="p-3.5 rounded-2xl border border-red-500/40 bg-red-500/10 text-red-200 flex items-start space-x-2.5">
-              <XCircle class="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
-              <p class="text-xs font-semibold">{submitStatus}</p>
-            </div>
-          {/if}
-
-          <!-- Editor -->
-          <div class="flex-1 min-h-87.5">
-            <MonacoEditor bind:value={sourceCode} {language} readonly={!canUseSubmissionWorkspace} disabled={!canUseSubmissionWorkspace} />
-          </div>
-
-          <!-- Verdict Banner -->
-          {#if (activeSubmission && !duplicateSubmission) || (submitStatus && !duplicateSubmission)}
-            <div class="p-3.5 rounded-2xl border border-zinc-800 bg-zinc-900/80 space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Verdict</span>
-                {#if activeSubmission}
-                  <span class="text-xs font-bold font-mono px-2 py-0.5 rounded-lg {
-                    activeSubmission.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
-                    activeSubmission.status === 'WRONG_ANSWER' ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30' :
-                    'bg-zinc-800 text-zinc-200 border border-zinc-700'
-                  }">
-                    {activeSubmission.status}
-                  </span>
-                {/if}
-              </div>
-              <p class="text-xs text-zinc-400">{submitStatus}</p>
-              {#if manualSubmissionAction}
-                <ManualSubmissionActions
-                  action={manualSubmissionAction}
-                  checking={checkingManualSubmission}
-                  copied={manualCodeCopied}
-                  onCheck={checkManualSubmission}
-                  onOpen={openManualSubmitPage}
-                  onCopy={copyManualSource}
-                />
-              {/if}
-            </div>
-          {/if}
-        </div>
-      </div>
-
-    {:else}
-      <!-- Tabbed View Layout -->
-      <div class="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 min-h-137.5">
+    <div class="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 min-h-137.5">
         {#if activeTab === 'statement'}
           <!-- 1. Full-Width Statement Tab -->
           <div class="max-w-4xl mx-auto space-y-6">
@@ -1528,7 +1290,7 @@
               <p class="text-xs text-zinc-500 py-12 text-center">No submissions recorded yet for this problem.</p>
             {:else}
               <div class="space-y-2.5">
-                {#each recentSubmissions as sub}
+                {#each paginatedRecentSubmissions as sub}
                   <button
                     type="button"
                     on:click={() => (viewingSubmission = sub)}
@@ -1571,11 +1333,25 @@
                   </button>
                 {/each}
               </div>
+
+              {#if recentSubmissions.length > submissionsPageSize}
+                <Pagination
+                  currentPage={submissionsPage}
+                  pageSize={submissionsPageSize}
+                  totalItems={recentSubmissions.length}
+                  pageSizeOptions={[5, 10, 20]}
+                  itemName="submissions"
+                  on:pageChange={(e) => (submissionsPage = e.detail)}
+                  on:pageSizeChange={(e) => {
+                    submissionsPageSize = e.detail;
+                    submissionsPage = 1;
+                  }}
+                />
+              {/if}
             {/if}
           </div>
         {/if}
       </div>
-    {/if}
 
     {/if}
       </main>

@@ -5,18 +5,26 @@
   import { reconcileExtensionSubmissions } from '$lib/extension/reconcile';
   import { type Submission, formatLanguageName } from '@cpbridge/contracts';
   import SubmissionModal from '$lib/components/SubmissionModal.svelte';
-  import { Cpu, RefreshCw, ExternalLink, Code2 } from 'lucide-svelte';
+  import Pagination from '$lib/components/Pagination.svelte';
+  import { Cpu, RefreshCw, ExternalLink } from 'lucide-svelte';
 
   let submissions: Submission[] = [];
   let loading = true;
   let filterUser = '';
   let interval: ReturnType<typeof setInterval> | null = null;
   let viewingSubmission: Submission | null = null;
+  let currentPage = 1;
+  let pageSize = 20;
+
+  $: paginatedSubmissions = submissions.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  $: if (currentPage > Math.max(1, Math.ceil(submissions.length / pageSize))) {
+    currentPage = Math.max(1, Math.ceil(submissions.length / pageSize));
+  }
 
   async function loadSubmissions(silent = false) {
     if (!silent) loading = true;
     try {
-      let path = '/submissions?limit=50';
+      let path = '/submissions?limit=100';
       if (filterUser) path += `&userId=${filterUser}`;
       submissions = await api.get<Submission[]>(path);
     } catch (err) {
@@ -98,11 +106,10 @@
             <th class="py-3.5 px-4">Verdict</th>
             <th class="py-3.5 px-4">External ID</th>
             <th class="py-3.5 px-4">Submitted At</th>
-            <th class="py-3.5 px-4 text-right">Source Code</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-zinc-800/60 font-mono text-xs">
-          {#each submissions as s}
+          {#each paginatedSubmissions as s}
             <tr
               on:click={() => (viewingSubmission = s)}
               class="hover:bg-zinc-800/40 cursor-pointer transition group"
@@ -179,21 +186,24 @@
               <td class="py-3 px-4 text-zinc-500">
                 {new Date(s.submittedAt).toLocaleString()}
               </td>
-
-              <td class="py-3 px-4 text-right">
-                <button
-                  on:click|stopPropagation={() => (viewingSubmission = s)}
-                  class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 transition inline-flex items-center space-x-1.5"
-                >
-                  <Code2 class="w-3.5 h-3.5 text-zinc-400" />
-                  <span>View Code</span>
-                </button>
-              </td>
             </tr>
           {/each}
         </tbody>
       </table>
     </div>
+
+    <Pagination
+      {currentPage}
+      {pageSize}
+      totalItems={submissions.length}
+      pageSizeOptions={[10, 20, 50, 100]}
+      itemName="submissions"
+      on:pageChange={(e) => (currentPage = e.detail)}
+      on:pageSizeChange={(e) => {
+        pageSize = e.detail;
+        currentPage = 1;
+      }}
+    />
   {/if}
 </div>
 

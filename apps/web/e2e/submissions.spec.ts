@@ -49,8 +49,8 @@ test.describe('Submissions Log & Verdicts', () => {
     await page.goto('/submissions');
     await page.waitForLoadState('networkidle');
 
-    // Click View Code button on first row (Codehorses T-shirts)
-    await page.locator('button:has-text("View Code")').first().click();
+    // Click first submission row (Codehorses T-shirts)
+    await page.locator('tbody tr').first().click();
 
     // Modal dialog scoped locators
     const dialog = page.locator('[role="dialog"]');
@@ -79,8 +79,8 @@ test.describe('Submissions Log & Verdicts', () => {
     await page.goto('/submissions');
     await page.waitForLoadState('networkidle');
 
-    // Click View Code on failed submission row (sub_002 with Wrong Answer)
-    await page.locator('button:has-text("View Code")').nth(1).click();
+    // Click failed submission row (sub_002 with Wrong Answer)
+    await page.locator('tbody tr').nth(1).click();
 
     // Verify judging output alert in modal
     const dialog = page.locator('[role="dialog"]');
@@ -99,8 +99,8 @@ test.describe('Submissions Log & Verdicts', () => {
     await page.goto('/submissions');
     await page.waitForLoadState('networkidle');
 
-    // Click View Code on first submission row as admin
-    await page.locator('button:has-text("View Code")').first().click();
+    // Click first submission row as admin
+    await page.locator('tbody tr').first().click();
 
     // Verify external source link is visible in modal for admin
     const dialog = page.locator('[role="dialog"]');
@@ -123,5 +123,15 @@ test.describe('Submissions Log & Verdicts', () => {
 
     await expect(page.locator('h1')).toContainText('Submissions Log');
     await expect(page.locator('text=Codehorses T-shirts')).toBeVisible();
+  });
+
+  test('submissions log renders pagination controls and summary', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, { currentUser: mockRegularUser });
+
+    await page.goto('/submissions');
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.getByText(/Showing 1 to \d+ of \d+ submissions/)).toBeVisible();
   });
 });
