@@ -37,7 +37,10 @@ export const mockProblems: Problem[] = [
     url: 'https://codeforces.com/problemset/problem/1000/A',
     difficulty: 1400,
     tags: ['greedy', 'strings'],
-    metadata: {},
+    metadata: {
+      timeLimit: '2.0s',
+      memoryLimit: '256MB',
+    },
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
   },

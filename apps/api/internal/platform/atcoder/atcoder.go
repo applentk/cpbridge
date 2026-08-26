@@ -88,6 +88,21 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 		return nil, fmt.Errorf("AtCoder response did not include a problem title")
 	}
 
+	meta := map[string]any{
+		"contestId": contestID,
+		"taskId":    taskID,
+	}
+	if m := timeLimitRegex.FindStringSubmatch(htmlStr); len(m) == 2 {
+		if tl := strings.TrimSpace(m[1]); tl != "" {
+			meta["timeLimit"] = tl
+		}
+	}
+	if m := memoryLimitRegex.FindStringSubmatch(htmlStr); len(m) == 2 {
+		if ml := strings.TrimSpace(m[1]); ml != "" {
+			meta["memoryLimit"] = ml
+		}
+	}
+
 	return &platform.NormalizedProblem{
 		Platform:   platform.AtCoder,
 		ExternalID: externalID,
@@ -95,10 +110,7 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 		URL:        officialURL,
 		Difficulty: nil,
 		Tags:       []string{"atcoder", contestID},
-		Metadata: map[string]any{
-			"contestId": contestID,
-			"taskId":    taskID,
-		},
+		Metadata:   meta,
 	}, nil
 }
 

@@ -119,7 +119,17 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 
 	// The public API can be unavailable or can omit a problem temporarily. Use
 	// the official problem page before falling back to a generic placeholder.
-	if title, ok := a.fetchProblemTitle(ctx, officialURL); ok {
+	if title, timeLimit, memoryLimit, ok := a.fetchProblemDetails(ctx, officialURL); ok {
+		meta := map[string]any{
+			"contestId": contestIDStr,
+			"index":     index,
+		}
+		if timeLimit != "" {
+			meta["timeLimit"] = timeLimit
+		}
+		if memoryLimit != "" {
+			meta["memoryLimit"] = memoryLimit
+		}
 		return &platform.NormalizedProblem{
 			Platform:   platform.Codeforces,
 			ExternalID: externalID,
@@ -127,10 +137,7 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 			URL:        officialURL,
 			Difficulty: nil,
 			Tags:       []string{"codeforces"},
-			Metadata: map[string]any{
-				"contestId": contestIDStr,
-				"index":     index,
-			},
+			Metadata:   meta,
 		}, nil
 	}
 
@@ -150,27 +157,39 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 	}, nil
 }
 
-func (a *Adapter) fetchProblemTitle(ctx context.Context, officialURL string) (string, bool) {
+func (a *Adapter) fetchProblemDetails(ctx context.Context, officialURL string) (string, string, string, bool) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, officialURL, nil)
 	if err != nil {
-		return "", false
+		return "", "", "", false
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return "", false
+		return "", "", "", false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", false
+		return "", "", "", false
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	if err != nil {
-		return "", false
+		return "", "", "", false
 	}
-	return extractProblemTitle(string(body))
+	htmlStr := string(body)
+	title, ok := extractProblemTitle(htmlStr)
+	if !ok {
+		return "", "", "", false
+	}
+	var timeLimit, memoryLimit string
+	if m := timeLimitRegex.FindStringSubmatch(htmlStr); len(m) > 1 {
+		timeLimit = strings.TrimSpace(cleanHTMLTags(m[1]))
+	}
+	if m := memoryLimitRegex.FindStringSubmatch(htmlStr); len(m) > 1 {
+		memoryLimit = strings.TrimSpace(cleanHTMLTags(m[1]))
+	}
+	return title, timeLimit, memoryLimit, true
 }
 
 func extractProblemTitle(html string) (string, bool) {

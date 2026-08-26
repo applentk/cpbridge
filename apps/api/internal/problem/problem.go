@@ -315,7 +315,31 @@ func (s *Service) GetStatement(ctx context.Context, id, contestID, requestingUse
 		return nil, err
 	}
 
-	return adapter.GetStatement(ctx, prob.ExternalID)
+	stmt, err := adapter.GetStatement(ctx, prob.ExternalID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Persist extracted timeLimit & memoryLimit to problem metadata in DB if missing
+	needUpdate := false
+	if prob.Metadata == nil {
+		prob.Metadata = make(map[string]any)
+	}
+	if stmt.TimeLimit != "" && prob.Metadata["timeLimit"] != stmt.TimeLimit {
+		prob.Metadata["timeLimit"] = stmt.TimeLimit
+		needUpdate = true
+	}
+	if stmt.MemoryLimit != "" && prob.Metadata["memoryLimit"] != stmt.MemoryLimit {
+		prob.Metadata["memoryLimit"] = stmt.MemoryLimit
+		needUpdate = true
+	}
+	if needUpdate {
+		if metaBytes, err := json.Marshal(prob.Metadata); err == nil {
+			_, _ = s.db.ExecContext(ctx, `UPDATE problems SET metadata = $1, updated_at = $2 WHERE id = $3`, metaBytes, time.Now().UTC(), prob.ID)
+		}
+	}
+
+	return stmt, nil
 }
 
 func (s *Service) List(ctx context.Context, f Filter) ([]Problem, int, error) {
