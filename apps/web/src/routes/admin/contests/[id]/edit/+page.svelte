@@ -4,6 +4,7 @@
   import { api } from '$lib/api/client';
   import type { Contest, Problem, ContestProblem } from '@cpbridge/contracts';
   import { ArrowLeft, Save, Plus, Trash2, ArrowUp, ArrowDown, Search, X, Check, Lock } from 'lucide-svelte';
+  import { toDateTimeLocalValue, fromDateTimeLocalValue } from '$lib/utils/date';
 
   let contestId = $page.params.id;
   let contest: Contest | null = null;
@@ -36,8 +37,8 @@
       problems = contest.problems || [];
       name = contest.name;
       description = contest.description;
-      startAt = new Date(contest.startAt).toISOString().slice(0, 16);
-      endAt = new Date(contest.endAt).toISOString().slice(0, 16);
+      startAt = toDateTimeLocalValue(contest.startAt);
+      endAt = toDateTimeLocalValue(contest.endAt);
       visibility = contest.visibility;
       scoringType = contest.scoringType;
       publicationStatus = contest.publicationStatus;
@@ -50,19 +51,28 @@
 
   async function handleSaveDetails() {
     if (!name.trim()) return;
+    if (!endAt) {
+      alert('End time is required');
+      return;
+    }
     saving = true;
     try {
       const payload: Record<string, unknown> = {
         name: name.trim(),
         description: description.trim(),
-        endAt: new Date(endAt).toISOString(),
+        endAt: fromDateTimeLocalValue(endAt),
         visibility,
         scoringType,
         publicationStatus
       };
 
       if (contest?.state === 'UPCOMING') {
-        payload.startAt = new Date(startAt).toISOString();
+        if (!startAt) {
+          alert('Start time is required');
+          saving = false;
+          return;
+        }
+        payload.startAt = fromDateTimeLocalValue(startAt);
       }
 
       await api.patch(`/admin/contests/${contestId}`, payload);

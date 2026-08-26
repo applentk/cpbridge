@@ -5,6 +5,7 @@
   import { api } from '$lib/api/client';
   import type { ProblemSet, Problem, ScoringType, ContestPublicationStatus } from '@cpbridge/contracts';
   import { Trophy, ArrowLeft, Layers, AlertCircle } from 'lucide-svelte';
+  import { toDateTimeLocalValue, fromDateTimeLocalValue } from '$lib/utils/date';
 
   let problemSets: ProblemSet[] = [];
   let allProblems: Problem[] = [];
@@ -16,7 +17,7 @@
   let name = '';
   let description = '';
   let startOption = 'now';
-  let customStart = '';
+  let customStart = toDateTimeLocalValue(new Date(Date.now() + 15 * 60 * 1000));
   let durationMinutes = 120;
   let scoringType: ScoringType = 'ICPC';
   let visibility = 'PUBLIC';
@@ -74,8 +75,18 @@
         startTime = new Date(now.getTime() + 10 * 1000); // 10s countdown
       } else if (startOption === '5m') {
         startTime = new Date(now.getTime() + 5 * 60 * 1000);
-      } else if (startOption === 'custom' && customStart) {
-        startTime = new Date(customStart);
+      } else if (startOption === 'custom') {
+        if (!customStart) {
+          error = 'Please select a custom start time';
+          submitting = false;
+          return;
+        }
+        startTime = new Date(fromDateTimeLocalValue(customStart));
+        if (isNaN(startTime.getTime())) {
+          error = 'Invalid custom start time';
+          submitting = false;
+          return;
+        }
       }
 
       const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { setupApiMocks, loginAs } from './fixtures/api-mock';
-import { mockAdminUser, mockRegularUser } from './fixtures/mock-data';
+import { mockAdminUser, mockRegularUser, mockContests } from './fixtures/mock-data';
 
 test.describe('Admin Dashboard & Management', () => {
   test('admin dashboard renders system overview statistics and quick actions', async ({ page }) => {
@@ -126,6 +126,16 @@ test.describe('Admin Dashboard & Management', () => {
 
     await expect(page.locator('h1')).toContainText('Grand Prix of Tokyo');
     await expect(page.locator('text=Contest Problems')).toBeVisible();
+
+    // Verify start time and end time are correctly prefilled in local time format
+    const upcomingContest = mockContests.find((c) => c.id === 'con_upcoming_01')!;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const toLocalValue = (isoStr: string) => {
+      const d = new Date(isoStr);
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+    await expect(page.locator('input#edit-contest-start')).toHaveValue(toLocalValue(upcomingContest.startAt));
+    await expect(page.locator('input#edit-contest-end')).toHaveValue(toLocalValue(upcomingContest.endAt));
 
     // Save details
     await page.fill('input#edit-contest-name', 'Grand Prix of Tokyo 2026');
