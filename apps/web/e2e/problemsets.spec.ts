@@ -52,4 +52,40 @@ test.describe('Problem Sets Management', () => {
     await expect(removeBtn).toBeVisible();
     await removeBtn.click();
   });
+
+  test('admin can add problems to a problem set from library modal', async ({ page }) => {
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    await page.goto('/admin/problem-sets/set_standard_dp');
+    await page.waitForLoadState('networkidle');
+
+    // Open add problem modal
+    await page.click('button:has-text("Add Problem")');
+    await expect(page.locator('h3:has-text("Add Problem to Set")')).toBeVisible();
+
+    // Click Add on first search result
+    const addBtn = page.locator('div.fixed button:has-text("Add")').first();
+    await expect(addBtn).toBeVisible();
+    await addBtn.click();
+
+    await expect(page.locator('text=Added problem')).toBeVisible();
+  });
+
+  test('admin can delete problem set from problem sets list', async ({ page }) => {
+    page.on('dialog', (dialog) => dialog.accept());
+
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    await page.goto('/admin/problem-sets');
+    await page.waitForLoadState('networkidle');
+
+    // Click Delete button on first set
+    const deleteBtn = page.locator('button[title="Delete Set"]').first();
+    await expect(deleteBtn).toBeVisible();
+    await deleteBtn.click();
+
+    await expect(page.locator('text=Problem Set deleted!')).toBeVisible();
+  });
 });

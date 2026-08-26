@@ -183,4 +183,26 @@ test.describe('Authentication & Route Guard Flows', () => {
 
     await expect(page.locator('text=Password must be at least 6 characters')).toBeVisible();
   });
+
+  test('root route / redirects to /contests for guests and /admin for admins', async ({ page }) => {
+    // 1. Guest
+    await setupApiMocks(page, { currentUser: null });
+    await page.goto('/');
+    await page.waitForURL('/contests');
+    await expect(page.locator('h1')).toContainText('Contests');
+
+    // 2. Regular user
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, { currentUser: mockRegularUser });
+    await page.goto('/');
+    await page.waitForURL('/contests');
+    await expect(page.locator('h1')).toContainText('Contests');
+
+    // 3. Admin user
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+    await page.goto('/');
+    await page.waitForURL('/admin');
+    await expect(page.locator('h1')).toContainText('Admin Dashboard');
+  });
 });

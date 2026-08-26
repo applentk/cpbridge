@@ -33,6 +33,7 @@ export interface SetupApiMocksOptions {
   extensionPollVerdict?: string;
   recoveredSubmissions?: unknown[];
   integrations?: PlatformIntegration[];
+  duplicateSubmissionError?: boolean;
 }
 
 export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = {}) {
@@ -382,6 +383,25 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       return jsonResponse(route, newSet);
     }
 
+    const problemSetAddProblemMatch = path.match(/^\/admin\/problem-sets\/([^/]+)\/problems$/);
+    if (problemSetAddProblemMatch && method === 'POST') {
+      const setId = problemSetAddProblemMatch[1];
+      const body = JSON.parse(route.request().postData() || '{}');
+      const set = problemSetsList.find((s) => s.id === setId);
+      if (set) {
+        const prob = problemsList.find((p) => p.id === body.problemId) || problemsList[0];
+        set.items = set.items || [];
+        set.items.push({
+          problemSetId: setId,
+          problemId: prob.id,
+          position: set.items.length,
+          problem: prob,
+        });
+        set.problemCount = set.items.length;
+      }
+      return jsonResponse(route, { success: true });
+    }
+
     const problemSetDeleteProblemMatch = path.match(/^\/admin\/problem-sets\/([^/]+)\/problems\/([^/]+)$/);
     if (problemSetDeleteProblemMatch && method === 'DELETE') {
       const [, setId, pId] = problemSetDeleteProblemMatch;
@@ -414,6 +434,15 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
         return jsonResponse(route, problemSetsList[idx]);
       }
       return jsonResponse(route, { error: 'Not found' }, 404);
+    }
+
+    if (problemSetDetailMatch && method === 'DELETE') {
+      const setId = problemSetDetailMatch[1];
+      const sIndex = problemSetsList.findIndex((s) => s.id === setId);
+      if (sIndex !== -1) {
+        problemSetsList.splice(sIndex, 1);
+      }
+      return jsonResponse(route, { success: true });
     }
 
     // 4. Contests routes
@@ -466,6 +495,15 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
         return jsonResponse(route, contestsList[idx]);
       }
       return jsonResponse(route, { error: 'Not found' }, 404);
+    }
+
+    if (contestDetailMatch && method === 'DELETE') {
+      const cId = contestDetailMatch[1];
+      const cIndex = contestsList.findIndex((c) => c.id === cId);
+      if (cIndex !== -1) {
+        contestsList.splice(cIndex, 1);
+      }
+      return jsonResponse(route, { success: true });
     }
 
     // Contest problem management
@@ -583,6 +621,9 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
     }
 
     if (path === '/submissions' && method === 'POST') {
+      if (options.duplicateSubmissionError) {
+        return jsonResponse(route, { error: 'an identical solution was already submitted for this problem' }, 400);
+      }
       const body = JSON.parse(route.request().postData() || '{}');
       const newSub: Submission = {
         id: `sub_${Date.now()}`,

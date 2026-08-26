@@ -32,7 +32,7 @@ test.describe('Problem Workspace', () => {
     await expect(page.locator('text=3 1 2')).toBeVisible();
   });
 
-  test('problem workspace supports tab switching and split view layout', async ({ page }) => {
+  test('problem workspace supports tab switching and renders time/memory limits', async ({ page }) => {
     await loginAs(page, mockAdminUser);
     await setupApiMocks(page, { currentUser: mockAdminUser });
 
@@ -44,14 +44,17 @@ test.describe('Problem Workspace', () => {
     await expect(page.locator('button:has-text("Code Editor & Submit")')).toBeVisible();
     await expect(page.locator('button:has-text("Submissions")')).toBeVisible();
 
+    // Time and Memory Limit in header
+    await expect(page.locator('text=Time Limit: 2.0s')).toBeVisible();
+    await expect(page.locator('text=Memory Limit: 256MB')).toBeVisible();
+
     // Switch to Code Editor tab
     await page.click('button:has-text("Code Editor & Submit")');
     await expect(page.locator('select').first()).toBeVisible(); // Language selector
 
-    // Switch to Split View
-    await page.click('button:has-text("Split View")');
-    await expect(page.locator('.statement-content')).toBeVisible();
-    await expect(page.locator('select').first()).toBeVisible();
+    // Switch to Submissions tab
+    await page.click('button:has-text("Submissions")');
+    await expect(page.locator('h3:has-text("Your Submission History")')).toBeVisible();
   });
 
   test('language selector updates starter code and handles language change', async ({ page }) => {
@@ -347,6 +350,79 @@ test.describe('Problem Workspace', () => {
     // Switch back to editor tab
     await page.click('button:has-text("Code Editor & Submit")');
     await expect(langSelect).toHaveValue('python3');
+  });
+
+  test('duplicate submission displays warning banner without dispatching to external judge', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, {
+      currentUser: mockRegularUser,
+      duplicateSubmissionError: true,
+    });
+
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=editor');
+    await page.waitForLoadState('networkidle');
+
+    await page.click('button:has-text("Submit Solution")');
+    await expect(page.locator('text=This exact solution was already submitted. It was not sent to the external judge.')).toBeVisible();
+  });
+
+  test('contest sidebar allows navigating between problems and displays solved and wrong indicators', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, { currentUser: mockRegularUser });
+
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc');
+    await page.waitForLoadState('networkidle');
+
+    // Sidebar has problem A and B
+    const sidebar = page.locator('aside');
+    await expect(sidebar).toBeVisible();
+    await expect(sidebar.locator('text=Contest Problems')).toBeVisible();
+
+    // Click problem B in sidebar
+    const probB = sidebar.locator('a:has-text("B")');
+    await expect(probB).toBeVisible();
+    await probB.click();
+
+    // Page updates to problem B
+    await expect(page).toHaveURL('/problems/prb_ac_abc300_a?contestId=con_active_icpc');
+    await expect(page.locator('h1')).toContainText('A - N-choice question');
+  });
+
+  test('problem workspace submissions tab paginates when exceeding page size', async ({ page }) => {
+    const manySubs = Array.from({ length: 15 }, (_, i) => ({
+      id: `sub_page_${i + 1}`,
+      userId: mockRegularUser.id,
+      username: mockRegularUser.username,
+      problemId: 'prb_cf_1000A',
+      contestId: 'con_active_icpc',
+      platform: 'CODEFORCES' as const,
+      externalSubmissionId: `cf_${1000 + i}`,
+      language: 'cpp23' as const,
+      sourceCode: `// Sub ${i + 1}`,
+      status: 'ACCEPTED' as const,
+      submittedAt: new Date(Date.now() - i * 60000).toISOString(),
+      judgedAt: new Date(Date.now() - i * 60000).toISOString(),
+      problemTitle: 'Codehorses T-shirts',
+      metadata: { executionTimeMs: 20 + i, memoryBytes: 1024000 },
+    }));
+
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, {
+      currentUser: mockRegularUser,
+      submissions: manySubs,
+    });
+
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=submissions');
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.getByText(/Showing 1 to 10 of 15 submissions/)).toBeVisible();
+
+    // Navigate to page 2
+    const nextBtn = page.locator('button[title="Next page"]');
+    await expect(nextBtn).toBeVisible();
+    await nextBtn.click();
+
+    await expect(page.getByText(/Showing 11 to 15 of 15 submissions/)).toBeVisible();
   });
 
   test('navigating to unknown problem displays friendly 404 error state', async ({ page }) => {

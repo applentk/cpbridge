@@ -109,9 +109,9 @@ test.describe('Contests & ICPC Scoreboard', () => {
     await expect(page.locator('h1')).toContainText('Codehorses T-shirts');
     await expect(page.locator('text=Problem A')).toBeVisible();
 
-    // Next problem button exists and points to Problem B
-    const nextBtn = page.locator('a:has-text("Next (B)")');
-    await expect(nextBtn).toBeVisible();
+    // Contest Problems sidebar exists with Problem B
+    const probBLink = page.locator('aside a:has-text("B")');
+    await expect(probBLink).toBeVisible();
   });
 
   test('contest scoreboard renders participants, solved count, penalty, and problem verdict cells', async ({ page }) => {
@@ -138,6 +138,9 @@ test.describe('Contests & ICPC Scoreboard', () => {
     // Problem scores (green + and red - attempts)
     await expect(page.locator('text=+1')).toBeVisible();
     await expect(page.locator('text=-3')).toBeVisible();
+
+    // Pagination summary
+    await expect(page.getByText(/Showing 1 to \d+ of \d+ participants/)).toBeVisible();
 
     // Click problem letter column header A to navigate to contest problem workspace
     await page.getByRole('link', { name: 'A', exact: true }).click();
@@ -257,6 +260,36 @@ test.describe('Contests & ICPC Scoreboard', () => {
     await page.goto('/contests');
     await page.waitForLoadState('networkidle');
     await expect(page.locator('text=Draft Secret Contest')).toBeVisible();
+  });
+
+  test('empty scoreboard renders empty state message', async ({ page }) => {
+    await setupApiMocks(page, {
+      standings: {
+        contestId: 'con_active_icpc',
+        scoringType: 'ICPC',
+        problems: [
+          { contestId: 'con_active_icpc', problemId: 'prb_cf_1000A', label: 'A', position: 1, points: 100 },
+        ],
+        standings: [],
+      },
+    });
+
+    await page.goto('/contests/con_active_icpc/standings');
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.locator('h1')).toContainText('Standings');
+    await expect(page.locator('text=No participants or submissions recorded yet.')).toBeVisible();
+  });
+
+  test('unauthenticated guest viewing contest lobby does not see join button', async ({ page }) => {
+    await setupApiMocks(page, { currentUser: null });
+
+    await page.goto('/contests/con_upcoming_01');
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.locator('h1')).toContainText('Grand Prix of Tokyo');
+    await expect(page.locator('button:has-text("Join Contest")')).not.toBeVisible();
+    await expect(page.getByText(/\d+ registered participants?/)).toBeVisible();
   });
 });
 
