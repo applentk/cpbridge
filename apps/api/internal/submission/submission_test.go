@@ -713,7 +713,9 @@ func TestSubmissionListPagination(t *testing.T) {
 	if err != nil {
 		t.Skipf("Skipping database integration tests: %v", err)
 	}
-	defer database.Close()
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
 
 	if err := database.Ping(); err != nil {
 		t.Skipf("Skipping database integration tests: %v", err)
@@ -789,5 +791,4 @@ func TestSubmissionListPagination(t *testing.T) {
 	require.Len(t, page3, 1)
 	assert.Equal(t, createdIDs[4], page3[0].ID)
 }
-
 
