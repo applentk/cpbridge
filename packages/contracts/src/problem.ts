@@ -24,6 +24,7 @@ export interface ProblemStatement {
   timeLimit?: string;
   memoryLimit?: string;
   sampleCases: SampleCase[];
+  note?: string;
 }
 
 export interface Problem {

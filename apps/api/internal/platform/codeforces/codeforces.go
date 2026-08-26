@@ -23,14 +23,17 @@ var (
 	problemTitleRegex = regexp.MustCompile(`(?is)<div[^>]*class=["']title["'][^>]*>(.*?)</div>`)
 	htmlTitleRegex    = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
-	statementRegex    = regexp.MustCompile(`(?s)<div class="problem-statement">(.*?)</div>\s*<!--\s*end problem statement`)
-	statementRegex2   = regexp.MustCompile(`(?s)<div class="problem-statement">(.*)`)
-	headerDivRegex    = regexp.MustCompile(`(?is)<div class="header">.*?</div>\s*</div>`)
-	sampleDivRegex    = regexp.MustCompile(`(?is)<div class="sample-tests?">.*?</div>\s*</div>`)
-	timeLimitRegex    = regexp.MustCompile(`(?s)<div class="time-limit"[^>]*>.*?<div class="property-title">time limit per test</div>(.*?)</div>`)
-	memoryLimitRegex  = regexp.MustCompile(`(?s)<div class="memory-limit"[^>]*>.*?<div class="property-title">memory limit per test</div>(.*?)</div>`)
-	sampleInputRegex  = regexp.MustCompile(`(?s)<div class="input"><div class="title">Input</div><pre>(.*?)</pre></div>`)
-	sampleOutputRegex = regexp.MustCompile(`(?s)<div class="output"><div class="title">Output</div><pre>(.*?)</pre></div>`)
+	statementRegex      = regexp.MustCompile(`(?s)<div class="problem-statement">(.*?)</div>\s*<!--\s*end problem statement`)
+	statementRegex2     = regexp.MustCompile(`(?s)<div class="problem-statement">(.*)`)
+	headerDivRegex      = regexp.MustCompile(`(?is)<div class="header">.*?</div>\s*</div>`)
+	sampleDivRegex      = regexp.MustCompile(`(?is)<div class="sample-tests?">.*?</div>\s*</div>`)
+	divTagRegex         = regexp.MustCompile(`(?is)<(/?)div\b[^>]*>`)
+	classAttributeRegex = regexp.MustCompile(`(?is)\bclass\s*=\s*["']([^"']+)["']`)
+	noteTitleRegex      = regexp.MustCompile(`(?is)^\s*<div\b[^>]*class\s*=\s*["'][^"']*\bsection-title\b[^"']*["'][^>]*>\s*Note\s*:?\s*</div>`)
+	timeLimitRegex      = regexp.MustCompile(`(?s)<div class="time-limit"[^>]*>.*?<div class="property-title">time limit per test</div>(.*?)</div>`)
+	memoryLimitRegex    = regexp.MustCompile(`(?s)<div class="memory-limit"[^>]*>.*?<div class="property-title">memory limit per test</div>(.*?)</div>`)
+	sampleInputRegex    = regexp.MustCompile(`(?s)<div class="input"><div class="title">Input</div><pre>(.*?)</pre></div>`)
+	sampleOutputRegex   = regexp.MustCompile(`(?s)<div class="output"><div class="title">Output</div><pre>(.*?)</pre></div>`)
 )
 
 type Adapter struct {
@@ -250,6 +253,14 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 		sampleCases = []platform.SampleCase{}
 	}
 
+	var noteHTML string
+	// Codeforces places notes after its sample-tests block. Samples are rendered
+	// separately by the web client, so move the note out as well to preserve
+	// the intended order there.
+	if statementHTML != "" {
+		noteHTML, statementHTML = extractNote(statementHTML)
+	}
+
 	// Strip redundant header div and duplicate sample tests from statementHTML
 	if statementHTML != "" {
 		statementHTML = headerDivRegex.ReplaceAllString(statementHTML, "")
@@ -265,7 +276,55 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 		TimeLimit:   timeLimit,
 		MemoryLimit: memoryLimit,
 		SampleCases: sampleCases,
+		Note:        noteHTML,
 	}, nil
+}
+
+func extractNote(statementHTML string) (string, string) {
+	tags := divTagRegex.FindAllStringIndex(statementHTML, -1)
+	for tagIndex, tagRange := range tags {
+		tag := statementHTML[tagRange[0]:tagRange[1]]
+		parts := divTagRegex.FindStringSubmatch(tag)
+		classMatch := classAttributeRegex.FindStringSubmatch(tag)
+		if len(parts) != 2 || parts[1] != "" || len(classMatch) != 2 || !hasCSSClass(classMatch[1], "note") {
+			continue
+		}
+
+		depth := 1
+		for _, closingRange := range tags[tagIndex+1:] {
+			candidate := statementHTML[closingRange[0]:closingRange[1]]
+			candidateParts := divTagRegex.FindStringSubmatch(candidate)
+			if len(candidateParts) != 2 {
+				continue
+			}
+			if candidateParts[1] == "" {
+				depth++
+				continue
+			}
+
+			depth--
+			if depth != 0 {
+				continue
+			}
+
+			noteHTML := statementHTML[tagRange[1]:closingRange[0]]
+			noteHTML = noteTitleRegex.ReplaceAllString(noteHTML, "")
+			end := closingRange[1]
+			withoutNote := strings.TrimSpace(statementHTML[:tagRange[0]] + statementHTML[end:])
+			return strings.TrimSpace(noteHTML), withoutNote
+		}
+	}
+
+	return "", statementHTML
+}
+
+func hasCSSClass(classes, want string) bool {
+	for _, className := range strings.Fields(classes) {
+		if className == want {
+			return true
+		}
+	}
+	return false
 }
 
 type cfSubmissionResult struct {

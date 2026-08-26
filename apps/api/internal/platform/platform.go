@@ -25,6 +25,7 @@ type ProblemStatement struct {
 	TimeLimit   string       `json:"timeLimit,omitempty"`
 	MemoryLimit string       `json:"memoryLimit,omitempty"`
 	SampleCases []SampleCase `json:"sampleCases"`
+	Note        string       `json:"note,omitempty"`
 }
 
 type NormalizedProblem struct {

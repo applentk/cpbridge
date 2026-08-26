@@ -60,6 +60,7 @@
   let problem: Problem | null = null;
   let statement: ProblemStatement | null = null;
   let renderedHtml = '';
+  let renderedNote = '';
   let statementLoading = true;
   let loading = true;
   let error = '';
@@ -313,13 +314,16 @@
       statement = await api.get<ProblemStatement>(`/problems/${pId}/statement${qParam}`);
       if (statement && statement.html) {
         renderedHtml = renderMathInHtml(statement.html);
+        renderedNote = statement.note ? renderMathInHtml(statement.note) : '';
       } else {
         renderedHtml = '';
+        renderedNote = '';
       }
     } catch (err) {
       console.error('Failed to load statement:', err);
       statement = null;
       renderedHtml = '';
+      renderedNote = '';
     } finally {
       statementLoading = false;
     }
@@ -1128,6 +1132,13 @@
                 {/each}
               </div>
             {/if}
+
+            {#if renderedNote}
+              <div class="statement-content text-sm text-zinc-300 leading-relaxed space-y-4 pt-4 border-t border-zinc-800">
+                <h3 class="text-base font-bold text-white uppercase tracking-wider">Note</h3>
+                {@html renderedNote}
+              </div>
+            {/if}
           {:else}
             <div class="p-8 text-center text-zinc-400 text-sm">
               Statement not loaded.
@@ -1298,6 +1309,13 @@
                       </div>
                     {/each}
                   </div>
+                </div>
+              {/if}
+
+              {#if renderedNote}
+                <div class="statement-content text-sm text-zinc-300 leading-relaxed space-y-4 pt-6 border-t border-zinc-800">
+                  <h3 class="text-base font-bold text-white uppercase tracking-wider">Note</h3>
+                  {@html renderedNote}
                 </div>
               {/if}
 

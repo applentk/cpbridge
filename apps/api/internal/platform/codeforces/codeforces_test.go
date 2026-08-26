@@ -1,6 +1,7 @@
 package codeforces
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -31,5 +32,22 @@ func TestFetchProblemTitle(t *testing.T) {
 	}
 	if title != "Perfecto" {
 		t.Fatalf("fetchProblemTitle() = %q, want %q", title, "Perfecto")
+	}
+}
+
+func TestExtractNote(t *testing.T) {
+	statement := `<div class="statement"><p>Problem body.</p></div>
+<div class="note"><div class="section-title">Note</div><p>The answer is explained here.</p><div class="extra"><p>More detail.</p></div></div>
+<div class="after-note"><p>After the note.</p></div>`
+
+	note, withoutNote := extractNote(statement)
+	if !strings.Contains(note, "The answer is explained here.") || !strings.Contains(note, "More detail.") {
+		t.Fatalf("extractNote() note = %q, want note content", note)
+	}
+	if strings.Contains(note, "section-title") || strings.Contains(withoutNote, "The answer is explained here.") {
+		t.Fatalf("extractNote() did not separate the note: note=%q statement=%q", note, withoutNote)
+	}
+	if !strings.Contains(withoutNote, "Problem body.") || !strings.Contains(withoutNote, "After the note.") {
+		t.Fatalf("extractNote() removed non-note statement content: %q", withoutNote)
 	}
 }
