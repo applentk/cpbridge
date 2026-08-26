@@ -22,7 +22,7 @@
         password
       });
       auth.setAuth(res.user, res.token);
-      await goto(res.user.role === 'ADMIN' ? '/admin' : '/dashboard');
+      await goto(res.user.role === 'ADMIN' ? '/admin' : '/contests');
     } catch (err) {
       error = err instanceof Error ? err.message : 'Registration failed';
     } finally {

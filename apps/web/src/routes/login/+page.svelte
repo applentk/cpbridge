@@ -27,7 +27,7 @@
         password
       });
       auth.setAuth(res.user, res.token);
-      await goto(getReturnTo() || (res.user.role === 'ADMIN' ? '/admin' : '/dashboard'));
+      await goto(getReturnTo() || (res.user.role === 'ADMIN' ? '/admin' : '/contests'));
     } catch (err) {
       error = err instanceof Error ? err.message : 'Login failed';
     } finally {

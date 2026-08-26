@@ -3,7 +3,7 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth';
-  import { LayoutDashboard, Code2, Layers, Trophy, Users, ExternalLink, ShieldCheck } from 'lucide-svelte';
+  import { LayoutDashboard, Code2, Layers, Trophy, Users, ExternalLink } from 'lucide-svelte';
 
   $: {
     if (browser && !$auth.loading && (!$auth.user || $auth.user.role !== 'ADMIN')) {
@@ -27,11 +27,6 @@
     <!-- Admin Sidebar -->
     <aside class="w-full md:w-64 shrink-0 space-y-6">
       <div class="p-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 space-y-4">
-        <div class="flex items-center space-x-2 px-2 pt-1">
-          <ShieldCheck class="w-5 h-5 text-amber-400" />
-          <span class="font-bold text-white tracking-wide text-sm uppercase">Admin Control</span>
-        </div>
-
         <nav class="space-y-1">
           {#each navItems as item}
             {@const isActive = $page.url.pathname === item.href || ($page.url.pathname.startsWith(item.href) && item.href !== '/admin')}

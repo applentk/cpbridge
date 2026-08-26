@@ -5,7 +5,7 @@ import { mockRegularUser, mockAdminUser } from './fixtures/mock-data';
 test.describe('Authentication & Route Guard Flows', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('login with regular user credentials redirects to /dashboard and stores token', async ({ page }) => {
+  test('login with regular user credentials redirects to /contests and stores token', async ({ page }) => {
     await setupApiMocks(page, { currentUser: null });
 
     await page.goto('/login');
@@ -16,7 +16,7 @@ test.describe('Authentication & Route Guard Flows', () => {
     await page.fill('input#login-password', 'securepassword123');
     await page.click('button[type="submit"]');
 
-    await expect(page).toHaveURL('/dashboard');
+    await expect(page).toHaveURL('/contests');
     await expect(page.locator('nav').first()).toContainText('tourist_fan');
 
     const token = await page.evaluate(() => localStorage.getItem('cp_token'));
@@ -80,7 +80,7 @@ test.describe('Authentication & Route Guard Flows', () => {
     await page.fill('input#reg-password', 'mySecret123');
     await page.click('button[type="submit"]');
 
-    await expect(page).toHaveURL('/dashboard');
+    await expect(page).toHaveURL('/contests');
   });
 
   test('logout action clears stored token and returns navbar to guest mode', async ({ page }) => {

@@ -7,10 +7,10 @@
 
   $: if (browser && !$auth.loading && !redirected) {
     redirected = true;
-    void goto($auth.user?.role === 'ADMIN' ? '/admin' : '/dashboard', {
+    void goto($auth.user?.role === 'ADMIN' ? '/admin' : '/contests', {
       replaceState: true
     });
   }
 </script>
 
-<div class="p-12 text-center text-zinc-500">Opening your dashboard...</div>
+<div class="p-12 text-center text-zinc-500">Redirecting...</div>

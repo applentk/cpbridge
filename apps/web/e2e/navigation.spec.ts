@@ -10,7 +10,7 @@ test.describe('Navigation & Navbar States', () => {
 
     const nav = page.locator('nav').first();
     await expect(nav).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Dashboard' })).not.toBeVisible();
     await expect(nav.getByRole('link', { name: 'Contests' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Sign In' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Sign Up' })).toBeVisible();
@@ -26,7 +26,7 @@ test.describe('Navigation & Navbar States', () => {
 
     const nav = page.locator('nav').first();
     await expect(nav).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Dashboard' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Dashboard' })).not.toBeVisible();
     await expect(nav.getByRole('link', { name: 'Contests' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Submissions' })).toBeVisible();
     await expect(nav.getByRole('link', { name: 'Problems' })).not.toBeVisible();
@@ -42,9 +42,9 @@ test.describe('Navigation & Navbar States', () => {
 
     const nav = page.locator('nav').first();
     await expect(nav.getByRole('link', { name: 'Admin Dashboard' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Problems' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'Problem Sets' })).toBeVisible();
-    await expect(nav.getByRole('link', { name: 'View User Site' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Contests' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Submissions' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Dashboard', exact: true })).not.toBeVisible();
     await expect(nav).toContainText('root_admin');
     await expect(nav).toContainText('ADMIN');
   });
