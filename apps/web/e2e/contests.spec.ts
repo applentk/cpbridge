@@ -42,6 +42,15 @@ test.describe('Contests & ICPC Scoreboard', () => {
     await expect(page.getByRole('link', { name: 'Scoreboard' })).toBeVisible();
     await expect(page.locator('text=Codehorses T-shirts')).toBeVisible();
     await expect(page.locator('text=A - N-choice question')).toBeVisible();
+
+    // Problem status badges in contest lobby
+    await expect(page.locator('text=Solved').first()).toBeVisible();
+    await expect(page.locator('text=Attempted').first()).toBeVisible();
+
+    // Full card clickable without standalone solve button
+    const problemCardLink = page.getByRole('link', { name: /Codehorses T-shirts/i });
+    await expect(problemCardLink).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Solve', exact: true })).not.toBeVisible();
   });
 
   test('upcoming contest shows locked problem message for regular users', async ({ page }) => {
@@ -96,7 +105,8 @@ test.describe('Contests & ICPC Scoreboard', () => {
     await expect(page.locator('text=Contest Lobby')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Scoreboard' })).toBeVisible();
 
-    // Problem label A
+    // Problem title and label
+    await expect(page.locator('h1')).toContainText('Codehorses T-shirts');
     await expect(page.locator('text=Problem A')).toBeVisible();
 
     // Next problem button exists and points to Problem B
@@ -132,6 +142,7 @@ test.describe('Contests & ICPC Scoreboard', () => {
     // Click problem letter column header A to navigate to contest problem workspace
     await page.getByRole('link', { name: 'A', exact: true }).click();
     await expect(page).toHaveURL(/\/problems\/prb_cf_1000A\?contestId=con_active_icpc/);
+    await expect(page.locator('h1')).toContainText('Codehorses T-shirts');
     await expect(page.locator('text=Problem A')).toBeVisible();
   });
 

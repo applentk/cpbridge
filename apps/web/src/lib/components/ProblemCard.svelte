@@ -1,73 +1,80 @@
 <script lang="ts">
   import type { Problem } from '@cpbridge/contracts';
-  import { ExternalLink, Tag } from 'lucide-svelte';
+  import { CheckCircle2, XCircle, ChevronRight } from 'lucide-svelte';
 
   export let problem: Problem;
   export let label: string | null = null;
   export let contestId: string | null = null;
   export let inContest: boolean = false;
+  export let isSolved: boolean = false;
+  export let isWrong: boolean = false;
 
   $: isInContest = inContest || Boolean(contestId);
   $: problemHref = contestId ? `/problems/${problem.id}?contestId=${contestId}` : `/problems/${problem.id}`;
 </script>
 
-<div class="p-4 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:border-zinc-700 hover:bg-zinc-900/80 transition flex items-center justify-between">
-  <div class="space-y-1">
-    <div class="flex items-center space-x-2.5">
-      {#if label}
-        <span class="w-7 h-7 rounded-lg bg-zinc-800 border border-zinc-700 text-white font-bold text-sm flex items-center justify-center">
-          {label}
-        </span>
-      {/if}
-      <a href={problemHref} class="font-semibold text-white hover:text-zinc-300 transition text-base">
+<a
+  href={problemHref}
+  class="group h-full flex items-center justify-between p-4 sm:p-5 rounded-2xl border transition shadow-sm hover:shadow-md {
+    isSolved
+      ? 'bg-emerald-500/[0.04] border-emerald-500/30 hover:border-emerald-500/50 hover:bg-emerald-500/[0.08]'
+      : isWrong
+      ? 'bg-rose-500/[0.04] border-rose-500/30 hover:border-rose-500/50 hover:bg-rose-500/[0.08]'
+      : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/80'
+  }"
+>
+  <div class="flex items-center space-x-3 min-w-0 flex-1 mr-3">
+    {#if label}
+      <span class="w-8 h-8 rounded-xl font-mono font-bold text-sm flex items-center justify-center shrink-0 {
+        isSolved
+          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+          : isWrong
+          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+          : 'bg-zinc-800 text-white border border-zinc-700'
+      }">
+        {label}
+      </span>
+    {/if}
+
+    <div class="min-w-0 flex-1">
+      <span class="font-bold text-base text-white group-hover:text-zinc-100 transition line-clamp-1">
         {problem.title}
-      </a>
+      </span>
+
       {#if !isInContest}
-        <span class="text-xs px-2 py-0.5 rounded-full font-mono font-semibold {
-          problem.platform === 'CODEFORCES' ? 'bg-red-500/15 text-red-300 border border-red-500/30' :
-          'bg-zinc-800 text-zinc-300 border border-zinc-700'
-        }">
-          {problem.platform}
-        </span>
-        {#if problem.difficulty}
-          <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-zinc-950 text-zinc-400 border border-zinc-800">
-            ★ {problem.difficulty}
+        <div class="flex items-center space-x-1.5 mt-1">
+          <span class="text-xs px-2 py-0.5 rounded-full font-mono font-semibold {
+            problem.platform === 'CODEFORCES' ? 'bg-red-500/15 text-red-300 border border-red-500/30' :
+            'bg-zinc-800 text-zinc-300 border border-zinc-700'
+          }">
+            {problem.platform}
           </span>
-        {/if}
+          {#if problem.difficulty}
+            <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-zinc-950 text-zinc-400 border border-zinc-800">
+              ★ {problem.difficulty}
+            </span>
+          {/if}
+        </div>
       {/if}
     </div>
+  </div>
 
-    {#if !isInContest}
-      <div class="flex items-center space-x-2 text-xs text-zinc-400">
-        <span class="font-mono text-zinc-500">{problem.externalId}</span>
-        {#if problem.tags && problem.tags.length > 0}
-          <span>•</span>
-          <div class="flex items-center space-x-1.5 overflow-hidden">
-            <Tag class="w-3 h-3 text-zinc-500" />
-            <span>{problem.tags.slice(0, 3).join(', ')}</span>
+  <div class="flex items-center space-x-2.5 shrink-0">
+    {#if isInContest && (isSolved || isWrong)}
+      <div>
+        {#if isSolved}
+          <div class="flex items-center space-x-1 px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+            <CheckCircle2 class="w-3.5 h-3.5 text-emerald-400" />
+            <span>Solved</span>
+          </div>
+        {:else if isWrong}
+          <div class="flex items-center space-x-1 px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30">
+            <XCircle class="w-3.5 h-3.5 text-rose-400" />
+            <span>Attempted</span>
           </div>
         {/if}
       </div>
     {/if}
+    <ChevronRight class="w-4 h-4 text-zinc-600 group-hover:text-zinc-400 group-hover:translate-x-0.5 transition-transform" />
   </div>
-
-  <div class="flex items-center space-x-2">
-    {#if !isInContest}
-      <a
-        href={problem.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        class="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
-        title="Open official statement"
-      >
-        <ExternalLink class="w-4 h-4" />
-      </a>
-    {/if}
-    <a
-      href={problemHref}
-      class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-zinc-200 text-black shadow-sm transition"
-    >
-      Solve
-    </a>
-  </div>
-</div>
+</a>

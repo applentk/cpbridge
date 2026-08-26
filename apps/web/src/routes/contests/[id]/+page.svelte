@@ -3,7 +3,7 @@
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
-  import type { Contest, ContestProblem } from '@cpbridge/contracts';
+  import type { Contest, ContestProblem, Submission } from '@cpbridge/contracts';
   import ContestTimer from '$lib/components/ContestTimer.svelte';
   import ProblemCard from '$lib/components/ProblemCard.svelte';
   import { Trophy, Users, Lock, RefreshCw, Edit3 } from 'lucide-svelte';
@@ -11,18 +11,58 @@
   let contestId = $page.params.id;
   let contest: Contest | null = null;
   let problems: ContestProblem[] = [];
+  let solvedProblemIds: Set<string> = new Set();
+  let wrongProblemIds: Set<string> = new Set();
   let loading = true;
   let error = '';
   let interval: ReturnType<typeof setInterval> | undefined;
+  let lastLoadedAuthUserId: string | null = null;
 
   async function loadContest() {
     try {
       contest = await api.get<Contest>(`/contests/${contestId}`);
       problems = contest.problems || [];
+      if ($auth.user) {
+        await loadSubmissions();
+      }
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to load contest';
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadSubmissions() {
+    if (!$auth.user) {
+      solvedProblemIds = new Set();
+      wrongProblemIds = new Set();
+      return;
+    }
+    try {
+      const subsRes = await api.get<Submission[]>(`/submissions?contestId=${contestId}`);
+      const solved = new Set<string>();
+      const wrong = new Set<string>();
+      if (Array.isArray(subsRes)) {
+        for (const sub of subsRes) {
+          if (sub.status === 'ACCEPTED') {
+            solved.add(sub.problemId);
+          } else if (sub.status === 'WRONG_ANSWER') {
+            wrong.add(sub.problemId);
+          }
+        }
+      }
+      solvedProblemIds = solved;
+      wrongProblemIds = new Set([...wrong].filter((id) => !solved.has(id)));
+    } catch {}
+  }
+
+  $: {
+    const currentUserId = $auth.user?.id ?? null;
+    if (currentUserId !== lastLoadedAuthUserId) {
+      lastLoadedAuthUserId = currentUserId;
+      if (contest) {
+        void loadSubmissions();
+      }
     }
   }
 
@@ -173,10 +213,16 @@
         </div>
       {:else}
         <!-- Unlocked problems list -->
-        <div class="space-y-3">
+        <div class="flex flex-col gap-4">
           {#each problems as cp}
             {#if cp.problem}
-              <ProblemCard problem={cp.problem} label={cp.label} contestId={contest.id} />
+              <ProblemCard
+                problem={cp.problem}
+                label={cp.label}
+                contestId={contest.id}
+                isSolved={solvedProblemIds.has(cp.problemId)}
+                isWrong={wrongProblemIds.has(cp.problemId)}
+              />
             {/if}
           {/each}
         </div>

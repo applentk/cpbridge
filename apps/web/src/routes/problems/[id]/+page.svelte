@@ -891,7 +891,7 @@
     </div>
   {/if}
 
-  <div class={contest ? 'grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-6 items-start' : 'space-y-4'}>
+  <div class={contest ? 'grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-4 items-start' : 'space-y-4'}>
     <main class={contest ? 'min-w-0 space-y-4 lg:col-start-2 lg:row-start-1' : 'space-y-4'}>
       {#if loading}
         <!-- Problem Section Skeleton -->
@@ -943,134 +943,133 @@
         </div>
       {:else}
         <!-- Header Navigation Card -->
-        <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 space-y-4 shadow-xl">
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div class="space-y-1.5">
-              <div class="flex items-center space-x-2.5">
-                {#if currentContestProblem}
-                  <span class="text-xs px-2.5 py-0.5 rounded-full font-bold font-mono bg-white text-black shadow-sm">
-                    Problem {currentContestProblem.label}
-                  </span>
+        <div class="sticky top-16 z-20 pt-4 bg-zinc-950 -mt-4 rounded-lg">
+          <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-md space-y-4 shadow-xl">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div class="space-y-1.5">
+                <div class="flex items-center space-x-2.5">
+                  {#if currentContestProblem}
+                    <span class="text-xs px-2.5 py-0.5 rounded-full font-bold font-mono bg-zinc-800 text-zinc-200 border border-zinc-700 shadow-sm">
+                      Problem {currentContestProblem.label}
+                    </span>
+                  {/if}
+                  {#if !contest}
+                    <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold font-mono {
+                      problem.platform === 'CODEFORCES' ? 'bg-red-500/15 text-red-300 border border-red-500/30' :
+                      'bg-zinc-800 text-zinc-300 border border-zinc-700'
+                    }">
+                      {problem.platform}
+                    </span>
+                    <span class="text-xs font-mono text-zinc-400">{problem.externalId}</span>
+                    {#if problem.difficulty}
+                      <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-zinc-950 text-zinc-400 border border-zinc-800">
+                        ★ {problem.difficulty}
+                      </span>
+                    {/if}
+                  {/if}
+                  {#if currentContestProblem?.points}
+                    <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                      {currentContestProblem.points} pts
+                    </span>
+                  {/if}
+                </div>
+
+                <h1 class="text-2xl font-extrabold text-white leading-tight">
+                  {problem.title}
+                </h1>
+              </div>
+
+              <div class="flex items-center space-x-3 shrink-0">
+                <!-- View Layout Toggle (Tabbed vs Split) -->
+                <div class="flex items-center bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
+                  <button
+                    on:click={() => (viewMode = 'tabbed')}
+                    class="px-3 py-1 rounded-lg font-semibold transition {
+                      viewMode === 'tabbed' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                    }"
+                  >
+                    Tabbed View
+                  </button>
+                  <button
+                    on:click={() => (viewMode = 'split')}
+                    class="px-3 py-1 rounded-lg font-semibold transition flex items-center space-x-1 {
+                      viewMode === 'split' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'
+                    }"
+                  >
+                    <Columns class="w-3.5 h-3.5" />
+                    <span>Split View</span>
+                  </button>
+                </div>
+
+                {#if !contest}
+                  <a
+                    href={problem.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-xs text-zinc-200 hover:text-white font-semibold transition flex items-center space-x-1.5"
+                    title="Open official statement on source website"
+                  >
+                    <span>Source</span>
+                    <ExternalLink class="w-3.5 h-3.5" />
+                  </a>
                 {/if}
-              {#if !contest}
-                <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold font-mono {
-                  problem.platform === 'CODEFORCES' ? 'bg-red-500/15 text-red-300 border border-red-500/30' :
-                  'bg-zinc-800 text-zinc-300 border border-zinc-700'
-                }">
-                  {problem.platform}
-                </span>
-                <span class="text-xs font-mono text-zinc-400">{problem.externalId}</span>
-                {#if problem.difficulty}
-                  <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-zinc-950 text-zinc-400 border border-zinc-800">
-                    ★ {problem.difficulty}
-                  </span>
+              </div>
+            </div>
+
+            <!-- Limits & Metadata Bar -->
+            {#if statement?.timeLimit || statement?.memoryLimit}
+              <div class="flex items-center space-x-5 text-xs font-mono text-zinc-400 pt-2 border-t border-zinc-800/80">
+                {#if statement.timeLimit}
+                  <div class="flex items-center space-x-1.5">
+                    <Clock class="w-3.5 h-3.5 text-zinc-500" />
+                    <span>Time Limit: {statement.timeLimit}</span>
+                  </div>
                 {/if}
-              {/if}
-              {#if currentContestProblem?.points}
-                <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                  {currentContestProblem.points} pts
-                </span>
-              {/if}
-            </div>
+                {#if statement.memoryLimit}
+                  <div class="flex items-center space-x-1.5">
+                    <Cpu class="w-3.5 h-3.5 text-zinc-500" />
+                    <span>Memory Limit: {statement.memoryLimit}</span>
+                  </div>
+                {/if}
+              </div>
+            {/if}
 
-            <h1 class="text-2xl font-extrabold text-white leading-tight">
-              {#if currentContestProblem}
-                <span class="text-zinc-400 font-mono mr-1.5">{currentContestProblem.label}.</span>
-              {/if}
-              {problem.title}
-            </h1>
+            <!-- Main Navigation Tabs (Visible in Tabbed Mode) -->
+            {#if viewMode === 'tabbed'}
+              <div class="flex items-center space-x-2 pt-2 border-t border-zinc-800/80">
+                <button
+                  on:click={() => setActiveTab('statement')}
+                  class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
+                    activeTab === 'statement' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                  }"
+                >
+                  <BookOpen class="w-4 h-4" />
+                  <span>Problem Statement</span>
+                </button>
+
+                <button
+                  on:click={() => setActiveTab('editor')}
+                  class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
+                    activeTab === 'editor' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                  }"
+                >
+                  <Code2 class="w-4 h-4" />
+                  <span>Code Editor & Submit</span>
+                </button>
+
+                <button
+                  on:click={() => setActiveTab('submissions')}
+                  class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
+                    activeTab === 'submissions' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                  }"
+                >
+                  <Cpu class="w-4 h-4" />
+                  <span>Submissions ({recentSubmissions.length})</span>
+                </button>
+              </div>
+            {/if}
           </div>
-
-        <div class="flex items-center space-x-3 shrink-0">
-          <!-- View Layout Toggle (Tabbed vs Split) -->
-          <div class="flex items-center bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
-            <button
-              on:click={() => (viewMode = 'tabbed')}
-              class="px-3 py-1 rounded-lg font-semibold transition {
-                viewMode === 'tabbed' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'
-              }"
-            >
-              Tabbed View
-            </button>
-            <button
-              on:click={() => (viewMode = 'split')}
-              class="px-3 py-1 rounded-lg font-semibold transition flex items-center space-x-1 {
-                viewMode === 'split' ? 'bg-white text-black shadow-sm' : 'text-zinc-400 hover:text-white'
-              }"
-            >
-              <Columns class="w-3.5 h-3.5" />
-              <span>Split View</span>
-            </button>
-          </div>
-
-          {#if !contest}
-            <a
-              href={problem.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-xs text-zinc-200 hover:text-white font-semibold transition flex items-center space-x-1.5"
-              title="Open official statement on source website"
-            >
-              <span>Source</span>
-              <ExternalLink class="w-3.5 h-3.5" />
-            </a>
-          {/if}
         </div>
-      </div>
-
-      <!-- Limits & Metadata Bar -->
-      {#if statement?.timeLimit || statement?.memoryLimit}
-        <div class="flex items-center space-x-5 text-xs font-mono text-zinc-400 pt-2 border-t border-zinc-800/80">
-          {#if statement.timeLimit}
-            <div class="flex items-center space-x-1.5">
-              <Clock class="w-3.5 h-3.5 text-zinc-500" />
-              <span>Time Limit: {statement.timeLimit}</span>
-            </div>
-          {/if}
-          {#if statement.memoryLimit}
-            <div class="flex items-center space-x-1.5">
-              <Cpu class="w-3.5 h-3.5 text-zinc-500" />
-              <span>Memory Limit: {statement.memoryLimit}</span>
-            </div>
-          {/if}
-        </div>
-      {/if}
-
-      <!-- Main Navigation Tabs (Visible in Tabbed Mode) -->
-      {#if viewMode === 'tabbed'}
-        <div class="flex items-center space-x-2 pt-2 border-t border-zinc-800/80">
-          <button
-            on:click={() => setActiveTab('statement')}
-            class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
-              activeTab === 'statement' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
-            }"
-          >
-            <BookOpen class="w-4 h-4" />
-            <span>Problem Statement</span>
-          </button>
-
-          <button
-            on:click={() => setActiveTab('editor')}
-            class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
-              activeTab === 'editor' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
-            }"
-          >
-            <Code2 class="w-4 h-4" />
-            <span>Code Editor & Submit</span>
-          </button>
-
-          <button
-            on:click={() => setActiveTab('submissions')}
-            class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
-              activeTab === 'submissions' ? 'bg-white text-black shadow-sm' : 'bg-zinc-800 text-zinc-400 hover:text-white'
-            }"
-          >
-            <Cpu class="w-4 h-4" />
-            <span>Submissions ({recentSubmissions.length})</span>
-          </button>
-        </div>
-      {/if}
-    </div>
 
     <!-- Hidden File Input for Auto-Detect Upload -->
     <input
@@ -1604,7 +1603,11 @@
                 href={`/problems/${cp.problemId}?contestId=${contest.id}`}
                 class="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition border {
                   isActive
-                    ? 'bg-white text-black border-white shadow-md'
+                    ? isSolved
+                      ? 'bg-emerald-500/15 text-emerald-200 border-emerald-400 ring-2 ring-emerald-500/30 shadow-sm'
+                      : isWrong
+                      ? 'bg-rose-500/15 text-rose-200 border-rose-400 ring-2 ring-rose-500/30 shadow-sm'
+                      : 'bg-zinc-800/80 text-white border-zinc-400 ring-2 ring-zinc-500/30 shadow-sm'
                     : isSolved
                     ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20 hover:text-white'
                     : isWrong
@@ -1613,12 +1616,16 @@
                 }"
               >
                 <span class="font-mono font-bold w-6 h-6 rounded-lg flex items-center justify-center text-xs shrink-0 {
-                  isActive
-                    ? 'bg-black text-white'
-                    : isSolved
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                  isSolved
+                    ? isActive
+                      ? 'bg-emerald-500/30 text-emerald-200 border border-emerald-400'
+                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                     : isWrong
-                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                    ? isActive
+                      ? 'bg-rose-500/30 text-rose-200 border border-rose-400'
+                      : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                    : isActive
+                    ? 'bg-zinc-700 text-white border border-zinc-500'
                     : 'bg-zinc-900 text-zinc-400 border border-zinc-800'
                 }">
                   {cp.label}
@@ -1629,9 +1636,9 @@
                 </span>
 
                 {#if isSolved}
-                  <CheckCircle2 class="w-3.5 h-3.5 shrink-0 {isActive ? 'text-emerald-700' : 'text-emerald-400'}" />
+                  <CheckCircle2 class="w-3.5 h-3.5 shrink-0 text-emerald-400" />
                 {:else if isWrong}
-                  <XCircle class="w-3.5 h-3.5 shrink-0 {isActive ? 'text-rose-700' : 'text-rose-400'}" />
+                  <XCircle class="w-3.5 h-3.5 shrink-0 text-rose-400" />
                 {/if}
               </a>
             {/each}
