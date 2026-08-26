@@ -108,13 +108,17 @@
               class="hover:bg-zinc-800/40 cursor-pointer transition group"
             >
               <td class="py-3 px-4 font-sans font-semibold text-zinc-100">
-                <a
-                  href={`/problems/${s.problemId}`}
-                  on:click|stopPropagation
-                  class="hover:text-white underline decoration-zinc-700 hover:decoration-white transition"
-                >
+                {#if s.contestId}
+                  <a
+                    href={`/problems/${s.problemId}?contestId=${s.contestId}`}
+                    on:click|stopPropagation
+                    class="hover:text-white underline decoration-zinc-700 hover:decoration-white transition"
+                  >
+                    {s.problemTitle || s.problemId}
+                  </a>
+                {:else}
                   {s.problemTitle || s.problemId}
-                </a>
+                {/if}
               </td>
 
               <td class="py-3 px-4 font-sans text-zinc-300">

@@ -984,7 +984,6 @@ func (h *Handler) Routes() chi.Router {
 	r.Get("/", h.List)
 	r.Post("/", h.Create)
 	r.Get("/{id}", h.Get)
-	r.Get("/{id}/sync", h.Sync)
 	r.Post("/{id}/sync", h.Sync)
 	r.Post("/{id}/dispatched", h.UpdateDispatched)
 	r.Post("/{id}/result", h.UpdateResult)

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -510,115 +509,6 @@ func CleanBoilerplate(text string) string {
 	return strings.TrimSpace(text)
 }
 
-// ExtractFromRawContent parses copied text or HTML from Codeforces, AtCoder, or generic problem sources
-func ExtractFromRawContent(raw string) (title, statement, timeLimit, memoryLimit string, sampleCases []platform.SampleCase) {
-	raw = strings.TrimSpace(raw)
-
-	// 1. Time Limit extraction
-	tlRegex := regexp.MustCompile(`(?i)(?:time limit(?:\s+per test)?|Time Limit)[\s:]*([0-9\.]+\s*(?:s|sec|seconds|ms))`)
-	if m := tlRegex.FindStringSubmatch(raw); len(m) > 1 {
-		timeLimit = strings.TrimSpace(m[1])
-	}
-
-	// 2. Memory Limit extraction
-	mlRegex := regexp.MustCompile(`(?i)(?:memory limit(?:\s+per test)?|Memory Limit)[\s:]*([0-9\.]+\s*(?:MB|megabytes|KB))`)
-	if m := mlRegex.FindStringSubmatch(raw); len(m) > 1 {
-		memoryLimit = strings.TrimSpace(m[1])
-	}
-
-	// 3. Title extraction
-	titleRegex := regexp.MustCompile(`(?i)<title>(.*?)(?: - Codeforces| - AtCoder)?</title>`)
-	if m := titleRegex.FindStringSubmatch(raw); len(m) > 1 {
-		title = strings.TrimSpace(m[1])
-	}
-	if title == "" {
-		h1Regex := regexp.MustCompile(`(?i)<div class="title">([^<]+)</div>`)
-		if m := h1Regex.FindStringSubmatch(raw); len(m) > 1 {
-			title = strings.TrimSpace(m[1])
-		}
-	}
-	if title == "" {
-		plainTitleRegex := regexp.MustCompile(`(?m)^([A-Z][0-9]?\.\s+[^\n]+)`)
-		if m := plainTitleRegex.FindStringSubmatch(raw); len(m) > 1 {
-			title = strings.TrimSpace(m[1])
-		}
-	}
-
-	// 4. Sample cases extraction
-	cfInputRegex := regexp.MustCompile(`(?is)<div class="input">\s*<div class="title">Input</div>\s*<pre>(.*?)</pre>\s*</div>`)
-	cfOutputRegex := regexp.MustCompile(`(?is)<div class="output">\s*<div class="title">Output</div>\s*<pre>(.*?)</pre>\s*</div>`)
-	cfInputs := cfInputRegex.FindAllStringSubmatch(raw, -1)
-	cfOutputs := cfOutputRegex.FindAllStringSubmatch(raw, -1)
-	if len(cfInputs) > 0 && len(cfOutputs) > 0 {
-		count := min(len(cfInputs), len(cfOutputs))
-		for i := range count {
-			sampleCases = append(sampleCases, platform.SampleCase{
-				Input:  cleanSample(cfInputs[i][1]),
-				Output: cleanSample(cfOutputs[i][1]),
-			})
-		}
-	}
-
-	// AtCoder / Generic pattern: Sample Input / Output
-	if len(sampleCases) == 0 {
-		sampleBlockRegex := regexp.MustCompile(`(?is)<h3>\s*Sample Input\s*(\d*)\s*</h3>\s*<pre>(.*?)</pre>\s*<h3>\s*Sample Output\s*\1\s*</h3>\s*<pre>(.*?)</pre>`)
-		matches := sampleBlockRegex.FindAllStringSubmatch(raw, -1)
-		for _, m := range matches {
-			if len(m) >= 4 {
-				sampleCases = append(sampleCases, platform.SampleCase{
-					Input:  cleanSample(m[2]),
-					Output: cleanSample(m[3]),
-				})
-			}
-		}
-	}
-
-	// Markdown Example pattern: Example 1: Input: ... Output: ...
-	if len(sampleCases) == 0 {
-		exRegex := regexp.MustCompile(`(?is)(?:Example\s*\d*[:\s]*|Sample\s*\d*[:\s]*)Input[:\s]*(.*?)(?:Output|Expected)[:\s]*(.*?)(?:Explanation|$|Example\s*\d+)`)
-		matches := exRegex.FindAllStringSubmatch(raw, -1)
-		for _, m := range matches {
-			if len(m) >= 3 {
-				sampleCases = append(sampleCases, platform.SampleCase{
-					Input:  strings.TrimSpace(m[1]),
-					Output: strings.TrimSpace(m[2]),
-				})
-			}
-		}
-	}
-
-	if sampleCases == nil {
-		sampleCases = []platform.SampleCase{}
-	}
-
-	// 5. Statement Body extraction
-	stmtRegex := regexp.MustCompile(`(?is)<div class="problem-statement">(.*?)</div>\s*<!--\s*end problem statement`)
-	if m := stmtRegex.FindStringSubmatch(raw); len(m) > 1 {
-		statement = m[1]
-	} else {
-		taskRegex := regexp.MustCompile(`(?is)<div id="task-statement">(.*?)</div>\s*<span class="center-block`)
-		if m := taskRegex.FindStringSubmatch(raw); len(m) > 1 {
-			statement = m[1]
-		} else {
-			statement = raw
-		}
-	}
-
-	statement = CleanBoilerplate(statement)
-
-	return title, statement, timeLimit, memoryLimit, sampleCases
-}
-
-func cleanSample(s string) string {
-	s = strings.ReplaceAll(s, "<br>", "\n")
-	s = strings.ReplaceAll(s, "<br/>", "\n")
-	s = strings.ReplaceAll(s, "<br />", "\n")
-	s = strings.ReplaceAll(s, `<div class="test-example-line">`, "")
-	s = strings.ReplaceAll(s, `</div>`, "\n")
-	tagRegex := regexp.MustCompile(`<[^>]*>`)
-	return strings.TrimSpace(tagRegex.ReplaceAllString(s, ""))
-}
-
 type Handler struct {
 	service *Service
 	authSvc *auth.Service
@@ -635,7 +525,6 @@ func (h *Handler) Routes() chi.Router {
 		if h.authSvc != nil {
 			pub.Use(h.authSvc.AuthMiddleware(false))
 		}
-		pub.Get("/", h.List)
 		pub.Get("/{id}", h.Get)
 		pub.Get("/{id}/statement", h.GetStatement)
 	})
@@ -647,7 +536,6 @@ func (h *Handler) Routes() chi.Router {
 		}
 		pr.Post("/", h.Create)
 		pr.Post("/import", h.Import)
-		pr.Post("/extract-text", h.ExtractText)
 	})
 
 	return r
@@ -699,30 +587,6 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(p)
 }
 
-type extractReq struct {
-	RawContent string `json:"rawContent"`
-}
-
-func (h *Handler) ExtractText(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 2<<20) // 2MB limit
-	var req extractReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body or exceeds size limit"}`, http.StatusBadRequest)
-		return
-	}
-
-	title, stmt, tl, ml, sc := ExtractFromRawContent(req.RawContent)
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"title":       title,
-		"statement":   stmt,
-		"timeLimit":   tl,
-		"memoryLimit": ml,
-		"sampleCases": sc,
-	})
-}
-
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	contestID := r.URL.Query().Get("contestId")
@@ -769,45 +633,4 @@ func (h *Handler) GetStatement(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(st)
-}
-
-func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	claims := auth.GetUserFromContext(r.Context())
-	if claims == nil || claims.Role != auth.RoleAdmin {
-		http.Error(w, `{"error":"only administrators can browse the global problem library"}`, http.StatusForbidden)
-		return
-	}
-
-	q := r.URL.Query()
-	filter := Filter{
-		Query: q.Get("query"),
-	}
-
-	if p := q.Get("platform"); p != "" {
-		pt := platform.Type(strings.ToUpper(p))
-		filter.Platform = &pt
-	}
-
-	if limitStr := q.Get("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
-			filter.Limit = l
-		}
-	}
-	if offsetStr := q.Get("offset"); offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil {
-			filter.Offset = o
-		}
-	}
-
-	problems, total, err := h.service.List(r.Context(), filter)
-	if err != nil {
-		http.Error(w, `{"error":"failed to fetch problems"}`, http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"problems": problems,
-		"total":    total,
-	})
 }

@@ -124,7 +124,6 @@ func main() {
 	// Domain Handlers
 	authHandler := auth.NewHandler(authSvc)
 	probHandler := problem.NewHandler(probSvc, authSvc)
-	setHandler := problemset.NewHandler(setSvc, authSvc)
 	contestHandler := contest.NewHandler(contestSvc, authSvc)
 	subHandler := submission.NewHandler(subSvc, authSvc)
 	intHandler := integration.NewHandler(intSvc, authSvc)
@@ -158,7 +157,6 @@ func main() {
 
 		api.Mount("/auth", authHandler.Routes())
 		api.Mount("/problems", probHandler.Routes())
-		api.Mount("/problem-sets", setHandler.Routes())
 		api.Mount("/contests", contestHandler.Routes())
 		api.Mount("/submissions", subHandler.Routes())
 		api.Mount("/integrations", intHandler.Routes())

@@ -14,6 +14,12 @@ test.describe('Submissions Log & Verdicts', () => {
     await expect(page.locator('text=Codehorses T-shirts')).toBeVisible();
     await expect(page.locator('text=A - N-choice question')).toBeVisible();
 
+    await expect(page.getByRole('link', { name: 'Codehorses T-shirts' })).toHaveAttribute(
+      'href',
+      '/problems/prb_cf_1000A?contestId=con_active_icpc',
+    );
+    await expect(page.getByRole('link', { name: 'Laura and Operations' })).not.toBeVisible();
+
     // Verdict badges
     await expect(page.locator('text=ACCEPTED').first()).toBeVisible();
     await expect(page.locator('text=WRONG ANSWER').first()).toBeVisible();
@@ -119,4 +125,3 @@ test.describe('Submissions Log & Verdicts', () => {
     await expect(page.locator('text=Codehorses T-shirts')).toBeVisible();
   });
 });
-
