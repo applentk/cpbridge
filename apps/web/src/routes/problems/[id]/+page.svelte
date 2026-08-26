@@ -13,6 +13,7 @@
     type Problem,
     type LanguageId,
     type Submission,
+    type ExtensionPingResponse,
     type ExtensionSubmissionActionRequiredResponse,
     type ProblemStatement,
     type Contest,
@@ -43,7 +44,8 @@
     ChevronRight,
     Layers,
     Lock,
-    XCircle
+    XCircle,
+    AlertTriangle
   } from 'lucide-svelte';
 
   let problemId: string = $page.params.id || '';
@@ -58,6 +60,9 @@
   let currentLoadedContestId: string | null | undefined = undefined;
 
   let problem: Problem | null = null;
+  let extensionInfo: ExtensionPingResponse | null = null;
+  let extensionCheckLoading = true;
+  let extensionCheckProblemId = '';
   let statement: ProblemStatement | null = null;
   let renderedHtml = '';
   let renderedNote = '';
@@ -109,6 +114,9 @@
   $: currentProblemIndex = contestProblems.findIndex(cp => cp.problemId === problemId);
   $: prevContestProblem = currentProblemIndex > 0 ? contestProblems[currentProblemIndex - 1] : null;
   $: nextContestProblem = currentProblemIndex >= 0 && currentProblemIndex < contestProblems.length - 1 ? contestProblems[currentProblemIndex + 1] : null;
+  $: extensionCompatible = !!extensionInfo && isExtensionVersionCompatible(extensionInfo.version);
+  $: externalPlatformConnected = !!problem && !!extensionInfo?.platforms[problem.platform]?.loggedIn && !!extensionInfo.platforms[problem.platform]?.username?.trim();
+  $: canUseSubmissionWorkspace = !$auth.loading && !!$auth.user && !extensionCheckLoading && extensionCompatible && externalPlatformConnected;
 
   $: {
     if (browser && !$auth.loading) {
@@ -258,6 +266,10 @@
 
       const [probData] = await Promise.all(primaryPromises);
       problem = probData;
+      extensionInfo = null;
+      extensionCheckProblemId = pId;
+      extensionCheckLoading = true;
+      void refreshExtensionGuard(pId);
 
       // Submission history is intentionally independent: it can be slow due
       // to verdict synchronization, but must never delay the statement.
@@ -267,6 +279,13 @@
     } finally {
       loading = false;
     }
+  }
+
+  async function refreshExtensionGuard(pId: string) {
+    const info = await pingExtension();
+    if (extensionCheckProblemId !== pId || pId !== problemId) return;
+    extensionInfo = info;
+    extensionCheckLoading = false;
   }
 
   async function loadContestData(cId: string) {
@@ -629,10 +648,11 @@
 
   async function handleSubmit() {
     if (!$auth.user) {
-      alert('Please log in to submit a solution');
       return;
     }
     if (!problem) return;
+
+    if (!canUseSubmissionWorkspace) return;
 
     const extension = await pingExtension();
     if (extension && !isExtensionVersionCompatible(extension.version)) {
@@ -1156,7 +1176,8 @@
               <select
                 bind:value={language}
                 on:change={handleLanguageChange}
-                class="px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-mono focus:border-zinc-400 focus:outline-none"
+                disabled={!canUseSubmissionWorkspace}
+                class="px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-mono focus:border-zinc-400 focus:outline-none disabled:pointer-events-none disabled:opacity-50"
               >
                 <option value="cpp23">C++23 (GCC)</option>
                 <option value="python3">Python 3</option>
@@ -1167,7 +1188,8 @@
               <button
                 type="button"
                 on:click={() => fileInputElement.click()}
-                class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center space-x-1.5"
+                disabled={!canUseSubmissionWorkspace}
+                class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center space-x-1.5 disabled:pointer-events-none disabled:opacity-50"
                 title="Upload code file (.cpp, .py, .java) with auto-detected language"
               >
                 <Upload class="w-3.5 h-3.5 text-white" />
@@ -1177,7 +1199,8 @@
 
             <button
               on:click={handleSubmit}
-              disabled={submitting}
+              disabled={submitting || !canUseSubmissionWorkspace}
+              title={!canUseSubmissionWorkspace ? 'Activate the extension and connect the external platform first' : 'Submit code'}
               class="px-5 py-1.5 rounded-xl font-bold bg-white hover:bg-zinc-200 disabled:opacity-50 text-black shadow-sm transition flex items-center space-x-2 text-xs"
             >
               <Send class="w-3.5 h-3.5" />
@@ -1201,7 +1224,7 @@
 
           <!-- Editor -->
           <div class="flex-1 min-h-87.5">
-            <MonacoEditor bind:value={sourceCode} {language} />
+            <MonacoEditor bind:value={sourceCode} {language} readonly={!canUseSubmissionWorkspace} disabled={!canUseSubmissionWorkspace} />
           </div>
 
           <!-- Verdict Banner -->
@@ -1350,6 +1373,36 @@
         {:else if activeTab === 'editor'}
           <!-- 2. Full-Width Code Editor Tab -->
           <div class="space-y-4">
+            {#if !$auth.loading && !extensionCheckLoading && !canUseSubmissionWorkspace}
+              <div class="p-5 rounded-2xl border border-amber-500/30 bg-amber-500/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div class="flex items-start gap-3 text-xs">
+                  <AlertTriangle class="w-5 h-5 shrink-0 mt-0.5 text-amber-400" />
+                  <div class="space-y-1.5">
+                    {#if !$auth.user}
+                      <p class="font-semibold text-amber-200">Sign in before using the Code Editor & Submit workspace.</p>
+                      <p class="text-amber-200/70">Authentication is required before extension setup or external submissions.</p>
+                    {:else if !extensionInfo}
+                      <p class="font-semibold text-amber-200">Browser extension is not active.</p>
+                      <p class="text-amber-200/70">Install or activate the cpbridge extension to enable editing and submissions.</p>
+                    {:else if !extensionCompatible}
+                      <p class="font-semibold text-amber-200">Browser extension update required.</p>
+                      <p class="text-amber-200/70">Install the latest cpbridge extension before using external submissions.</p>
+                    {:else}
+                      <p class="font-semibold text-amber-200">{problem.platform === 'CODEFORCES' ? 'Codeforces' : 'AtCoder'} is not connected.</p>
+                      <p class="text-amber-200/70">Log in to the external platform in this browser to enable editing and submissions.</p>
+                    {/if}
+                  </div>
+                </div>
+                <a
+                  href="/settings/integrations"
+                  class="shrink-0 px-4 py-2.5 rounded-xl text-xs font-semibold bg-amber-400 text-zinc-950 hover:bg-amber-300 transition inline-flex items-center justify-center gap-1.5"
+                >
+                  {#if !$auth.user}Sign in & open setup{:else}Open Extension Setup{/if}
+                  <ExternalLink class="w-3.5 h-3.5" />
+                </a>
+              </div>
+            {/if}
+
             <!-- Toolbar -->
             <div class="flex flex-wrap items-center justify-between gap-3 bg-zinc-950 p-4 rounded-2xl border border-zinc-800">
               <div class="flex items-center space-x-3">
@@ -1359,7 +1412,8 @@
                     id="lang-select-tab"
                     bind:value={language}
                     on:change={handleLanguageChange}
-                    class="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-200 text-xs font-mono focus:border-zinc-400 focus:outline-none"
+                    disabled={!canUseSubmissionWorkspace}
+                    class="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-200 text-xs font-mono focus:border-zinc-400 focus:outline-none disabled:pointer-events-none disabled:opacity-50"
                   >
                     <option value="cpp23">C++23 (GCC)</option>
                     <option value="python3">Python 3</option>
@@ -1371,7 +1425,8 @@
                 <button
                   type="button"
                   on:click={() => fileInputElement.click()}
-                  class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center space-x-1.5 shadow-sm"
+                  disabled={!canUseSubmissionWorkspace}
+                  class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center space-x-1.5 shadow-sm disabled:pointer-events-none disabled:opacity-50"
                   title="Upload code file (.cpp, .py, .java) to automatically set source code and detect language"
                 >
                   <Upload class="w-3.5 h-3.5 text-white" />
@@ -1382,7 +1437,8 @@
               <div class="flex items-center space-x-3">
                 <button
                   on:click={handleSubmit}
-                  disabled={submitting}
+                  disabled={submitting || !canUseSubmissionWorkspace}
+                  title={!canUseSubmissionWorkspace ? 'Activate the extension and connect the external platform first' : 'Submit solution'}
                   class="px-6 py-2 rounded-xl font-bold bg-white hover:bg-zinc-200 disabled:opacity-50 text-black shadow-sm transition flex items-center space-x-2 text-xs"
                 >
                   <Send class="w-4 h-4" />
@@ -1408,7 +1464,7 @@
 
             <!-- Monaco Editor -->
             <div class="h-137.5 rounded-2xl overflow-hidden border border-zinc-800">
-              <MonacoEditor bind:value={sourceCode} {language} />
+              <MonacoEditor bind:value={sourceCode} {language} readonly={!canUseSubmissionWorkspace} disabled={!canUseSubmissionWorkspace} />
             </div>
 
             <!-- Verdict & Dispatch Banner -->

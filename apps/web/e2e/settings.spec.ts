@@ -1,11 +1,16 @@
 import { test, expect } from '@playwright/test';
-import { setupApiMocks } from './fixtures/api-mock';
+import { setupApiMocks, loginAs } from './fixtures/api-mock';
+import { mockRegularUser } from './fixtures/mock-data';
 
 const LATEST_EXTENSION_VERSION = '1.0.10';
 
 test.describe('Platform Integrations Settings', () => {
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+  });
+
   test('renders integrations page, zero-cookie notice, extension guide, and platform cards when active', async ({ page }) => {
-    await setupApiMocks(page);
+    await setupApiMocks(page, { currentUser: mockRegularUser });
 
     await page.goto('/settings/integrations');
     await page.waitForLoadState('networkidle');
@@ -27,7 +32,7 @@ test.describe('Platform Integrations Settings', () => {
   });
 
   test('displays loading skeleton state before extension detection resolves', async ({ page }) => {
-    await setupApiMocks(page, { disableExtension: true });
+    await setupApiMocks(page, { currentUser: mockRegularUser, disableExtension: true });
 
     // Delay the mock extension reply to observe skeleton
     await page.addInitScript((latestVersion) => {
@@ -61,7 +66,7 @@ test.describe('Platform Integrations Settings', () => {
   });
 
   test('renders Extension Not Detected warning and 4-step installation guide when extension is absent', async ({ page }) => {
-    await setupApiMocks(page, { disableExtension: true });
+    await setupApiMocks(page, { currentUser: mockRegularUser, disableExtension: true });
 
     await page.goto('/settings/integrations');
     await page.waitForLoadState('networkidle');
@@ -73,7 +78,7 @@ test.describe('Platform Integrations Settings', () => {
   });
 
   test('blocks outdated extensions and asks for the latest version', async ({ page }) => {
-    await setupApiMocks(page, { extensionVersion: '1.0.4' });
+    await setupApiMocks(page, { currentUser: mockRegularUser, extensionVersion: '1.0.4' });
 
     await page.goto('/settings/integrations');
     await page.waitForLoadState('networkidle');
@@ -86,6 +91,7 @@ test.describe('Platform Integrations Settings', () => {
 
   test('displays Not Connected badges and external login links when platform sessions are inactive', async ({ page }) => {
     await setupApiMocks(page, {
+      currentUser: mockRegularUser,
       extensionPlatforms: {
         CODEFORCES: { loggedIn: false },
         ATCODER: { loggedIn: false },

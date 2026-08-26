@@ -6,6 +6,7 @@
   export let value: string = '';
   export let language: LanguageId = 'cpp23';
   export let readonly: boolean = false;
+  export let disabled: boolean = false;
 
   let editorContainer: HTMLDivElement;
   let editorInstance: editor.IStandaloneCodeEditor | null = null;
@@ -26,7 +27,9 @@
         value: value,
         language: monacoLanguageMap[language] || 'cpp',
         theme: 'vs-dark',
-        readOnly: readonly,
+        readOnly: readonly || disabled,
+        domReadOnly: readonly || disabled,
+        tabIndex: disabled ? -1 : 0,
         automaticLayout: true,
         fontSize: 14,
         minimap: { enabled: false },
@@ -54,6 +57,19 @@
     });
   }
 
+  $: if (editorInstance) {
+    const isReadOnly = readonly || disabled;
+    editorInstance.updateOptions({
+      readOnly: isReadOnly,
+      domReadOnly: isReadOnly,
+      tabIndex: disabled ? -1 : 0
+    });
+
+    if (disabled) {
+      editorInstance.getContainerDomNode().querySelector('textarea')?.blur();
+    }
+  }
+
   $: if (editorInstance && value !== editorInstance.getValue()) {
     editorInstance.setValue(value);
   }
@@ -65,4 +81,8 @@
   });
 </script>
 
-<div class="w-full h-full min-h-87.5 rounded-xl overflow-hidden border border-zinc-800 bg-[#1e1e1e]" bind:this={editorContainer}></div>
+<div
+  class="w-full h-full min-h-87.5 rounded-xl overflow-hidden border border-zinc-800 bg-[#1e1e1e] transition {disabled ? 'opacity-50 grayscale pointer-events-none cursor-not-allowed' : ''}"
+  aria-disabled={disabled}
+  bind:this={editorContainer}
+></div>

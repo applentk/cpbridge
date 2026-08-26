@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
   import type { AuthResponse } from '@cpbridge/contracts';
@@ -9,6 +10,12 @@
   let password = $state('');
   let error = $state('');
   let loading = $state(false);
+
+  function getReturnTo(): string | null {
+    const returnTo = $page.url.searchParams.get('returnTo');
+    if (!returnTo || !returnTo.startsWith('/') || returnTo.startsWith('//')) return null;
+    return returnTo;
+  }
 
   async function handleSubmit(event?: SubmitEvent) {
     if (event) event.preventDefault();
@@ -20,7 +27,7 @@
         password
       });
       auth.setAuth(res.user, res.token);
-      await goto(res.user.role === 'ADMIN' ? '/admin' : '/dashboard');
+      await goto(getReturnTo() || (res.user.role === 'ADMIN' ? '/admin' : '/dashboard'));
     } catch (err) {
       error = err instanceof Error ? err.message : 'Login failed';
     } finally {

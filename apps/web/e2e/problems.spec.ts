@@ -200,9 +200,9 @@ test.describe('Problem Workspace', () => {
     await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc&tab=editor');
     await page.waitForLoadState('networkidle');
 
-    await page.locator('button:has-text("Submit Solution")').click();
-
-    await expect(page.locator('text=Extension update required. Install v1.0.10 before submitting.')).toBeVisible();
+    await expect(page.locator('text=Browser extension update required.')).toBeVisible();
+    await expect(page.locator('button:has-text("Code Editor & Submit")')).toBeEnabled();
+    await expect(page.locator('button:has-text("Submit Solution")')).toBeDisabled();
     expect(submissionCreateRequests).toBe(0);
   });
 
@@ -287,6 +287,27 @@ test.describe('Problem Workspace', () => {
     await expect(sourceLink).toBeVisible();
     await expect(sourceLink).toHaveAttribute('href', 'https://codeforces.com/problemset/problem/1000/A');
     await expect(sourceLink).toHaveAttribute('target', '_blank');
+  });
+
+  test('extension and platform guard disables editor entry and submission', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, {
+      currentUser: mockRegularUser,
+      extensionPlatforms: {
+        CODEFORCES: { loggedIn: false },
+        ATCODER: { loggedIn: true, username: 'tourist_fan' },
+      },
+    });
+
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc');
+    await page.waitForLoadState('networkidle');
+
+    const editorTab = page.locator('button:has-text("Code Editor & Submit")');
+    await expect(editorTab).toBeEnabled();
+    await editorTab.click();
+    await expect(page.locator('text=Codeforces is not connected')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Upload File (Auto-Detect)' })).toBeDisabled();
+    await expect(page.locator('button:has-text("Submit Solution")')).toBeDisabled();
   });
 
   test('reconciles pending recovered submissions on page load', async ({ page }) => {

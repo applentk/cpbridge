@@ -23,6 +23,20 @@ test.describe('Authentication & Route Guard Flows', () => {
     expect(token).toBeTruthy();
   });
 
+  test('unauthenticated extension settings redirects to login and returns after sign in', async ({ page }) => {
+    await setupApiMocks(page, { currentUser: null });
+
+    await page.goto('/settings/integrations');
+    await expect(page).toHaveURL('/login?returnTo=%2Fsettings%2Fintegrations');
+
+    await page.fill('input#login-email', 'coder@example.com');
+    await page.fill('input#login-password', 'securepassword123');
+    await page.click('button[type="submit"]');
+
+    await expect(page).toHaveURL('/settings/integrations');
+    await expect(page.locator('h1')).toContainText('Platform Integrations');
+  });
+
   test('login with admin credentials redirects to /admin dashboard', async ({ page }) => {
     await setupApiMocks(page, { currentUser: null });
 
@@ -170,4 +184,3 @@ test.describe('Authentication & Route Guard Flows', () => {
     await expect(page.locator('text=Password must be at least 6 characters')).toBeVisible();
   });
 });
-

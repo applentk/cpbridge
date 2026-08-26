@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { browser } from '$app/environment';
+  import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
+  import { auth } from '$lib/stores/auth';
   import { isExtensionVersionCompatible, LATEST_EXTENSION_VERSION, pingExtension } from '$lib/extension/bridge';
   import { syncActivePlatformIdentities } from '$lib/extension/identity';
   import type { ExtensionPingResponse } from '@cpbridge/contracts';
@@ -21,6 +24,8 @@
   let extensionCompatible = false;
   let copiedUrl = false;
   let identitySyncError = '';
+  let authRedirectStarted = false;
+  let connectionCheckStarted = false;
 
   async function checkConnections() {
     checking = true;
@@ -50,9 +55,16 @@
     }, 2000);
   }
 
-  onMount(() => {
-    checkConnections();
-  });
+  $: if (browser && !$auth.loading) {
+    if (!$auth.user && !authRedirectStarted) {
+      authRedirectStarted = true;
+      const returnTo = `${$page.url.pathname}${$page.url.search}${$page.url.hash}`;
+      void goto(`/login?returnTo=${encodeURIComponent(returnTo)}`, { replaceState: true });
+    } else if ($auth.user && !connectionCheckStarted) {
+      connectionCheckStarted = true;
+      void checkConnections();
+    }
+  }
 </script>
 
 <div class="max-w-4xl mx-auto space-y-8 py-4">
