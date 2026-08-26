@@ -58,6 +58,15 @@ const (
 	Failed       Status = "FAILED"
 )
 
+func isPenaltyStatus(status Status) bool {
+	switch status {
+	case WrongAnswer, RuntimeError, TimeLimit, MemoryLimit:
+		return true
+	default:
+		return false
+	}
+}
+
 type Submission struct {
 	ID                   string         `json:"id"`
 	UserID               string         `json:"userId"`
@@ -913,9 +922,8 @@ func (s *Service) CalculateStandings(ctx context.Context, contestID string, requ
 			continue
 		}
 
-		pProbScore.Attempts++
-
 		if status == Accepted {
+			pProbScore.Attempts++
 			pProbScore.Solved = true
 			elapsedMinutes := max(0, int(math.Floor(subTime.Sub(c.StartAt).Minutes())))
 			pProbScore.FirstSolvedAtMinutes = &elapsedMinutes
@@ -930,6 +938,8 @@ func (s *Service) CalculateStandings(ctx context.Context, contestID string, requ
 
 			pScore.SolvedCount++
 			pScore.TotalPenalty += pProbScore.PenaltyMinutes
+		} else if isPenaltyStatus(status) {
+			pProbScore.Attempts++
 		}
 
 		pScore.ProblemScores[pid] = pProbScore

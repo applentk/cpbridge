@@ -394,3 +394,171 @@ func TestContestEndedSubmissionAndScoreboardRules(t *testing.T) {
 	assert.Equal(t, 60, u1ScorePost.TotalPenalty, "User1 penalty should not change from post-contest submissions")
 	assert.False(t, u1ScorePost.ProblemScores[p2.ID].Solved, "Problem B on scoreboard should remain unsolved for contest standings")
 }
+
+func TestScoreboardPenaltyAndAttemptRules(t *testing.T) {
+	database, err := db.Connect()
+	if err != nil {
+		t.Skipf("Skipping database integration tests: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+	if err := database.Ping(); err != nil {
+		t.Skipf("Skipping database integration tests: %v", err)
+	}
+	require.NoError(t, db.EnsureSchema(database))
+
+	suffix := time.Now().UnixNano()
+	ownerEmail := fmt.Sprintf("sb_owner_%d@test.com", suffix)
+	userAEmail := fmt.Sprintf("sb_ua_%d@test.com", suffix)
+	userBEmail := fmt.Sprintf("sb_ub_%d@test.com", suffix)
+	userCEmail := fmt.Sprintf("sb_uc_%d@test.com", suffix)
+	userDEmail := fmt.Sprintf("sb_ud_%d@test.com", suffix)
+	probExtID := fmt.Sprintf("sb_p_%d", suffix)
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		tx, err := database.BeginTx(ctx, nil)
+		if err != nil {
+			return
+		}
+		defer tx.Rollback()
+
+		_, _ = tx.ExecContext(ctx, `DELETE FROM submissions WHERE user_id IN (SELECT id FROM users WHERE email IN ($1, $2, $3, $4, $5))`, ownerEmail, userAEmail, userBEmail, userCEmail, userDEmail)
+		_, _ = tx.ExecContext(ctx, `DELETE FROM contests WHERE owner_id IN (SELECT id FROM users WHERE email = $1)`, ownerEmail)
+		_, _ = tx.ExecContext(ctx, `DELETE FROM problems WHERE external_id = $1`, probExtID)
+		_, _ = tx.ExecContext(ctx, `DELETE FROM users WHERE email IN ($1, $2, $3, $4, $5)`, ownerEmail, userAEmail, userBEmail, userCEmail, userDEmail)
+		_ = tx.Commit()
+	})
+
+	ctx := context.Background()
+	authSvc := auth.NewService(database)
+	platReg := platform.NewRegistry()
+	probSvc := problem.NewService(database, platReg)
+	setSvc := problemset.NewService(database)
+	contestSvc := contest.NewService(database, setSvc)
+	subSvc := submission.NewService(database, contestSvc, probSvc, platReg)
+
+	owner, _, err := authSvc.Register(ctx, ownerEmail, fmt.Sprintf("sb_owner_%d", suffix), "password123")
+	require.NoError(t, err)
+	userA, _, err := authSvc.Register(ctx, userAEmail, fmt.Sprintf("sb_ua_%d", suffix), "password123")
+	require.NoError(t, err)
+	userB, _, err := authSvc.Register(ctx, userBEmail, fmt.Sprintf("sb_ub_%d", suffix), "password123")
+	require.NoError(t, err)
+	userC, _, err := authSvc.Register(ctx, userCEmail, fmt.Sprintf("sb_uc_%d", suffix), "password123")
+	require.NoError(t, err)
+	userD, _, err := authSvc.Register(ctx, userDEmail, fmt.Sprintf("sb_ud_%d", suffix), "password123")
+	require.NoError(t, err)
+
+	prob, err := probSvc.CreateCustom(ctx, problem.CreateCustomReq{
+		Title:       "Scoreboard Rule Problem",
+		Platform:    platform.Codeforces,
+		ExternalID:  probExtID,
+		Statement:   "Statement",
+		TimeLimit:   "1.0s",
+		MemoryLimit: "256MB",
+	})
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	startAt := now.Add(-2 * time.Hour)
+	endAt := now.Add(2 * time.Hour)
+
+	con, err := contestSvc.Create(ctx, contest.CreateContestParams{
+		OwnerID:           owner.ID,
+		ProblemIDs:        []string{prob.ID},
+		Name:              "Scoreboard Rule Contest",
+		StartAt:           startAt,
+		EndAt:             endAt,
+		Visibility:        "PUBLIC",
+		ScoringType:       contest.ICPC,
+		PublicationStatus: contest.PublicationPublished,
+	})
+	require.NoError(t, err)
+
+	// Join all users to the contest
+	require.NoError(t, contestSvc.Join(ctx, con.ID, userA.ID))
+	require.NoError(t, contestSvc.Join(ctx, con.ID, userB.ID))
+	require.NoError(t, contestSvc.Join(ctx, con.ID, userC.ID))
+	require.NoError(t, contestSvc.Join(ctx, con.ID, userD.ID))
+
+	insertSub := func(subID, userID string, status submission.Status, minutesFromStart int) {
+		subTime := startAt.Add(time.Duration(minutesFromStart) * time.Minute)
+		_, err := database.ExecContext(ctx, `
+			INSERT INTO submissions (id, user_id, problem_id, contest_id, platform, language, source_code, status, submitted_at, metadata)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`, subID, userID, prob.ID, con.ID, prob.Platform, "cpp23", fmt.Sprintf("code_%s", subID), status, subTime, "{}")
+		require.NoError(t, err)
+	}
+
+	// User A: COMPILE_ERROR, FAILED, JUDGING -> attempts should be 0, not solved, 0 penalty
+	insertSub(fmt.Sprintf("sub_a1_%d", suffix), userA.ID, submission.CompileError, 5)
+	insertSub(fmt.Sprintf("sub_a2_%d", suffix), userA.ID, submission.Failed, 10)
+	insertSub(fmt.Sprintf("sub_a3_%d", suffix), userA.ID, submission.Judging, 15)
+
+	// User B: COMPILE_ERROR, FAILED, then ACCEPTED at 20m -> attempts should be 1 (0 rejected before AC), solved, 20 penalty
+	insertSub(fmt.Sprintf("sub_b1_%d", suffix), userB.ID, submission.CompileError, 5)
+	insertSub(fmt.Sprintf("sub_b2_%d", suffix), userB.ID, submission.Failed, 10)
+	insertSub(fmt.Sprintf("sub_b3_%d", suffix), userB.ID, submission.Accepted, 20)
+
+	// User C: COMPILE_ERROR, WRONG_ANSWER, FAILED, RUNTIME_ERROR, TIME_LIMIT, MEMORY_LIMIT, then ACCEPTED at 30m
+	// Rejects before AC: 4 (WA, RE, TL, ML). Total attempts: 5. Penalty: 30 + 20*4 = 110
+	insertSub(fmt.Sprintf("sub_c1_%d", suffix), userC.ID, submission.CompileError, 2)
+	insertSub(fmt.Sprintf("sub_c2_%d", suffix), userC.ID, submission.WrongAnswer, 5)
+	insertSub(fmt.Sprintf("sub_c3_%d", suffix), userC.ID, submission.Failed, 8)
+	insertSub(fmt.Sprintf("sub_c4_%d", suffix), userC.ID, submission.RuntimeError, 12)
+	insertSub(fmt.Sprintf("sub_c5_%d", suffix), userC.ID, submission.TimeLimit, 16)
+	insertSub(fmt.Sprintf("sub_c6_%d", suffix), userC.ID, submission.MemoryLimit, 20)
+	insertSub(fmt.Sprintf("sub_c7_%d", suffix), userC.ID, submission.Accepted, 30)
+
+	// User D: COMPILE_ERROR, FAILED, WRONG_ANSWER, RUNTIME_ERROR -> attempts should be 2 (WA, RE), not solved, 0 penalty
+	insertSub(fmt.Sprintf("sub_d1_%d", suffix), userD.ID, submission.CompileError, 5)
+	insertSub(fmt.Sprintf("sub_d2_%d", suffix), userD.ID, submission.Failed, 10)
+	insertSub(fmt.Sprintf("sub_d3_%d", suffix), userD.ID, submission.WrongAnswer, 15)
+	insertSub(fmt.Sprintf("sub_d4_%d", suffix), userD.ID, submission.RuntimeError, 20)
+
+	standingsRes, err := subSvc.CalculateStandings(ctx, con.ID, owner.ID, true)
+	require.NoError(t, err)
+
+	scoresByUser := make(map[string]submission.ParticipantScore)
+	for _, p := range standingsRes.Standings {
+		scoresByUser[p.UserID] = p
+	}
+
+	// User A assertions
+	scoreA := scoresByUser[userA.ID]
+	assert.Equal(t, 0, scoreA.SolvedCount)
+	assert.Equal(t, 0, scoreA.TotalPenalty)
+	assert.False(t, scoreA.ProblemScores[prob.ID].Solved)
+	assert.Equal(t, 0, scoreA.ProblemScores[prob.ID].Attempts, "CompileError and Failed must not count as attempts")
+	assert.Equal(t, 0, scoreA.ProblemScores[prob.ID].PenaltyMinutes)
+
+	// User B assertions
+	scoreB := scoresByUser[userB.ID]
+	assert.Equal(t, 1, scoreB.SolvedCount)
+	assert.Equal(t, 20, scoreB.TotalPenalty)
+	assert.True(t, scoreB.ProblemScores[prob.ID].Solved)
+	assert.Equal(t, 1, scoreB.ProblemScores[prob.ID].Attempts, "CompileError and Failed before AC must not count as attempts")
+	assert.Equal(t, 20, scoreB.ProblemScores[prob.ID].PenaltyMinutes)
+	require.NotNil(t, scoreB.ProblemScores[prob.ID].FirstSolvedAtMinutes)
+	assert.Equal(t, 20, *scoreB.ProblemScores[prob.ID].FirstSolvedAtMinutes)
+
+	// User C assertions
+	scoreC := scoresByUser[userC.ID]
+	assert.Equal(t, 1, scoreC.SolvedCount)
+	assert.Equal(t, 110, scoreC.TotalPenalty, "Penalty should be 30m + 20 * 4 (WA, RE, TL, ML)")
+	assert.True(t, scoreC.ProblemScores[prob.ID].Solved)
+	assert.Equal(t, 5, scoreC.ProblemScores[prob.ID].Attempts, "Attempts should be 4 penalty rejects + 1 AC")
+	assert.Equal(t, 110, scoreC.ProblemScores[prob.ID].PenaltyMinutes)
+	require.NotNil(t, scoreC.ProblemScores[prob.ID].FirstSolvedAtMinutes)
+	assert.Equal(t, 30, *scoreC.ProblemScores[prob.ID].FirstSolvedAtMinutes)
+
+	// User D assertions
+	scoreD := scoresByUser[userD.ID]
+	assert.Equal(t, 0, scoreD.SolvedCount)
+	assert.Equal(t, 0, scoreD.TotalPenalty)
+	assert.False(t, scoreD.ProblemScores[prob.ID].Solved)
+	assert.Equal(t, 2, scoreD.ProblemScores[prob.ID].Attempts, "Only WA and RE should count as attempts; CE and Failed ignored")
+	assert.Equal(t, 0, scoreD.ProblemScores[prob.ID].PenaltyMinutes)
+}

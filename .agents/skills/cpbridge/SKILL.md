@@ -107,7 +107,7 @@ When implementing contest or scoreboard features:
      $$\text{Penalty}_i = T_i + 20 \times W_i$$
    - Total score = Number of solved problems.
    - Tie-breaker = Lowest total penalty time.
-   - The current implementation counts every earlier non-accepted record toward \(W_i\), not only wrong-answer verdicts. Submissions after first AC do not increase penalty.
+   - Earlier penalty-inducing rejected records (Wrong Answer, Runtime Error, Time Limit, Memory Limit) count toward \(W_i\); compilation errors, failed, and in-flight submissions do not count as attempts or penalty. Submissions after first AC do not increase penalty.
    - Unsolved problems do not contribute to penalty time.
 
 ---
