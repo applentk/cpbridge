@@ -18,7 +18,7 @@
 
   // Modals
   let showImportModal = false;
-  let importUrl = '';
+  let importUrls: string[] = [''];
   let importing = false;
   let importError = '';
 
@@ -66,22 +66,78 @@
     }
   }
 
+  function handleUrlInput(index: number) {
+    if (importUrls[index].trim() && index === importUrls.length - 1) {
+      importUrls = [...importUrls, ''];
+    }
+  }
+
+  function handleUrlPaste(event: ClipboardEvent, index: number) {
+    const text = event.clipboardData?.getData('text');
+    if (!text) return;
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length > 1) {
+      event.preventDefault();
+      const before = importUrls.slice(0, index);
+      const after = importUrls.slice(index + 1);
+      const combined = [...before, ...lines, ...after];
+      if (combined[combined.length - 1]?.trim()) {
+        combined.push('');
+      }
+      importUrls = combined.length > 0 ? combined : [''];
+    }
+  }
+
+  function removeUrlInput(index: number) {
+    if (importUrls.length <= 1) {
+      importUrls = [''];
+      return;
+    }
+    importUrls = importUrls.filter((_, i) => i !== index);
+    if (importUrls.length === 0 || importUrls[importUrls.length - 1].trim() !== '') {
+      importUrls = [...importUrls, ''];
+    }
+  }
+
   async function handleImport() {
-    if (!importUrl.trim()) return;
+    const validUrls = importUrls.map((u) => u.trim()).filter(Boolean);
+    if (validUrls.length === 0) return;
     importing = true;
     importError = '';
-    try {
-      await api.post<Problem>('/admin/problems/import', { url: importUrl.trim() });
-      showImportModal = false;
-      importUrl = '';
-      successMsg = 'Problem imported successfully!';
-      setTimeout(() => (successMsg = ''), 4000);
-      await loadProblems();
-    } catch (err) {
-      importError = err instanceof Error ? err.message : 'Failed to import problem';
-    } finally {
-      importing = false;
+    let importedCount = 0;
+    const failedUrls: string[] = [];
+    let lastError = '';
+
+    for (const url of validUrls) {
+      try {
+        await api.post<Problem>('/admin/problems/import', { url });
+        importedCount++;
+      } catch (err) {
+        failedUrls.push(url);
+        lastError = err instanceof Error ? err.message : 'Failed to import problem';
+      }
     }
+
+    if (importedCount > 0) {
+      await loadProblems();
+    }
+
+    if (failedUrls.length === 0) {
+      showImportModal = false;
+      importUrls = [''];
+      successMsg = importedCount === 1
+        ? 'Problem imported successfully!'
+        : `${importedCount} problems imported successfully!`;
+      setTimeout(() => (successMsg = ''), 4000);
+    } else {
+      importUrls = [...failedUrls, ''];
+      if (importedCount > 0) {
+        importError = `Imported ${importedCount} problem(s), but failed to import ${failedUrls.length} problem(s): ${lastError}`;
+      } else {
+        importError = failedUrls.length === 1 ? lastError : `Failed to import ${failedUrls.length} problems: ${lastError}`;
+      }
+    }
+    importing = false;
   }
 
   async function handleCreateCustom() {
@@ -187,7 +243,11 @@
 
     <div class="flex items-center space-x-2">
       <button
-        on:click={() => (showImportModal = true)}
+        on:click={() => {
+          importUrls = [''];
+          importError = '';
+          showImportModal = true;
+        }}
         class="px-4 py-2 rounded-xl text-sm font-bold bg-white hover:bg-zinc-200 text-black transition flex items-center space-x-1.5 shadow-sm"
       >
         <Upload class="w-4 h-4" />
@@ -245,7 +305,11 @@
     <div class="p-12 rounded-2xl border border-zinc-800 bg-zinc-900/20 text-center space-y-3">
       <p class="text-zinc-400 text-sm">No problems found.</p>
       <button
-        on:click={() => (showImportModal = true)}
+        on:click={() => {
+          importUrls = [''];
+          importError = '';
+          showImportModal = true;
+        }}
         class="px-4 py-2 rounded-xl text-xs font-bold bg-white text-black hover:bg-zinc-200 transition"
       >
         Import your first problem
@@ -343,9 +407,16 @@
 <!-- Import Problem Modal -->
 {#if showImportModal}
   <div class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-4">
+    <div class="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
       <div class="flex items-center justify-between border-b border-zinc-800 pb-3">
-        <h3 class="font-bold text-white text-lg">Import Problem</h3>
+        <div class="flex items-center space-x-2">
+          <h3 class="font-bold text-white text-lg">Import Problems</h3>
+          {#if importUrls.map((u) => u.trim()).filter(Boolean).length > 0}
+            <span class="px-2 py-0.5 text-xs rounded-full bg-zinc-800 text-zinc-300 font-mono">
+              {importUrls.map((u) => u.trim()).filter(Boolean).length}
+            </span>
+          {/if}
+        </div>
         <button on:click={() => (showImportModal = false)} class="text-zinc-500 hover:text-white">
           <X class="w-5 h-5" />
         </button>
@@ -357,35 +428,70 @@
         </div>
       {/if}
 
-      <div class="space-y-3">
-        <div>
-          <label for="import-url" class="block text-xs font-semibold uppercase text-zinc-400 mb-1">Problem URL</label>
-          <input
-            id="import-url"
-            type="text"
-            bind:value={importUrl}
-            placeholder="e.g. https://codeforces.com/problemset/problem/1900/A"
-            class="w-full px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm"
-          />
-          <p class="text-[11px] text-zinc-500 mt-1">
-            Supported platforms: Codeforces, AtCoder
-          </p>
+      <div class="space-y-3 flex-1 overflow-hidden flex flex-col">
+        <div class="flex items-center justify-between">
+          <label for="import-url" class="block text-xs font-semibold uppercase text-zinc-400">
+            Problem URLs
+          </label>
+          {#if importUrls.map((u) => u.trim()).filter(Boolean).length > 0}
+            <span class="text-xs text-zinc-400 font-mono">
+              {importUrls.map((u) => u.trim()).filter(Boolean).length} to import
+            </span>
+          {/if}
         </div>
+        <div class="space-y-2 overflow-y-auto max-h-64 pr-1">
+          {#each importUrls as _, i}
+            <div class="flex items-center gap-2">
+              <input
+                id={i === 0 ? 'import-url' : `import-url-${i}`}
+                type="text"
+                bind:value={importUrls[i]}
+                on:input={() => handleUrlInput(i)}
+                on:paste={(e) => handleUrlPaste(e, i)}
+                placeholder={i === 0 ? 'e.g. https://codeforces.com/problemset/problem/1900/A' : 'Paste or enter another problem URL...'}
+                class="flex-1 px-3.5 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 focus:border-zinc-400 focus:outline-none text-zinc-100 text-sm"
+              />
+              {#if importUrls.length > 1 && (importUrls[i].trim() || i < importUrls.length - 1)}
+                <button
+                  type="button"
+                  on:click={() => removeUrlInput(i)}
+                  class="p-2 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                  title="Remove URL"
+                >
+                  <Trash2 class="w-4 h-4" />
+                </button>
+              {/if}
+            </div>
+          {/each}
+        </div>
+        <p class="text-[11px] text-zinc-500">
+          Supported platforms: Codeforces, AtCoder. Entering a URL will automatically create the next input row.
+        </p>
       </div>
 
-      <div class="flex items-center justify-end space-x-2 pt-2 border-t border-zinc-800">
+      <div class="flex items-center justify-end space-x-2 pt-3 border-t border-zinc-800">
         <button
+          type="button"
           on:click={() => (showImportModal = false)}
           class="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white"
         >
           Cancel
         </button>
         <button
+          type="button"
           on:click={handleImport}
-          disabled={importing || !importUrl.trim()}
+          disabled={importing || importUrls.map((u) => u.trim()).filter(Boolean).length === 0}
           class="px-5 py-2 rounded-xl text-xs font-bold bg-white hover:bg-zinc-200 text-black disabled:opacity-50 transition"
         >
-          {importing ? 'Importing...' : 'Import'}
+          {#if importing}
+            {importUrls.map((u) => u.trim()).filter(Boolean).length > 1
+              ? `Importing (${importUrls.map((u) => u.trim()).filter(Boolean).length})...`
+              : 'Importing...'}
+          {:else}
+            {importUrls.map((u) => u.trim()).filter(Boolean).length > 1
+              ? `Import (${importUrls.map((u) => u.trim()).filter(Boolean).length})`
+              : 'Import'}
+          {/if}
         </button>
       </div>
     </div>

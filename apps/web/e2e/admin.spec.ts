@@ -66,7 +66,7 @@ test.describe('Admin Dashboard & Management', () => {
     await expect(page.locator('text=Updated')).toBeVisible();
   });
 
-  test('admin problem library allows importing external problems', async ({ page }) => {
+  test('admin problem library allows importing external problems with dynamic multiple inputs', async ({ page }) => {
     await loginAs(page, mockAdminUser);
     await setupApiMocks(page, { currentUser: mockAdminUser });
 
@@ -78,15 +78,26 @@ test.describe('Admin Dashboard & Management', () => {
 
     // Open import modal
     await page.click('button:has-text("Import Problem")');
-    await expect(page.locator('h3:has-text("Import Problem")')).toBeVisible();
+    await expect(page.locator('h3:has-text("Import Problems")')).toBeVisible();
 
-    // Fill import URL
+    // Initially only 1 input exists
+    await expect(page.locator('input#import-url')).toBeVisible();
+    await expect(page.locator('input#import-url-1')).not.toBeVisible();
+
+    // Type into 1st input -> 2nd input is automatically created
     await page.fill('input#import-url', 'https://codeforces.com/problemset/problem/1234/A');
-    await page.locator('div.fixed').locator('button:has-text("Import")').click();
+    await expect(page.locator('input#import-url-1')).toBeVisible();
+
+    // Type into 2nd input -> 3rd input is automatically created
+    await page.fill('input#import-url-1', 'https://atcoder.jp/contests/abc300/tasks/abc300_a');
+    await expect(page.locator('input#import-url-2')).toBeVisible();
+
+    // Click Import (2 problems)
+    await page.locator('div.fixed').locator('button:has-text("Import (2)")').click();
 
     // Success notification
-    await expect(page.locator('text=Problem imported successfully!')).toBeVisible();
-    await expect(page.locator('text=Imported Test Problem')).toBeVisible();
+    await expect(page.locator('text=2 problems imported successfully!')).toBeVisible();
+    await expect(page.locator('text=Imported Test Problem').first()).toBeVisible();
   });
 
   test('admin problem library allows creating custom problems and deleting problems', async ({ page }) => {
@@ -213,6 +224,92 @@ test.describe('Admin Dashboard & Management', () => {
     // Attempt deletion
     const deleteBtn = page.locator('button[title="Delete Problem"]').first();
     await deleteBtn.click();
+  });
+
+  test('admin problem library allows editing problem metadata', async ({ page }) => {
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    await page.goto('/admin/problems');
+    await page.waitForLoadState('networkidle');
+
+    // Click Edit button on first problem
+    await page.locator('button[title="Edit Metadata"]').first().click();
+    await expect(page.locator('h3:has-text("Edit Problem Metadata")')).toBeVisible();
+
+    // Edit fields
+    await page.fill('input#edit-title', 'Codehorses T-shirts (Updated)');
+    await page.fill('input#edit-difficulty', '1400');
+    await page.fill('input#edit-tags', 'implementation, strings, greedy');
+    await page.click('button:has-text("Save Changes")');
+
+    await expect(page.locator('text=Problem updated successfully!')).toBeVisible();
+    await expect(page.locator('text=Codehorses T-shirts (Updated)')).toBeVisible();
+    await expect(page.locator('text=1400').first()).toBeVisible();
+  });
+
+  test('admin contests management allows toggling publication status and deleting contest', async ({ page }) => {
+    page.on('dialog', (dialog) => dialog.accept());
+
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    await page.goto('/admin/contests');
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.locator('h1')).toContainText('Contests Management');
+    await expect(page.locator('text=Weekly Practice Contest #42')).toBeVisible();
+
+    // Toggle publication status
+    const toggleBtn = page.locator('button[title="Click to toggle publication status"]').first();
+    await toggleBtn.click();
+    await expect(page.locator('text=Contest is now DRAFT!')).toBeVisible();
+
+    // Delete a contest
+    const deleteBtn = page.locator('button[title="Delete Contest"]').first();
+    await deleteBtn.click();
+    await expect(page.locator('text=Contest deleted successfully!')).toBeVisible();
+  });
+
+  test('admin contest creation allows manual problem selection mode', async ({ page }) => {
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    await page.goto('/admin/contests/new');
+    await page.waitForLoadState('networkidle');
+
+    await page.fill('input#contest-name', 'Manual Selection Cup');
+    
+    // Switch mode to manual
+    await page.click('button:has-text("Select Problems Manually")');
+    await expect(page.getByText('Select Problems (0 chosen)')).toBeVisible();
+
+    // Choose first problem
+    const firstProblemCheckbox = page.locator('div.max-h-48 button').first();
+    await firstProblemCheckbox.click();
+    await expect(page.getByText('Select Problems (1 chosen)')).toBeVisible();
+
+    // Choose custom timing
+    await page.selectOption('select#start-timing', 'custom');
+    await expect(page.locator('input#custom-start')).toBeVisible();
+
+    await page.click('button:has-text("Create Contest")');
+    await expect(page).toHaveURL('/admin/contests');
+  });
+
+  test('admin contest editor enforces locked fields and actions on active or finished contests', async ({ page }) => {
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    // Open active contest editor
+    await page.goto('/admin/contests/con_active_icpc/edit');
+    await page.waitForLoadState('networkidle');
+
+    // Locked warning banner
+    await expect(page.locator('text=Contest is ACTIVE:')).toBeVisible();
+    await expect(page.locator('input#edit-contest-start')).toBeDisabled();
+    await expect(page.locator('button:has-text("Add Problem")')).not.toBeVisible();
+    await expect(page.locator('text=Locked').first()).toBeVisible();
   });
 
   test('public access to admin-only redirect routes redirects correctly', async ({ page }) => {
