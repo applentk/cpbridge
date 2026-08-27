@@ -3,6 +3,8 @@
 
 const EXTENSION_ORIGIN = 'CPBRIDGE_EXTENSION';
 const WEB_APP_ORIGIN = 'CPBRIDGE_WEB';
+const PRODUCTION_WEB_ORIGIN = 'https://cpbridge.applentk.com';
+declare const __CPBRIDGE_DEV__: boolean;
 
 function isAllowedOrigin(origin: string): boolean {
   if (!origin) return false;
@@ -11,20 +13,12 @@ function isAllowedOrigin(origin: string): boolean {
     const host = url.hostname;
     const protocol = url.protocol;
 
-    if (protocol === 'http:') {
-      if (host === 'localhost' || host === '127.0.0.1') {
-        return true;
-      }
+    if (protocol === 'https:' && url.origin === PRODUCTION_WEB_ORIGIN) {
+      return true;
     }
 
-    if (protocol === 'https:') {
-      if (
-        host === 'applentk.com' ||
-        host.endsWith('.applentk.com') ||
-        host.endsWith('.vercel.app')
-      ) {
-        return true;
-      }
+    if (__CPBRIDGE_DEV__ && protocol === 'http:' && (host === 'localhost' || host === '127.0.0.1')) {
+      return true;
     }
   } catch {
     return false;

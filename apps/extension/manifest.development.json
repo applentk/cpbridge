@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "cpbridge Submission Bridge",
+  "name": "cpbridge Submission Bridge (Development)",
   "version": "1.0.10",
-  "description": "Zero-cookie browser session bridge for cpbridge submissions",
+  "description": "Zero-cookie browser session bridge for cpbridge development",
   "permissions": [
     "cookies",
     "activeTab",
@@ -12,6 +12,14 @@
   "host_permissions": [
     "https://codeforces.com/*",
     "https://atcoder.jp/*",
+    "http://localhost:3000/*",
+    "http://localhost:5173/*",
+    "http://localhost:4173/*",
+    "http://localhost:8080/*",
+    "http://127.0.0.1:3000/*",
+    "http://127.0.0.1:5173/*",
+    "http://127.0.0.1:4173/*",
+    "http://127.0.0.1:8080/*",
     "https://cpbridge.applentk.com/*"
   ],
   "background": {
@@ -21,6 +29,14 @@
   "content_scripts": [
     {
       "matches": [
+        "http://localhost:3000/*",
+        "http://localhost:5173/*",
+        "http://localhost:4173/*",
+        "http://localhost:8080/*",
+        "http://127.0.0.1:3000/*",
+        "http://127.0.0.1:5173/*",
+        "http://127.0.0.1:4173/*",
+        "http://127.0.0.1:8080/*",
         "https://cpbridge.applentk.com/*"
       ],
       "js": ["dist/bridge.js"],

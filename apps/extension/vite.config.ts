@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  define: {
+    __CPBRIDGE_DEV__: mode === 'development'
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -18,4 +21,4 @@ export default defineConfig({
       }
     }
   }
-});
+}));
