@@ -152,6 +152,7 @@ func EnsureSchema(db *sql.DB) error {
 		source_hash VARCHAR(64),
 		status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
 		external_submission_id VARCHAR(128),
+		external_submitted_at TIMESTAMPTZ,
 		submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		judged_at TIMESTAMPTZ,
 		metadata JSONB NOT NULL DEFAULT '{}'::jsonb
@@ -161,6 +162,7 @@ func EnsureSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_submissions_problem ON submissions(problem_id);
 	CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status);
 	ALTER TABLE submissions ADD COLUMN IF NOT EXISTS source_hash VARCHAR(64);
+	ALTER TABLE submissions ADD COLUMN IF NOT EXISTS external_submitted_at TIMESTAMPTZ;
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_submissions_unique_source
 		ON submissions(user_id, problem_id, language, source_hash)
 		WHERE source_hash IS NOT NULL;

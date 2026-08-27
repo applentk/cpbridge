@@ -33,6 +33,7 @@ func TestValidateExternalSubmissionMetadata(t *testing.T) {
 		{name: "different problem", change: func(value *platform.SubmissionStatus) { value.ProblemExternalID = "2048/B" }},
 		{name: "different language", change: func(value *platform.SubmissionStatus) { value.Language = "Python 3" }},
 		{name: "old timestamp", change: func(value *platform.SubmissionStatus) { value.SubmittedAt = timePtr(now.Add(-3 * time.Minute)) }},
+		{name: "late timestamp", change: func(value *platform.SubmissionStatus) { value.SubmittedAt = timePtr(now.Add(3 * time.Minute)) }},
 		{name: "missing identity", change: func(value *platform.SubmissionStatus) { value.PlatformUsername = "" }},
 	}
 	for _, tt := range tests {
@@ -42,6 +43,16 @@ func TestValidateExternalSubmissionMetadata(t *testing.T) {
 			require.Error(t, validateExternalSubmissionMetadata(sub, "2048/123456", &copy, now))
 		})
 	}
+}
+
+func TestValidateExternalSubmissionContestWindow(t *testing.T) {
+	now := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	contestID := "con_test"
+	sub := &Submission{ContestID: &contestID}
+
+	require.NoError(t, validateExternalSubmissionContestWindow(sub, now, now.Add(-time.Hour), now.Add(time.Hour)))
+	require.Error(t, validateExternalSubmissionContestWindow(sub, now.Add(-time.Nanosecond), now, now.Add(time.Hour)))
+	require.Error(t, validateExternalSubmissionContestWindow(sub, now.Add(time.Hour), now.Add(-time.Hour), now.Add(time.Hour)))
 }
 
 func timePtr(value time.Time) *time.Time {

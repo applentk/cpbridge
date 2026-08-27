@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/lib/pq"
 	"github.com/cpbridge/api/internal/auth"
 	"github.com/cpbridge/api/internal/contest"
 	"github.com/cpbridge/api/internal/db"
@@ -16,6 +15,7 @@ import (
 	"github.com/cpbridge/api/internal/problem"
 	"github.com/cpbridge/api/internal/problemset"
 	"github.com/cpbridge/api/internal/submission"
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -181,6 +181,44 @@ func TestUpdateDispatchedLinksFirstVerifiedPlatformIdentity(t *testing.T) {
 	assert.Equal(t, submission.Judging, updated.Status)
 	require.NotNil(t, updated.ExternalSubmissionID)
 	assert.Equal(t, externalSubmissionID, *updated.ExternalSubmissionID)
+	require.NotNil(t, updated.ExternalSubmittedAt)
+	assert.Equal(t, createdSubmission.SubmittedAt, *updated.ExternalSubmittedAt)
+
+	endedAt := now.Add(-time.Hour)
+	endedContest, err := contestSvc.Create(ctx, contest.CreateContestParams{
+		OwnerID:           user.ID,
+		ProblemIDs:        []string{createdProblem.ID},
+		Name:              "Ended verification contest",
+		StartAt:           now.Add(-2 * time.Hour),
+		EndAt:             endedAt,
+		Visibility:        "PRIVATE",
+		ScoringType:       contest.ICPC,
+		PublicationStatus: contest.PublicationPublished,
+	})
+	require.NoError(t, err)
+
+	// The record is created just before the contest ends, but the external
+	// submission is created just after it ends. The dispatch window alone would
+	// accept this; the contest window must reject it.
+	recordAt := endedAt.Add(-30 * time.Second)
+	submissionSvc.SetClock(func() time.Time { return recordAt })
+	lateSubmission, err := submissionSvc.Create(ctx, user.ID, false, createdProblem.ID, &endedContest.ID, "cpp23", "int main() { return 1; }")
+	require.NoError(t, err)
+
+	lateExternalID := fmt.Sprintf("%d", suffix+2)
+	lateExternalAt := endedAt.Add(30 * time.Second)
+	submissionSvc.SetClock(func() time.Time { return lateExternalAt })
+	adapter.status = &platform.SubmissionStatus{
+		ExternalSubmissionID: fmt.Sprintf("%d/%s", suffix, lateExternalID),
+		Status:               "JUDGING",
+		ProblemExternalID:    problemExternalID,
+		Language:             "GNU C++23 (64)",
+		PlatformUsername:     "verified_handle",
+		SubmittedAt:          &lateExternalAt,
+	}
+
+	err = submissionSvc.UpdateDispatched(ctx, lateSubmission.ID, user.ID, false, lateExternalID)
+	require.ErrorContains(t, err, "outside the contest window")
 }
 
 func TestContestEndedSubmissionAndScoreboardRules(t *testing.T) {
@@ -791,4 +829,3 @@ func TestSubmissionListPagination(t *testing.T) {
 	require.Len(t, page3, 1)
 	assert.Equal(t, createdIDs[4], page3[0].ID)
 }
-

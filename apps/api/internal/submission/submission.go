@@ -1,7 +1,6 @@
 package submission
 
 import (
-	"strconv"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -15,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -81,6 +81,7 @@ type Submission struct {
 	SourceCode           string         `json:"sourceCode"`
 	Status               Status         `json:"status"`
 	ExternalSubmissionID *string        `json:"externalSubmissionId,omitempty"`
+	ExternalSubmittedAt  *time.Time     `json:"externalSubmittedAt,omitempty"`
 	SourceURL            *string        `json:"sourceUrl,omitempty"`
 	SubmittedAt          time.Time      `json:"submittedAt"`
 	JudgedAt             *time.Time     `json:"judgedAt,omitempty"`
@@ -205,7 +206,9 @@ func platformLanguageMatches(platformType platform.Type, expected, actual string
 	}
 }
 
-func validateExternalSubmissionMetadata(sub *Submission, externalID string, statusObj *platform.SubmissionStatus, now time.Time) error {
+const externalDispatchWindow = 2 * time.Minute
+
+func validateExternalSubmissionMetadata(sub *Submission, externalID string, statusObj *platform.SubmissionStatus, _ time.Time) error {
 	if sub == nil || statusObj == nil {
 		return errors.New("external submission could not be verified")
 	}
@@ -218,7 +221,7 @@ func validateExternalSubmissionMetadata(sub *Submission, externalID string, stat
 	if !platformLanguageMatches(sub.Platform, sub.Language, statusObj.Language) {
 		return errors.New("external submission uses a different language")
 	}
-	if statusObj.SubmittedAt == nil || statusObj.SubmittedAt.Before(sub.SubmittedAt.Add(-2*time.Minute)) || statusObj.SubmittedAt.After(now.Add(2*time.Minute)) {
+	if statusObj.SubmittedAt == nil || statusObj.SubmittedAt.Before(sub.SubmittedAt.Add(-externalDispatchWindow)) || statusObj.SubmittedAt.After(sub.SubmittedAt.Add(externalDispatchWindow)) {
 		return errors.New("external submission timestamp is outside the dispatch window")
 	}
 	if strings.TrimSpace(statusObj.PlatformUsername) == "" {
@@ -227,12 +230,47 @@ func validateExternalSubmissionMetadata(sub *Submission, externalID string, stat
 	return nil
 }
 
+func validateExternalSubmissionContestWindow(sub *Submission, externalSubmittedAt time.Time, startAt, endAt time.Time) error {
+	if sub == nil || sub.ContestID == nil || strings.TrimSpace(*sub.ContestID) == "" {
+		return nil
+	}
+	if externalSubmittedAt.Before(startAt) || !externalSubmittedAt.Before(endAt) {
+		return errors.New("external submission timestamp is outside the contest window")
+	}
+	return nil
+}
+
+func (s *Service) getContestWindow(ctx context.Context, contestID string) (time.Time, time.Time, error) {
+	var startAt, endAt time.Time
+	err := s.db.QueryRowContext(ctx, `
+		SELECT start_at, end_at
+		FROM contests
+		WHERE id = $1
+	`, contestID).Scan(&startAt, &endAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, time.Time{}, errors.New("contest not found")
+	}
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("failed to load contest window: %w", err)
+	}
+	return startAt.UTC(), endAt.UTC(), nil
+}
+
 // verifyExternalSubmission checks data obtained from the official platform,
 // rather than data supplied by the participant. An existing linked identity
 // must match; otherwise the first fully verified submission establishes it.
 func (s *Service) verifyExternalSubmission(ctx context.Context, sub *Submission, externalID string, statusObj *platform.SubmissionStatus, now time.Time) error {
 	if err := validateExternalSubmissionMetadata(sub, externalID, statusObj, now); err != nil {
 		return err
+	}
+	if sub.ContestID != nil && strings.TrimSpace(*sub.ContestID) != "" {
+		startAt, endAt, err := s.getContestWindow(ctx, *sub.ContestID)
+		if err != nil {
+			return err
+		}
+		if err := validateExternalSubmissionContestWindow(sub, *statusObj.SubmittedAt, startAt, endAt); err != nil {
+			return err
+		}
 	}
 
 	var expectedUsername, connectionStatus string
@@ -518,7 +556,7 @@ func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submi
 func (s *Service) SyncStatus(ctx context.Context, id, requestingUserID string, isAdmin bool) (*Submission, error) {
 	query := `
 		SELECT s.id, s.user_id, u.username, s.problem_id, p.external_id, p.title, s.contest_id, s.platform, s.language,
-		       s.source_code, s.status, s.external_submission_id, s.submitted_at, s.judged_at, s.metadata
+		       s.source_code, s.status, s.external_submission_id, s.external_submitted_at, s.submitted_at, s.judged_at, s.metadata
 		FROM submissions s
 		JOIN users u ON s.user_id = u.id
 		JOIN problems p ON s.problem_id = p.id
@@ -530,7 +568,7 @@ func (s *Service) SyncStatus(ctx context.Context, id, requestingUserID string, i
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&sub.ID, &sub.UserID, &sub.Username, &sub.ProblemID, &sub.ProblemExternalID, &sub.ProblemTitle, &sub.ContestID,
 		&sub.Platform, &sub.Language, &sub.SourceCode, &sub.Status, &sub.ExternalSubmissionID,
-		&sub.SubmittedAt, &sub.JudgedAt, &metaJSON,
+		&sub.ExternalSubmittedAt, &sub.SubmittedAt, &sub.JudgedAt, &metaJSON,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -560,7 +598,7 @@ func (s *Service) SyncStatus(ctx context.Context, id, requestingUserID string, i
 func (s *Service) GetByID(ctx context.Context, id, requestingUserID string, isAdmin bool) (*Submission, error) {
 	query := `
 		SELECT s.id, s.user_id, u.username, s.problem_id, p.external_id, p.title, s.contest_id, s.platform, s.language,
-		       s.source_code, s.status, s.external_submission_id, s.submitted_at, s.judged_at, s.metadata
+		       s.source_code, s.status, s.external_submission_id, s.external_submitted_at, s.submitted_at, s.judged_at, s.metadata
 		FROM submissions s
 		JOIN users u ON s.user_id = u.id
 		JOIN problems p ON s.problem_id = p.id
@@ -572,7 +610,7 @@ func (s *Service) GetByID(ctx context.Context, id, requestingUserID string, isAd
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&sub.ID, &sub.UserID, &sub.Username, &sub.ProblemID, &sub.ProblemExternalID, &sub.ProblemTitle, &sub.ContestID,
 		&sub.Platform, &sub.Language, &sub.SourceCode, &sub.Status, &sub.ExternalSubmissionID,
-		&sub.SubmittedAt, &sub.JudgedAt, &metaJSON,
+		&sub.ExternalSubmittedAt, &sub.SubmittedAt, &sub.JudgedAt, &metaJSON,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -640,7 +678,7 @@ func (s *Service) list(ctx context.Context, userID, contestID, problemID string,
 
 	query := fmt.Sprintf(`
 		SELECT s.id, s.user_id, u.username, s.problem_id, p.external_id, p.title, s.contest_id, s.platform, s.language,
-		       s.source_code, s.status, s.external_submission_id, s.submitted_at, s.judged_at, s.metadata
+		       s.source_code, s.status, s.external_submission_id, s.external_submitted_at, s.submitted_at, s.judged_at, s.metadata
 		FROM submissions s
 		JOIN users u ON s.user_id = u.id
 		JOIN problems p ON s.problem_id = p.id
@@ -664,7 +702,7 @@ func (s *Service) list(ctx context.Context, userID, contestID, problemID string,
 		err := rows.Scan(
 			&sub.ID, &sub.UserID, &sub.Username, &sub.ProblemID, &sub.ProblemExternalID, &sub.ProblemTitle, &sub.ContestID,
 			&sub.Platform, &sub.Language, &sub.SourceCode, &sub.Status, &sub.ExternalSubmissionID,
-			&sub.SubmittedAt, &sub.JudgedAt, &metaJSON,
+			&sub.ExternalSubmittedAt, &sub.SubmittedAt, &sub.JudgedAt, &metaJSON,
 		)
 		if err != nil {
 			return nil, err
@@ -749,10 +787,10 @@ func (s *Service) UpdateDispatched(ctx context.Context, id, userID string, isAdm
 	}
 	query := `
 		UPDATE submissions
-		SET status = $1, external_submission_id = $2, judged_at = $3
-		WHERE id = $4 AND status IN ($5, $6)
+		SET status = $1, external_submission_id = $2, external_submitted_at = $3, judged_at = $4
+		WHERE id = $5 AND status IN ($6, $7)
 	`
-	result, err := s.db.ExecContext(ctx, query, newStatus, externalSubmissionID, judgedAt, id, Pending, Dispatching)
+	result, err := s.db.ExecContext(ctx, query, newStatus, externalSubmissionID, verified.SubmittedAt, judgedAt, id, Pending, Dispatching)
 	if err != nil {
 		return err
 	}
@@ -888,12 +926,16 @@ func (s *Service) CalculateStandings(ctx context.Context, contestID string, requ
 		return nil, err
 	}
 
-	// Fetch submissions during contest window only: contest.start_at <= submitted_at < contest.end_at
+	// Fetch submissions during contest window only, using the verified external
+	// timestamp for dispatched submissions. The fallback keeps legacy rows
+	// scoreable until they are re-linked.
 	subQuery := `
-		SELECT s.id, s.user_id, s.problem_id, s.status, s.submitted_at
+		SELECT s.id, s.user_id, s.problem_id, s.status, COALESCE(s.external_submitted_at, s.submitted_at)
 		FROM submissions s
-		WHERE s.contest_id = $1 AND s.submitted_at >= $2 AND s.submitted_at < $3
-		ORDER BY s.submitted_at ASC
+		WHERE s.contest_id = $1
+		  AND COALESCE(s.external_submitted_at, s.submitted_at) >= $2
+		  AND COALESCE(s.external_submitted_at, s.submitted_at) < $3
+		ORDER BY COALESCE(s.external_submitted_at, s.submitted_at) ASC
 	`
 	rows, err := s.db.QueryContext(ctx, subQuery, contestID, c.StartAt, c.EndAt)
 	if err != nil {

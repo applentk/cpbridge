@@ -64,6 +64,7 @@ Join table between contests and users. It stores `joined_at` and has a composite
 - optional `source_hash`: SHA-256 digest used to prevent the same user from submitting identical source in the same language for the same problem
 - `status`: normally `PENDING`, `DISPATCHING`, `JUDGING`, `ACCEPTED`, `WRONG_ANSWER`, `TIME_LIMIT`, `MEMORY_LIMIT`, `RUNTIME_ERROR`, `COMPILE_ERROR`, or `FAILED`
 - optional `external_submission_id`
+- optional `external_submitted_at`: timestamp returned by the external judge after verification
 - `submitted_at`, optional `judged_at`
 - `metadata`: JSONB for errors, execution time, memory, failed testcase, and raw platform data
 

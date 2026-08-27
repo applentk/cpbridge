@@ -60,7 +60,7 @@ Contest states are `UPCOMING`, `ACTIVE`, or `FINISHED`, with the active interval
 
 Creating a contest from a problem set copies problem IDs, positions, and generated labels into `contest_problems`. Active and finished contests cannot have their start time or problem list changed.
 
-Standings are calculated from contest participants and submissions whose `submitted_at` falls within the half-open contest window. ICPC scoring ranks by solved count first and total penalty second; the current implementation adds 20 minutes for every earlier recorded submission to that problem before the first acceptance, regardless of its stored non-accepted status. `SIMPLE` uses solved count with total elapsed solve time as the tie-breaker. The submission service blocks contest submissions before the start and auto-joins users during an active contest. It currently permits a contest-linked record after the end, but that record is excluded from standings by the timestamp filter.
+Standings are calculated from contest participants and submissions whose verified external timestamp (falling back to `submitted_at` for legacy rows) falls within the half-open contest window. ICPC scoring ranks by solved count first and total penalty second; the current implementation adds 20 minutes for every earlier recorded submission to that problem before the first acceptance, regardless of its stored non-accepted status. `SIMPLE` uses solved count with total elapsed solve time as the tie-breaker. The submission service blocks contest submissions before the start and auto-joins users during an active contest. Contest-linked external submissions must also pass the short dispatch window and the contest window before they can be attached.
 
 ## Supported submission languages
 

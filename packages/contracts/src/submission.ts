@@ -22,6 +22,7 @@ export interface Submission {
   sourceCode: string;
   status: SubmissionStatus;
   externalSubmissionId?: string | null;
+  externalSubmittedAt?: string | null;
   /** Official external submission page. Present only in admin API responses. */
   sourceUrl?: string | null;
   submittedAt: string;
