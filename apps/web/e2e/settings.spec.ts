@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupApiMocks, loginAs } from './fixtures/api-mock';
 import { mockRegularUser } from './fixtures/mock-data';
 
-const LATEST_EXTENSION_VERSION = '1.0.10';
+const LATEST_EXTENSION_VERSION = '1.0.11';
 
 test.describe('Platform Integrations Settings', () => {
   test.beforeEach(async ({ page }) => {
