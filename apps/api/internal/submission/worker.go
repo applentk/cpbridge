@@ -54,18 +54,19 @@ func (w *Worker) ProcessPollVerdict(ctx context.Context, t *asynq.Task) error {
 
 	// 1. Fetch current submission from DB
 	query := `
-		SELECT id, user_id, problem_id, platform, language, status, external_submission_id, contest_id, submitted_at, metadata
+		SELECT id, user_id, problem_id, platform, language, status, external_submission_id, contest_id, external_submitted_at, submitted_at, metadata
 		FROM submissions
 		WHERE id = $1
 	`
 	var subID, userID, problemID, platStr, language, statusStr string
 	var extSubID sql.NullString
 	var contestID sql.NullString
+	var externalSubmittedAt sql.NullTime
 	var submittedAt time.Time
 	var metaBytes []byte
 
 	err := w.db.QueryRowContext(ctx, query, p.SubmissionID).Scan(
-		&subID, &userID, &problemID, &platStr, &language, &statusStr, &extSubID, &contestID, &submittedAt, &metaBytes,
+		&subID, &userID, &problemID, &platStr, &language, &statusStr, &extSubID, &contestID, &externalSubmittedAt, &submittedAt, &metaBytes,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -135,41 +136,46 @@ func (w *Worker) ProcessPollVerdict(ctx context.Context, t *asynq.Task) error {
 		return fmt.Errorf("empty status response from platform")
 	}
 
-	problemExternalID := ""
-	if prob != nil {
-		problemExternalID = prob.ExternalID
-	}
-	var contestIDPtr *string
-	if contestID.Valid && strings.TrimSpace(contestID.String) != "" {
-		contestIDPtr = &contestID.String
-	}
-	verifiedSub := &Submission{
-		ID:                subID,
-		UserID:            userID,
-		ProblemID:         problemID,
-		ProblemExternalID: problemExternalID,
-		Platform:          platform.Type(platStr),
-		Language:          language,
-		ContestID:         contestIDPtr,
-		SubmittedAt:       submittedAt,
-	}
-	service := &Service{db: w.db}
-	if err := service.verifyExternalSubmission(ctx, verifiedSub, formattedExtID, statusObj, now); err != nil {
-		metadata["error"] = err.Error()
-		metaJSON, _ := json.Marshal(metadata)
-		_, _ = w.db.ExecContext(ctx, `
+	// UpdateDispatched performs the one-time verification before enqueueing this
+	// task. Once its timestamp is stored, later polls must tolerate status-only
+	// adapter fallbacks instead of re-running metadata verification.
+	if !externalSubmittedAt.Valid {
+		problemExternalID := ""
+		if prob != nil {
+			problemExternalID = prob.ExternalID
+		}
+		var contestIDPtr *string
+		if contestID.Valid && strings.TrimSpace(contestID.String) != "" {
+			contestIDPtr = &contestID.String
+		}
+		verifiedSub := &Submission{
+			ID:                subID,
+			UserID:            userID,
+			ProblemID:         problemID,
+			ProblemExternalID: problemExternalID,
+			Platform:          platform.Type(platStr),
+			Language:          language,
+			ContestID:         contestIDPtr,
+			SubmittedAt:       submittedAt,
+		}
+		service := &Service{db: w.db}
+		if err := service.verifyExternalSubmission(ctx, verifiedSub, formattedExtID, statusObj, now); err != nil {
+			metadata["error"] = err.Error()
+			metaJSON, _ := json.Marshal(metadata)
+			_, _ = w.db.ExecContext(ctx, `
+				UPDATE submissions
+				SET status = $1, judged_at = $2, metadata = $3
+				WHERE id = $4 AND status IN ('PENDING', 'DISPATCHING', 'JUDGING')
+			`, Failed, now, metaJSON, p.SubmissionID)
+			return nil
+		}
+		if _, err := w.db.ExecContext(ctx, `
 			UPDATE submissions
-			SET status = $1, judged_at = $2, metadata = $3
-			WHERE id = $4 AND status IN ('PENDING', 'DISPATCHING', 'JUDGING')
-		`, Failed, now, metaJSON, p.SubmissionID)
-		return nil
-	}
-	if _, err := w.db.ExecContext(ctx, `
-		UPDATE submissions
-		SET external_submitted_at = $1
-		WHERE id = $2 AND external_submitted_at IS NULL
-	`, statusObj.SubmittedAt, p.SubmissionID); err != nil {
-		return fmt.Errorf("failed to store verified external submission timestamp: %w", err)
+			SET external_submitted_at = $1
+			WHERE id = $2 AND external_submitted_at IS NULL
+		`, statusObj.SubmittedAt, p.SubmissionID); err != nil {
+			return fmt.Errorf("failed to store verified external submission timestamp: %w", err)
+		}
 	}
 
 	// 5. Handle terminal statuses
