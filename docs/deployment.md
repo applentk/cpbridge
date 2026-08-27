@@ -50,3 +50,21 @@ Configure the following records at the domain registrar:
 
 The exact record values are provider-specific and are shown by Vercel and Render
 when each custom domain is added.
+
+## CI/CD
+
+GitHub Actions runs the full verification suite for every pull request and every
+push to `main` through `.github/workflows/ci.yml`. The checks cover ESLint,
+workspace type-checking, Go API tests, extension tests/builds, Playwright web
+tests, and the production web build.
+
+Production deployment is intentionally a separate, manually dispatched workflow
+in `.github/workflows/deploy.yml`. Configure a GitHub `production` environment
+with required reviewers and add these environment secrets:
+
+- `RENDER_DEPLOY_HOOK_URL`: a Render deploy hook for `cpbridge-api`.
+- `VERCEL_DEPLOY_HOOK_URL`: a Vercel deploy hook for the web project rooted at `apps/web`.
+
+After CI passes, run the Deploy workflow and select which provider(s) to trigger.
+The provider hooks perform the actual builds and deployments; secrets stay in
+GitHub and are never committed to the repository.

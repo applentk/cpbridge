@@ -1,0 +1,51 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_api:
+        description: Deploy the API to Render
+        required: true
+        default: true
+        type: boolean
+      deploy_web:
+        description: Deploy the web app to Vercel
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-api:
+    name: Deploy API to Render
+    if: inputs.deploy_api
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Trigger Render deploy hook
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          test -n "$RENDER_DEPLOY_HOOK_URL" || {
+            echo "RENDER_DEPLOY_HOOK_URL is not configured in the production environment."
+            exit 1
+          }
+          curl --fail --silent --show-error --request POST "$RENDER_DEPLOY_HOOK_URL"
+
+  deploy-web:
+    name: Deploy web app to Vercel
+    if: inputs.deploy_web
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Trigger Vercel deploy hook
+        env:
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          test -n "$VERCEL_DEPLOY_HOOK_URL" || {
+            echo "VERCEL_DEPLOY_HOOK_URL is not configured in the production environment."
+            exit 1
+          }
+          curl --fail --silent --show-error --request POST "$VERCEL_DEPLOY_HOOK_URL"
