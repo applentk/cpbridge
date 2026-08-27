@@ -1,5 +1,5 @@
 import type { LanguageId, PlatformType } from './problem.js';
-export { LATEST_EXTENSION_VERSION } from './generated/extension-version.js';
+export { LATEST_EXTENSION_VERSION } from './generated/extension-version.mjs';
 
 export type ExtensionErrorCode =
   | 'NOT_LOGGED_IN'

@@ -1,6 +1,6 @@
 import type { Page, Route } from '@playwright/test';
 import type { User, Problem, Contest, Submission, ProblemSet, Standings, PlatformIntegration } from '@cpbridge/contracts';
-import { LATEST_EXTENSION_VERSION } from '@cpbridge/contracts';
+import { LATEST_EXTENSION_VERSION } from '../../../../packages/contracts/src/generated/extension-version.mjs';
 import {
   mockAdminUser,
   mockRegularUser,

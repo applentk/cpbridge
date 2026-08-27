@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { setupApiMocks, loginAs } from './fixtures/api-mock';
 import { mockRegularUser } from './fixtures/mock-data';
-import { LATEST_EXTENSION_VERSION } from '@cpbridge/contracts';
+import { LATEST_EXTENSION_VERSION } from '../../../packages/contracts/src/generated/extension-version.mjs';
 
 test.describe('Platform Integrations Settings', () => {
   test.beforeEach(async ({ page }) => {
