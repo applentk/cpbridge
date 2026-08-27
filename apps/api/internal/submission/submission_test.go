@@ -522,7 +522,7 @@ func TestScoreboardPenaltyAndAttemptRules(t *testing.T) {
 	require.NoError(t, err)
 
 	now := time.Now().UTC()
-	startAt := now.Add(-2 * time.Hour)
+	startAt := now.Add(-2 * time.Hour).Truncate(time.Second)
 	endAt := now.Add(2 * time.Hour)
 
 	con, err := contestSvc.Create(ctx, contest.CreateContestParams{
