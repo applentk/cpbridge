@@ -350,6 +350,15 @@ func TestContestEndedSubmissionAndScoreboardRules(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, differentLanguage)
 
+	// A client-dispatch failure is retryable: it must not reserve the source
+	// digest and block a subsequent attempt with the same code.
+	retryable, err := subSvc.Create(ctx, user1.ID, false, p1.ID, &cActive.ID, "cpp23", "int main(){return 1;}")
+	require.NoError(t, err)
+	require.NoError(t, subSvc.UpdateResult(ctx, retryable.ID, user1.ID, true, submission.Failed, map[string]any{"error": "bridge unavailable"}))
+	retried, err := subSvc.Create(ctx, user1.ID, false, p1.ID, &cActive.ID, "cpp23", "int main(){return 1;}")
+	require.NoError(t, err)
+	require.NotNil(t, retried)
+
 	// Mark sub1 as ACCEPTED
 	err = subSvc.UpdateResult(ctx, sub1.ID, user1.ID, true, submission.Accepted, map[string]any{})
 	require.NoError(t, err)

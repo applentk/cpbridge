@@ -163,9 +163,19 @@ func EnsureSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status);
 	ALTER TABLE submissions ADD COLUMN IF NOT EXISTS source_hash VARCHAR(64);
 	ALTER TABLE submissions ADD COLUMN IF NOT EXISTS external_submitted_at TIMESTAMPTZ;
+	-- Failed dispatch records are retryable and must not reserve a source digest.
+	DROP INDEX IF EXISTS idx_submissions_unique_source;
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_submissions_unique_source
 		ON submissions(user_id, problem_id, language, source_hash)
-		WHERE source_hash IS NOT NULL;
+		WHERE source_hash IS NOT NULL AND status <> 'FAILED';
+	DO $$
+	BEGIN
+		ALTER TABLE submissions
+			ADD CONSTRAINT unique_platform_external_submission_id
+			UNIQUE (platform, external_submission_id);
+	EXCEPTION
+		WHEN duplicate_object OR duplicate_table THEN NULL;
+	END $$;
 
 	CREATE TABLE IF NOT EXISTS integrations (
 		user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,

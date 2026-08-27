@@ -381,8 +381,9 @@ func (s *Service) Create(ctx context.Context, userID string, isAdmin bool, probl
 		SELECT id
 		FROM submissions
 		WHERE user_id = $1 AND problem_id = $2 AND language = $3 AND source_code = $4
+		  AND status <> $5
 		LIMIT 1
-	`, userID, problemID, language, sourceCode).Scan(&existingID)
+	`, userID, problemID, language, sourceCode, Failed).Scan(&existingID)
 	if err == nil {
 		return nil, ErrDuplicateSource
 	}
