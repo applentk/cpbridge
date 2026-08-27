@@ -44,6 +44,7 @@ type SubmissionStatus struct {
 	ProblemExternalID    string         `json:"problemExternalId,omitempty"`
 	Language             string         `json:"language,omitempty"`
 	PlatformUsername     string         `json:"platformUsername,omitempty"`
+	SourceCode           string         `json:"sourceCode,omitempty"`
 	SubmittedAt          *time.Time     `json:"submittedAt,omitempty"`
 	ExecutionTimeMs      *int           `json:"executionTimeMs,omitempty"`
 	MemoryBytes          *int64         `json:"memoryBytes,omitempty"`

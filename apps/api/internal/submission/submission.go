@@ -2,6 +2,7 @@ package submission
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -208,6 +209,29 @@ func platformLanguageMatches(platformType platform.Type, expected, actual string
 
 const externalDispatchWindow = 2 * time.Minute
 
+const dispatchProofPrefix = "cpbridge-dispatch-proof:"
+
+func dispatchProofComment(language, proof string) string {
+	commentPrefix := "//"
+	if language == "python3" {
+		commentPrefix = "#"
+	}
+	return fmt.Sprintf("%s %s%s", commentPrefix, dispatchProofPrefix, proof)
+}
+
+func withDispatchProof(source, language string) (string, error) {
+	proofBytes := make([]byte, 24)
+	if _, err := rand.Read(proofBytes); err != nil {
+		return "", fmt.Errorf("failed to create submission proof: %w", err)
+	}
+	proof := hex.EncodeToString(proofBytes)
+	return strings.TrimRight(source, "\r\n") + "\n" + dispatchProofComment(language, proof) + "\n", nil
+}
+
+func normalizeSourceCode(source string) string {
+	return strings.TrimRight(strings.ReplaceAll(source, "\r\n", "\n"), "\n")
+}
+
 func validateExternalSubmissionMetadata(sub *Submission, externalID string, statusObj *platform.SubmissionStatus, _ time.Time) error {
 	if sub == nil || statusObj == nil {
 		return errors.New("external submission could not be verified")
@@ -226,6 +250,9 @@ func validateExternalSubmissionMetadata(sub *Submission, externalID string, stat
 	}
 	if strings.TrimSpace(statusObj.PlatformUsername) == "" {
 		return errors.New("external submission platform identity is missing")
+	}
+	if strings.TrimSpace(statusObj.SourceCode) == "" || !strings.Contains(sub.SourceCode, dispatchProofPrefix) || normalizeSourceCode(statusObj.SourceCode) != normalizeSourceCode(sub.SourceCode) {
+		return errors.New("external submission source could not be verified")
 	}
 	return nil
 }
@@ -257,8 +284,9 @@ func (s *Service) getContestWindow(ctx context.Context, contestID string) (time.
 }
 
 // verifyExternalSubmission checks data obtained from the official platform,
-// rather than data supplied by the participant. An existing linked identity
-// must match; otherwise the first fully verified submission establishes it.
+// including the server-generated source proof. A platform identity is linked
+// only after that proof has been verified; a caller cannot establish identity
+// by supplying an unrelated public submission.
 func (s *Service) verifyExternalSubmission(ctx context.Context, sub *Submission, externalID string, statusObj *platform.SubmissionStatus, now time.Time) error {
 	if err := validateExternalSubmissionMetadata(sub, externalID, statusObj, now); err != nil {
 		return err
@@ -280,10 +308,9 @@ func (s *Service) verifyExternalSubmission(ctx context.Context, sub *Submission,
 		WHERE user_id = $1 AND platform = $2
 	`, sub.UserID, sub.Platform).Scan(&expectedUsername, &connectionStatus)
 	if errors.Is(err, sql.ErrNoRows) {
-		// Trust on first verified submission: the identity comes from the
-		// official platform response after the submission ID, problem, language,
-		// and timestamp have all been validated. This keeps the browser bridge
-		// zero-cookie while avoiding a separate manual identity-linking step.
+		// The source proof above establishes that this external submission was
+		// dispatched for this cpbridge submission, so its official username is a
+		// server-verifiable account-linking proof.
 		_, err = s.db.ExecContext(ctx, `
 			INSERT INTO integrations (user_id, platform, external_username, connection_status, updated_at)
 			VALUES ($1, $2, $3, 'CONNECTED', $4)
@@ -302,7 +329,18 @@ func (s *Service) verifyExternalSubmission(ctx context.Context, sub *Submission,
 		return fmt.Errorf("failed to verify platform identity: %w", err)
 	}
 	if !strings.EqualFold(strings.TrimSpace(expectedUsername), strings.TrimSpace(statusObj.PlatformUsername)) {
-		return errors.New("external submission belongs to a different platform identity")
+		// A source proof is verified before this point, so a changed browser
+		// session can safely relink the user to the account that actually made
+		// this submission. The username is never taken from the request body.
+		_, err = s.db.ExecContext(ctx, `
+			UPDATE integrations
+			SET external_username = $1, connection_status = 'CONNECTED', updated_at = $2
+			WHERE user_id = $3 AND platform = $4
+		`, statusObj.PlatformUsername, now, sub.UserID, sub.Platform)
+		if err != nil {
+			return fmt.Errorf("failed to relink verified platform identity: %w", err)
+		}
+		return nil
 	}
 	if connectionStatus != "CONNECTED" {
 		_, err = s.db.ExecContext(ctx, `
@@ -393,6 +431,10 @@ func (s *Service) Create(ctx context.Context, userID string, isAdmin bool, probl
 
 	sourceDigest := sha256.Sum256([]byte(sourceCode))
 	sourceHash := hex.EncodeToString(sourceDigest[:])
+	dispatchSource, err := withDispatchProof(sourceCode, language)
+	if err != nil {
+		return nil, err
+	}
 
 	sub := &Submission{
 		ID:          idgen.New(idgen.PrefixSubmission),
@@ -401,7 +443,7 @@ func (s *Service) Create(ctx context.Context, userID string, isAdmin bool, probl
 		ContestID:   contestID,
 		Platform:    prob.Platform,
 		Language:    language,
-		SourceCode:  sourceCode,
+		SourceCode:  dispatchSource,
 		Status:      Pending,
 		SubmittedAt: now,
 		Metadata:    map[string]any{},
@@ -410,7 +452,7 @@ func (s *Service) Create(ctx context.Context, userID string, isAdmin bool, probl
 	query := `
 		INSERT INTO submissions (id, user_id, problem_id, contest_id, platform, language, source_code, source_hash, status, submitted_at, metadata)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		ON CONFLICT (user_id, problem_id, language, source_hash) WHERE source_hash IS NOT NULL DO NOTHING
+		ON CONFLICT (user_id, problem_id, language, source_hash) WHERE source_hash IS NOT NULL AND status <> 'FAILED' DO NOTHING
 		RETURNING id
 	`
 	err = s.db.QueryRowContext(ctx, query, sub.ID, sub.UserID, sub.ProblemID, sub.ContestID, sub.Platform, sub.Language, sub.SourceCode, sourceHash, sub.Status, sub.SubmittedAt, "{}").Scan(&sub.ID)
@@ -777,6 +819,10 @@ func (s *Service) UpdateDispatched(ctx context.Context, id, userID string, isAdm
 	if verificationErr != nil {
 		return verificationErr
 	}
+	storedExternalID := strings.TrimSpace(verified.ExternalSubmissionID)
+	if storedExternalID == "" {
+		storedExternalID = lookupID
+	}
 
 	newStatus := Judging
 	var judgedAt *time.Time
@@ -791,7 +837,7 @@ func (s *Service) UpdateDispatched(ctx context.Context, id, userID string, isAdm
 		SET status = $1, external_submission_id = $2, external_submitted_at = $3, judged_at = $4
 		WHERE id = $5 AND status IN ($6, $7)
 	`
-	result, err := s.db.ExecContext(ctx, query, newStatus, externalSubmissionID, verified.SubmittedAt, judgedAt, id, Pending, Dispatching)
+	result, err := s.db.ExecContext(ctx, query, newStatus, storedExternalID, verified.SubmittedAt, judgedAt, id, Pending, Dispatching)
 	if err != nil {
 		return err
 	}
@@ -805,11 +851,11 @@ func (s *Service) UpdateDispatched(ctx context.Context, id, userID string, isAdm
 		return nil
 	}
 
-	log.Printf("[Submission:Dispatched] %s linked with external ID %s (status: %s)", sub.ID, externalSubmissionID, newStatus)
+	log.Printf("[Submission:Dispatched] %s linked with external ID %s (status: %s)", sub.ID, storedExternalID, newStatus)
 
 	// Enqueue Asynq worker task for asynchronous status polling
 	if newStatus == Judging && s.asynqClient != nil {
-		task, taskErr := queue.NewPollVerdictTask(sub.ID, externalSubmissionID, string(sub.Platform), sub.ProblemID)
+		task, taskErr := queue.NewPollVerdictTask(sub.ID, storedExternalID, string(sub.Platform), sub.ProblemID)
 		if taskErr == nil {
 			info, enqErr := s.asynqClient.EnqueueContext(ctx, task)
 			if enqErr == nil && info != nil {

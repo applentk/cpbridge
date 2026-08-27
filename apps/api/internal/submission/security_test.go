@@ -14,6 +14,7 @@ func TestValidateExternalSubmissionMetadata(t *testing.T) {
 		ProblemExternalID: "2048/A",
 		Platform:          platform.Codeforces,
 		Language:          "cpp23",
+		SourceCode:        "int main() {}\n// cpbridge-dispatch-proof:test",
 		SubmittedAt:       now,
 	}
 	status := &platform.SubmissionStatus{
@@ -21,6 +22,7 @@ func TestValidateExternalSubmissionMetadata(t *testing.T) {
 		ProblemExternalID:    "2048/A",
 		Language:             "GNU C++23 (64)",
 		PlatformUsername:     "contestant",
+		SourceCode:           "int main() {}\n// cpbridge-dispatch-proof:test",
 		SubmittedAt:          timePtr(now.Add(5 * time.Second)),
 	}
 
@@ -35,6 +37,7 @@ func TestValidateExternalSubmissionMetadata(t *testing.T) {
 		{name: "old timestamp", change: func(value *platform.SubmissionStatus) { value.SubmittedAt = timePtr(now.Add(-3 * time.Minute)) }},
 		{name: "late timestamp", change: func(value *platform.SubmissionStatus) { value.SubmittedAt = timePtr(now.Add(3 * time.Minute)) }},
 		{name: "missing identity", change: func(value *platform.SubmissionStatus) { value.PlatformUsername = "" }},
+		{name: "different source", change: func(value *platform.SubmissionStatus) { value.SourceCode = "int main() {}\n// cpbridge-dispatch-proof:other" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -42,6 +45,19 @@ func TestValidateExternalSubmissionMetadata(t *testing.T) {
 			tt.change(&copy)
 			require.Error(t, validateExternalSubmissionMetadata(sub, "2048/123456", &copy, now))
 		})
+	}
+}
+
+func TestWithDispatchProofAddsLanguageSafeUniqueMarker(t *testing.T) {
+	cppSource, err := withDispatchProof("int main() {}", "cpp23")
+	require.NoError(t, err)
+	pythonSource, err := withDispatchProof("print('ok')", "python3")
+	require.NoError(t, err)
+
+	require.Contains(t, cppSource, "// cpbridge-dispatch-proof:")
+	require.Contains(t, pythonSource, "# cpbridge-dispatch-proof:")
+	if cppSource == pythonSource {
+		t.Fatal("dispatch proofs must be unique")
 	}
 }
 

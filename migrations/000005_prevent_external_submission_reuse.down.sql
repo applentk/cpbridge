@@ -1,0 +1,1 @@
+ALTER TABLE submissions DROP CONSTRAINT IF EXISTS unique_platform_external_submission_id;

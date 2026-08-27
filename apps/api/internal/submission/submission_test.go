@@ -161,6 +161,7 @@ func TestUpdateDispatchedLinksFirstVerifiedPlatformIdentity(t *testing.T) {
 		ProblemExternalID:    problemExternalID,
 		Language:             "GNU C++23 (64)",
 		PlatformUsername:     "verified_handle",
+		SourceCode:           createdSubmission.SourceCode,
 		SubmittedAt:          &createdSubmission.SubmittedAt,
 	}
 
@@ -179,10 +180,17 @@ func TestUpdateDispatchedLinksFirstVerifiedPlatformIdentity(t *testing.T) {
 	updated, err := submissionSvc.GetByID(ctx, createdSubmission.ID, user.ID, false)
 	require.NoError(t, err)
 	assert.Equal(t, submission.Judging, updated.Status)
+	assert.Contains(t, updated.SourceCode, "cpbridge-dispatch-proof:")
 	require.NotNil(t, updated.ExternalSubmissionID)
-	assert.Equal(t, externalSubmissionID, *updated.ExternalSubmissionID)
+	assert.Equal(t, fmt.Sprintf("%d/%s", suffix, externalSubmissionID), *updated.ExternalSubmissionID)
 	require.NotNil(t, updated.ExternalSubmittedAt)
 	assert.Equal(t, createdSubmission.SubmittedAt, *updated.ExternalSubmittedAt)
+
+	_, err = database.ExecContext(ctx, `
+		INSERT INTO submissions (id, user_id, problem_id, platform, language, source_code, status, external_submission_id, submitted_at, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, fmt.Sprintf("sub_duplicate_external_%d", suffix), user.ID, createdProblem.ID, platform.Codeforces, "cpp23", "duplicate", submission.Pending, fmt.Sprintf("%d/%s", suffix, externalSubmissionID), now, "{}")
+	require.Error(t, err, "an external submission must not be claimable twice")
 
 	endedAt := now.Add(-time.Hour)
 	endedContest, err := contestSvc.Create(ctx, contest.CreateContestParams{
@@ -214,6 +222,7 @@ func TestUpdateDispatchedLinksFirstVerifiedPlatformIdentity(t *testing.T) {
 		ProblemExternalID:    problemExternalID,
 		Language:             "GNU C++23 (64)",
 		PlatformUsername:     "verified_handle",
+		SourceCode:           lateSubmission.SourceCode,
 		SubmittedAt:          &lateExternalAt,
 	}
 

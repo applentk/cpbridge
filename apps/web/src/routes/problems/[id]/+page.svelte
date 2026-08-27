@@ -6,7 +6,6 @@
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
   import { isExtensionVersionCompatible, pingExtension, submitViaExtension, completeManualSubmission, pollStatusViaExtension, recoverPendingSubmissions, acknowledgeRecoveredSubmission } from '$lib/extension/bridge';
-  import { syncActivePlatformIdentities } from '$lib/extension/identity';
   import { reconcileExtensionSubmissions } from '$lib/extension/reconcile';
   import { renderMathInHtml } from '$lib/utils/math';
   import {
@@ -664,14 +663,6 @@
         submitStatus = `Log in to ${platformName} in this browser before submitting.`;
         return;
       }
-      try {
-        await syncActivePlatformIdentities(extension, [problem.platform]);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Unknown identity synchronization error';
-        const platformName = problem.platform === 'CODEFORCES' ? 'Codeforces' : 'AtCoder';
-        submitStatus = `Could not synchronize the active ${platformName} account: ${message}`;
-        return;
-      }
     }
 
     submitting = true;
@@ -691,6 +682,7 @@
       });
       createdSub = sub;
       activeSubmission = sub;
+      const dispatchSource = sub.sourceCode || sourceCode;
       submitStatus = 'Dispatching via extension...';
 
       // The API only returns a submission for non-duplicate source. Open the
@@ -706,7 +698,7 @@
       // external platform but its response was lost.
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-          extRes = await submitViaExtension(sub.id, problem.platform, problem.externalId, problem.url, language, sourceCode);
+          extRes = await submitViaExtension(sub.id, problem.platform, problem.externalId, problem.url, language, dispatchSource);
           break;
         } catch (err) {
           lastError = err;
@@ -733,7 +725,7 @@
       } else if (extRes.type === 'SUBMISSION_ACTION_REQUIRED') {
         extensionDispatchCompleted = true;
         manualSubmissionAction = extRes;
-        manualSourceCode = sourceCode;
+        manualSourceCode = dispatchSource;
         manualCodeCopied = false;
         submitStatus = extRes.message;
         startManualSubmissionPolling();

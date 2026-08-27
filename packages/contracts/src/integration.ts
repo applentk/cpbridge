@@ -6,8 +6,3 @@ export interface PlatformIntegration {
   connectionStatus: 'CONNECTED' | 'DISCONNECTED';
   updatedAt: string;
 }
-
-export interface UpdateIntegrationRequest {
-  externalUsername: string;
-  connectionStatus: 'CONNECTED' | 'DISCONNECTED';
-}

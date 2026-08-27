@@ -23,17 +23,18 @@ var (
 	problemTitleRegex = regexp.MustCompile(`(?is)<div[^>]*class=["']title["'][^>]*>(.*?)</div>`)
 	htmlTitleRegex    = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
-	statementRegex      = regexp.MustCompile(`(?s)<div class="problem-statement">(.*?)</div>\s*<!--\s*end problem statement`)
-	statementRegex2     = regexp.MustCompile(`(?s)<div class="problem-statement">(.*)`)
-	headerDivRegex      = regexp.MustCompile(`(?is)<div class="header">.*?</div>\s*</div>`)
-	sampleDivRegex      = regexp.MustCompile(`(?is)<div class="sample-tests?">.*?</div>\s*</div>`)
-	divTagRegex         = regexp.MustCompile(`(?is)<(/?)div\b[^>]*>`)
-	classAttributeRegex = regexp.MustCompile(`(?is)\bclass\s*=\s*["']([^"']+)["']`)
-	noteTitleRegex      = regexp.MustCompile(`(?is)^\s*<div\b[^>]*class\s*=\s*["'][^"']*\bsection-title\b[^"']*["'][^>]*>\s*Note\s*:?\s*</div>`)
-	timeLimitRegex      = regexp.MustCompile(`(?s)<div class="time-limit"[^>]*>.*?<div class="property-title">time limit per test</div>(.*?)</div>`)
-	memoryLimitRegex    = regexp.MustCompile(`(?s)<div class="memory-limit"[^>]*>.*?<div class="property-title">memory limit per test</div>(.*?)</div>`)
-	sampleInputRegex    = regexp.MustCompile(`(?s)<div class="input"><div class="title">Input</div><pre>(.*?)</pre></div>`)
-	sampleOutputRegex   = regexp.MustCompile(`(?s)<div class="output"><div class="title">Output</div><pre>(.*?)</pre></div>`)
+	statementRegex        = regexp.MustCompile(`(?s)<div class="problem-statement">(.*?)</div>\s*<!--\s*end problem statement`)
+	statementRegex2       = regexp.MustCompile(`(?s)<div class="problem-statement">(.*)`)
+	headerDivRegex        = regexp.MustCompile(`(?is)<div class="header">.*?</div>\s*</div>`)
+	sampleDivRegex        = regexp.MustCompile(`(?is)<div class="sample-tests?">.*?</div>\s*</div>`)
+	divTagRegex           = regexp.MustCompile(`(?is)<(/?)div\b[^>]*>`)
+	classAttributeRegex   = regexp.MustCompile(`(?is)\bclass\s*=\s*["']([^"']+)["']`)
+	noteTitleRegex        = regexp.MustCompile(`(?is)^\s*<div\b[^>]*class\s*=\s*["'][^"']*\bsection-title\b[^"']*["'][^>]*>\s*Note\s*:?\s*</div>`)
+	timeLimitRegex        = regexp.MustCompile(`(?s)<div class="time-limit"[^>]*>.*?<div class="property-title">time limit per test</div>(.*?)</div>`)
+	memoryLimitRegex      = regexp.MustCompile(`(?s)<div class="memory-limit"[^>]*>.*?<div class="property-title">memory limit per test</div>(.*?)</div>`)
+	sampleInputRegex      = regexp.MustCompile(`(?s)<div class="input"><div class="title">Input</div><pre>(.*?)</pre></div>`)
+	sampleOutputRegex     = regexp.MustCompile(`(?s)<div class="output"><div class="title">Output</div><pre>(.*?)</pre></div>`)
+	submissionSourceRegex = regexp.MustCompile(`(?is)<pre[^>]*id=["']program-source-text["'][^>]*>(.*?)</pre>`)
 )
 
 type Adapter struct {
@@ -411,7 +412,7 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 							if status != "ACCEPTED" && status != "JUDGING" {
 								testcase++
 							}
-							return &platform.SubmissionStatus{
+							statusObj := &platform.SubmissionStatus{
 								ExternalSubmissionID: externalSubmissionID,
 								Status:               status,
 								ProblemExternalID:    fmt.Sprintf("%d/%s", sub.Problem.ContestID, strings.ToUpper(sub.Problem.Index)),
@@ -426,7 +427,11 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 									"verdict":         sub.Verdict,
 									"passedTestCount": sub.PassedTestCount,
 								},
-							}, nil
+							}
+							if source, ok := a.fetchSubmissionSource(ctx, contestID, subID); ok {
+								statusObj.SourceCode = source
+							}
+							return statusObj, nil
 						}
 					}
 				}
@@ -467,46 +472,54 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 				bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
 				if err == nil {
 					htmlStr := string(bodyBytes)
+					source := extractSubmissionSource(htmlStr)
 					if strings.Contains(htmlStr, "verdict-accepted") || strings.Contains(htmlStr, ">Accepted<") {
 						return &platform.SubmissionStatus{
 							ExternalSubmissionID: externalSubmissionID,
 							Status:               "ACCEPTED",
+							SourceCode:           source,
 						}, nil
 					}
 					if strings.Contains(htmlStr, "Compilation error") || strings.Contains(htmlStr, "verdict-compilation-error") {
 						return &platform.SubmissionStatus{
 							ExternalSubmissionID: externalSubmissionID,
 							Status:               "COMPILE_ERROR",
+							SourceCode:           source,
 						}, nil
 					}
 					if strings.Contains(htmlStr, "Time limit exceeded") {
 						return &platform.SubmissionStatus{
 							ExternalSubmissionID: externalSubmissionID,
 							Status:               "TIME_LIMIT",
+							SourceCode:           source,
 						}, nil
 					}
 					if strings.Contains(htmlStr, "Memory limit exceeded") {
 						return &platform.SubmissionStatus{
 							ExternalSubmissionID: externalSubmissionID,
 							Status:               "MEMORY_LIMIT",
+							SourceCode:           source,
 						}, nil
 					}
 					if strings.Contains(htmlStr, "Runtime error") {
 						return &platform.SubmissionStatus{
 							ExternalSubmissionID: externalSubmissionID,
 							Status:               "RUNTIME_ERROR",
+							SourceCode:           source,
 						}, nil
 					}
 					if strings.Contains(htmlStr, "Wrong answer") || strings.Contains(htmlStr, "verdict-rejected") {
 						return &platform.SubmissionStatus{
 							ExternalSubmissionID: externalSubmissionID,
 							Status:               "WRONG_ANSWER",
+							SourceCode:           source,
 						}, nil
 					}
 					if strings.Contains(htmlStr, "verdict-waiting") || strings.Contains(htmlStr, "In queue") || strings.Contains(htmlStr, "Running on test") {
 						return &platform.SubmissionStatus{
 							ExternalSubmissionID: externalSubmissionID,
 							Status:               "JUDGING",
+							SourceCode:           source,
 						}, nil
 					}
 				}
@@ -518,6 +531,39 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 		ExternalSubmissionID: externalSubmissionID,
 		Status:               "JUDGING",
 	}, nil
+}
+
+func (a *Adapter) fetchSubmissionSource(ctx context.Context, contestID, submissionID string) (string, bool) {
+	for _, submissionURL := range []string{
+		fmt.Sprintf("https://codeforces.com/contest/%s/submission/%s", contestID, submissionID),
+		fmt.Sprintf("https://codeforces.com/problemset/submission/%s/%s", contestID, submissionID),
+	} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, submissionURL, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+		resp, err := a.client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
+		resp.Body.Close()
+		if readErr == nil && resp.StatusCode == http.StatusOK {
+			if source := extractSubmissionSource(string(body)); source != "" {
+				return source, true
+			}
+		}
+	}
+	return "", false
+}
+
+func extractSubmissionSource(htmlStr string) string {
+	match := submissionSourceRegex.FindStringSubmatch(htmlStr)
+	if len(match) < 2 {
+		return ""
+	}
+	return htmllib.UnescapeString(match[1])
 }
 
 func firstCFHandle(members []struct {

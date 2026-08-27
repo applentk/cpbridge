@@ -97,7 +97,8 @@ CREATE TABLE IF NOT EXISTS submissions (
     external_submission_id VARCHAR(128),
     submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     judged_at TIMESTAMPTZ,
-    metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    CONSTRAINT unique_platform_external_submission_id UNIQUE(platform, external_submission_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_submissions_user ON submissions(user_id);

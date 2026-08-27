@@ -137,7 +137,7 @@ test.describe('Problem Workspace', () => {
     await expect(page.locator('button:has-text("ACCEPTED")').first()).toBeVisible();
   });
 
-  test('synchronizes a switched Codeforces account before creating the submission', async ({ page }) => {
+  test('does not trust a browser-reported account before creating the submission', async ({ page }) => {
     const accountRequests: Array<{ method: string; path: string; body?: unknown }> = [];
     page.on('request', (request) => {
       const path = new URL(request.url()).pathname;
@@ -172,18 +172,11 @@ test.describe('Problem Workspace', () => {
     await page.locator('button:has-text("Submit Solution")').click();
 
     await expect(page.locator('button:has-text("ACCEPTED")').first()).toBeVisible();
-    expect(accountRequests.slice(0, 2)).toEqual([
-      {
-        method: 'PUT',
-        path: '/api/integrations/CODEFORCES',
-        body: { externalUsername: 'new_handle', connectionStatus: 'CONNECTED' }
-      },
-      {
-        method: 'POST',
-        path: '/api/submissions',
-        body: expect.any(Object)
-      }
-    ]);
+    expect(accountRequests).toEqual([{
+      method: 'POST',
+      path: '/api/submissions',
+      body: expect.any(Object)
+    }]);
   });
 
   test('outdated extension is blocked before a submission is created', async ({ page }) => {

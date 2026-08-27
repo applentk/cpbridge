@@ -70,9 +70,11 @@ Join table between contests and users. It stores `joined_at` and has a composite
 
 A partial unique index on `(user_id, problem_id, language, source_hash)` enforces duplicate prevention for rows that have a digest. The service also compares exact source text so legacy rows created before `source_hash` was added are covered.
 
+A unique constraint on `(platform, external_submission_id)` prevents one external judge submission from being claimed by multiple cpbridge submissions; PostgreSQL permits multiple NULL values for pending rows. New dispatches also include a server-generated proof marker in the stored source; the API links the platform identity only after the official adapter returns that exact source.
+
 ### `integrations`
 
-Stores `(user_id, platform)`, `external_username`, `connection_status`, and `updated_at`. This table is an account-linking record only; it does not contain passwords, cookies, or platform tokens.
+Stores `(user_id, platform)`, `external_username`, `connection_status`, and `updated_at`. This table is an account-linking record only; it does not contain passwords, cookies, or platform tokens. Identities are created or changed only by a verified submission; the HTTP API exposes deletion, not a caller-supplied username setter.
 
 ## Relationship behavior
 

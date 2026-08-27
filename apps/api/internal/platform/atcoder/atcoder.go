@@ -28,6 +28,7 @@ var (
 	submissionLanguageRegex = regexp.MustCompile(`(?is)<th[^>]*>\s*Language\s*</th>\s*<td[^>]*>(.*?)</td>`)
 	submissionUserRegex     = regexp.MustCompile(`(?is)<a[^>]+href=["']/users/([^"']+)["']`)
 	submissionTimeRegex     = regexp.MustCompile(`(?is)<th[^>]*>\s*(?:Submitted At|Submission Time)\s*</th>\s*<td[^>]*>(.*?)</td>`)
+	submissionSourceRegex   = regexp.MustCompile(`(?is)<pre[^>]*(?:id=["']submission-code["']|class=["'][^"']*submission-code[^"']*)[^>]*>(.*?)</pre>`)
 	sampleInputRegex        = regexp.MustCompile(`(?is)<h3\b[^>]*>\s*Sample Input\s*\d*\s*</h3>\s*<pre[^>]*>(.*?)</pre>`)
 	sampleOutputRegex       = regexp.MustCompile(`(?is)<h3\b[^>]*>\s*Sample Output\s*\d*\s*</h3>\s*<pre[^>]*>(.*?)</pre>`)
 
@@ -383,6 +384,9 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 
 func parseSubmissionMetadata(htmlStr, contestID string) *platform.SubmissionStatus {
 	status := &platform.SubmissionStatus{}
+	if match := submissionSourceRegex.FindStringSubmatch(htmlStr); len(match) == 2 {
+		status.SourceCode = html.UnescapeString(match[1])
+	}
 	if match := submissionTaskRegex.FindStringSubmatch(htmlStr); len(match) == 3 {
 		status.ProblemExternalID = fmt.Sprintf("%s/%s", match[1], match[2])
 	}

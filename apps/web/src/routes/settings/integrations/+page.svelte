@@ -4,7 +4,6 @@
   import { page } from '$app/stores';
   import { auth } from '$lib/stores/auth';
   import { isExtensionVersionCompatible, LATEST_EXTENSION_VERSION, pingExtension } from '$lib/extension/bridge';
-  import { syncActivePlatformIdentities } from '$lib/extension/identity';
   import type { ExtensionPingResponse } from '@cpbridge/contracts';
   import {
     Puzzle,
@@ -23,23 +22,14 @@
   let extInfo: ExtensionPingResponse | null = null;
   let extensionCompatible = false;
   let copiedUrl = false;
-  let identitySyncError = '';
   let authRedirectStarted = false;
   let connectionCheckStarted = false;
 
   async function checkConnections() {
     checking = true;
-    identitySyncError = '';
     try {
       extInfo = await pingExtension();
       extensionCompatible = !!extInfo && isExtensionVersionCompatible(extInfo.version);
-      if (extInfo && extensionCompatible) {
-        try {
-          await syncActivePlatformIdentities(extInfo);
-        } catch (err) {
-          identitySyncError = err instanceof Error ? err.message : 'Could not synchronize platform identities';
-        }
-      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -74,7 +64,7 @@
       <span>Platform Integrations</span>
     </h1>
     <p class="text-sm text-zinc-400">
-      Manage browser session connections for Codeforces and AtCoder.
+      Manage browser sessions for Codeforces and AtCoder. Account linking is verified when a submission is dispatched.
     </p>
   </div>
 
@@ -236,13 +226,6 @@
           </div>
         </div>
       {/if}
-    </div>
-  {/if}
-
-  {#if identitySyncError}
-    <div class="p-4 rounded-xl border border-amber-500/30 bg-amber-500/5 text-xs text-amber-200 flex items-start gap-2">
-      <AlertTriangle class="w-4 h-4 shrink-0 mt-0.5" />
-      <span>Browser sessions are active, but cpbridge could not synchronize the platform identity: {identitySyncError}</span>
     </div>
   {/if}
 
