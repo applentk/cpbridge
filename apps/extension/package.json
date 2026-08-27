@@ -1,10 +1,15 @@
 {
   "name": "@cpbridge/extension",
-  "version": "0.1.0",
+  "version": "1.0.11",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite build --mode development --watch",
+    "sync-version": "node scripts/sync-version.mjs",
+    "predev": "pnpm sync-version",
+    "prebuild": "pnpm sync-version",
+    "prepackage": "pnpm sync-version",
+    "precheck": "pnpm sync-version",
     "build": "vite build && node scripts/package.js",
     "package": "vite build && node scripts/package.js",
     "check": "tsc --noEmit",

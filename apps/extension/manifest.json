@@ -23,7 +23,9 @@
       "matches": [
         "https://cpbridge.applentk.com/*"
       ],
-      "js": ["dist/bridge.js"],
+      "js": [
+        "dist/bridge.js"
+      ],
       "run_at": "document_start"
     },
     {
@@ -31,7 +33,9 @@
         "https://codeforces.com/problemset/submit*",
         "https://codeforces.com/contest/*/submit*"
       ],
-      "js": ["dist/codeforces-submit.js"],
+      "js": [
+        "dist/codeforces-submit.js"
+      ],
       "run_at": "document_idle"
     }
   ]

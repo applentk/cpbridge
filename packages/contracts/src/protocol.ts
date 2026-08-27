@@ -1,9 +1,5 @@
 import type { LanguageId, PlatformType } from './problem.js';
-
-// Keep this value in sync with apps/extension/manifest.json whenever a new
-// extension build becomes available. Web clients use it as the compatibility
-// gate before allowing browser-side platform operations.
-export const LATEST_EXTENSION_VERSION = '1.0.11';
+export { LATEST_EXTENSION_VERSION } from './generated/extension-version.js';
 
 export type ExtensionErrorCode =
   | 'NOT_LOGGED_IN'
