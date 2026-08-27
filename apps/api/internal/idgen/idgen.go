@@ -17,6 +17,7 @@ const (
 	PrefixProblemSet = "set_"
 	PrefixContest    = "con_"
 	PrefixSubmission = "sub_"
+	PrefixSession    = "ses_"
 )
 
 // New generates a time-sortable opaque ID with the given prefix.

@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,8 +26,12 @@ type contextKey string
 const UserContextKey contextKey = "user"
 
 const (
-	RoleAdmin = "ADMIN"
-	RoleUser  = "USER"
+	RoleAdmin            = "ADMIN"
+	RoleUser             = "USER"
+	accessTokenLifetime  = 15 * time.Minute
+	refreshTokenLifetime = 30 * 24 * time.Hour
+	refreshCookieName    = "__Host-cp_refresh"
+	csrfCookieName       = "cp_csrf"
 )
 
 type User struct {
@@ -40,9 +46,10 @@ type User struct {
 }
 
 type Claims struct {
-	UserID   string `json:"userId"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
+	UserID    string `json:"userId"`
+	Username  string `json:"username"`
+	Role      string `json:"role"`
+	SessionID string `json:"sessionId,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -136,7 +143,7 @@ func (s *Service) Register(ctx context.Context, email, username, password string
 		return nil, "", fmt.Errorf("failed to insert user: %w", err)
 	}
 
-	token, err := s.generateToken(user)
+	token, err := s.generateToken(user, "")
 	if err != nil {
 		return nil, "", err
 	}
@@ -175,7 +182,7 @@ func (s *Service) Login(ctx context.Context, emailOrUsername, password string) (
 		return nil, "", errors.New("invalid email/username or password")
 	}
 
-	token, err := s.generateToken(&user)
+	token, err := s.generateToken(&user, "")
 	if err != nil {
 		return nil, "", err
 	}
@@ -297,19 +304,101 @@ func (s *Service) UpdateUserStatus(ctx context.Context, targetUserID string, isA
 	return s.GetUserByID(ctx, targetUserID)
 }
 
-func (s *Service) generateToken(user *User) (string, error) {
+func (s *Service) generateToken(user *User, sessionID string) (string, error) {
 	claims := Claims{
-		UserID:   user.ID,
-		Username: user.Username,
-		Role:     user.Role,
+		UserID:    user.ID,
+		Username:  user.Username,
+		Role:      user.Role,
+		SessionID: sessionID,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(accessTokenLifetime)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			Subject:   user.ID,
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(s.jwtSecret)
+}
+
+func randomToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+func tokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return fmt.Sprintf("%x", sum[:])
+}
+
+func (s *Service) createSession(ctx context.Context, userID string) (sessionID, refreshToken, csrfToken string, err error) {
+	refreshToken, err = randomToken()
+	if err != nil {
+		return "", "", "", err
+	}
+	csrfToken, err = randomToken()
+	if err != nil {
+		return "", "", "", err
+	}
+	sessionID = idgen.New(idgen.PrefixSession)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO auth_sessions (id, user_id, refresh_token_hash, expires_at, created_at, last_used_at) VALUES ($1, $2, $3, NOW() + $4 * INTERVAL '1 second', NOW(), NOW())`, sessionID, userID, tokenHash(refreshToken), int(refreshTokenLifetime.Seconds()))
+	return sessionID, refreshToken, csrfToken, err
+}
+
+func (s *Service) rotateSession(ctx context.Context, refreshToken string) (user *User, sessionID, newRefresh, csrfToken string, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, "", "", "", err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	var currentSessionID, userID string
+	err = tx.QueryRowContext(ctx, `SELECT id, user_id FROM auth_sessions WHERE refresh_token_hash = $1 AND revoked_at IS NULL AND expires_at > NOW() FOR UPDATE`, tokenHash(refreshToken)).Scan(&currentSessionID, &userID)
+	if err != nil {
+		return nil, "", "", "", errors.New("invalid or expired refresh token")
+	}
+	newRefresh, err = randomToken()
+	if err != nil {
+		return nil, "", "", "", err
+	}
+	csrfToken, err = randomToken()
+	if err != nil {
+		return nil, "", "", "", err
+	}
+	newSessionID := idgen.New(idgen.PrefixSession)
+	_, err = tx.ExecContext(ctx, `UPDATE auth_sessions SET revoked_at = NOW(), replaced_by = $1, last_used_at = NOW() WHERE id = $2`, newSessionID, currentSessionID)
+	if err != nil {
+		return nil, "", "", "", err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO auth_sessions (id, user_id, refresh_token_hash, expires_at, created_at, last_used_at) VALUES ($1, $2, $3, NOW() + $4 * INTERVAL '1 second', NOW(), NOW())`, newSessionID, userID, tokenHash(newRefresh), int(refreshTokenLifetime.Seconds()))
+	if err != nil {
+		return nil, "", "", "", err
+	}
+	user, err = s.GetUserByID(ctx, userID)
+	if err != nil || !user.IsActive {
+		if err == nil {
+			err = errors.New("account disabled")
+		}
+		return nil, "", "", "", err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, "", "", "", err
+	}
+	return user, newSessionID, newRefresh, csrfToken, nil
+}
+
+func (s *Service) revokeSession(ctx context.Context, refreshToken string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE auth_sessions SET revoked_at = NOW() WHERE refresh_token_hash = $1 AND revoked_at IS NULL`, tokenHash(refreshToken))
+	return err
+}
+func (s *Service) revokeAllSessions(ctx context.Context, userID string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE auth_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL`, userID)
+	return err
 }
 
 func (s *Service) ParseToken(tokenStr string) (*Claims, error) {
@@ -382,6 +471,24 @@ func (s *Service) AuthMiddleware(required bool) func(http.Handler) http.Handler 
 				return
 			}
 
+			// Access tokens issued for a browser session are invalidated immediately
+			// when that session is logged out or revoked on all devices. Tokens
+			// without SessionID are retained for compatibility with service callers.
+			if claims.SessionID != "" {
+				var activeSession bool
+				err = s.db.QueryRowContext(r.Context(), `SELECT EXISTS (SELECT 1 FROM auth_sessions WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL AND expires_at > NOW())`, claims.SessionID, claims.UserID).Scan(&activeSession)
+				if err != nil || !activeSession {
+					if required {
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusUnauthorized)
+						_ = json.NewEncoder(w).Encode(map[string]string{"error": "session revoked"})
+						return
+					}
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
 			// Update role on claims with latest DB value
 			claims.Role = role
 
@@ -424,21 +531,43 @@ func GetUserFromContext(ctx context.Context) *Claims {
 }
 
 type Handler struct {
-	service *Service
-	limiter *ratelimit.Limiter
+	service       *Service
+	limiter       *ratelimit.Limiter
+	secureCookies bool
 }
 
 func NewHandler(service *Service) *Handler {
-	return &Handler{service: service, limiter: ratelimit.New(10000)}
+	return &Handler{service: service, limiter: ratelimit.New(10000), secureCookies: secureCookiesFromEnv()}
+}
+
+func secureCookiesFromEnv() bool {
+	if value := strings.TrimSpace(os.Getenv("COOKIE_SECURE")); value != "" {
+		return strings.EqualFold(value, "true") || value == "1"
+	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("ENV")))
+	if env == "" {
+		env = strings.ToLower(strings.TrimSpace(os.Getenv("NODE_ENV")))
+	}
+	return env != "development" && env != "dev" && env != "test"
+}
+
+func (h *Handler) refreshCookieName() string {
+	if h.secureCookies {
+		return refreshCookieName
+	}
+	return "cpbridge_refresh"
 }
 
 func (h *Handler) Routes() chi.Router {
 	r := chi.NewRouter()
 	r.Post("/register", h.Register)
 	r.Post("/login", h.Login)
+	r.Post("/refresh", h.Refresh)
+	r.Post("/logout", h.Logout)
 	r.Group(func(pr chi.Router) {
 		pr.Use(h.service.AuthMiddleware(true))
 		pr.Get("/me", h.Me)
+		pr.Post("/logout-all", h.LogoutAll)
 	})
 	return r
 }
@@ -475,11 +604,21 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sessionID, err := h.setSessionCookie(w, r, user.ID)
+	if err != nil {
+		http.Error(w, `{"error":"failed to create session"}`, http.StatusInternalServerError)
+		return
+	}
+	token, err = h.service.generateToken(user, sessionID)
+	if err != nil {
+		http.Error(w, `{"error":"failed to create access token"}`, http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"user":  user,
-		"token": token,
+		"user":        user,
+		"accessToken": token,
 	})
 }
 
@@ -511,11 +650,95 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sessionID, err := h.setSessionCookie(w, r, user.ID)
+	if err != nil {
+		http.Error(w, `{"error":"failed to create session"}`, http.StatusInternalServerError)
+		return
+	}
+	token, err = h.service.generateToken(user, sessionID)
+	if err != nil {
+		http.Error(w, `{"error":"failed to create access token"}`, http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"user":  user,
-		"token": token,
+		"user":        user,
+		"accessToken": token,
 	})
+}
+
+func (h *Handler) setSessionCookie(w http.ResponseWriter, r *http.Request, userID string) (string, error) {
+	sessionID, refresh, csrf, err := h.service.createSession(r.Context(), userID)
+	if err != nil {
+		return "", err
+	}
+	h.setCookies(w, refresh, csrf)
+	return sessionID, nil
+}
+
+func (h *Handler) setCookies(w http.ResponseWriter, refresh, csrf string) {
+	http.SetCookie(w, &http.Cookie{Name: h.refreshCookieName(), Value: refresh, Path: "/", HttpOnly: true, Secure: h.secureCookies, SameSite: http.SameSiteLaxMode, MaxAge: int(refreshTokenLifetime.Seconds())})
+	http.SetCookie(w, &http.Cookie{Name: csrfCookieName, Value: csrf, Path: "/", HttpOnly: false, Secure: h.secureCookies, SameSite: http.SameSiteLaxMode, MaxAge: int(refreshTokenLifetime.Seconds())})
+}
+
+func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
+	if !validCSRF(r) {
+		http.Error(w, `{"error":"CSRF validation failed"}`, http.StatusForbidden)
+		return
+	}
+	cookie, err := r.Cookie(h.refreshCookieName())
+	if err != nil {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+	user, sessionID, refresh, csrf, err := h.service.rotateSession(r.Context(), cookie.Value)
+	if err != nil {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+	access, err := h.service.generateToken(user, sessionID)
+	if err != nil {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+	h.setCookies(w, refresh, csrf)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"user": user, "accessToken": access})
+}
+
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	if !validCSRF(r) {
+		http.Error(w, `{"error":"CSRF validation failed"}`, http.StatusForbidden)
+		return
+	}
+	if cookie, err := r.Cookie(h.refreshCookieName()); err == nil {
+		_ = h.service.revokeSession(r.Context(), cookie.Value)
+	}
+	http.SetCookie(w, &http.Cookie{Name: h.refreshCookieName(), Value: "", Path: "/", HttpOnly: true, Secure: h.secureCookies, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: csrfCookieName, Value: "", Path: "/", Secure: h.secureCookies, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) LogoutAll(w http.ResponseWriter, r *http.Request) {
+	if !validCSRF(r) {
+		http.Error(w, `{"error":"CSRF validation failed"}`, http.StatusForbidden)
+		return
+	}
+	claims := GetUserFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		return
+	}
+	if err := h.service.revokeAllSessions(r.Context(), claims.UserID); err != nil {
+		http.Error(w, `{"error":"failed to revoke sessions"}`, http.StatusInternalServerError)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+func validCSRF(r *http.Request) bool {
+	cookie, err := r.Cookie(csrfCookieName)
+	return err == nil && cookie.Value != "" && cookie.Value == r.Header.Get("X-CSRF-Token")
 }
 
 func (h *Handler) allowAuthRequest(w http.ResponseWriter, r *http.Request, key string) bool {

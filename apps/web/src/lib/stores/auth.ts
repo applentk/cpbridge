@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import { api } from '$lib/api/client';
+import { api, setAccessToken } from '$lib/api/client';
 import type { User } from '@cpbridge/contracts';
 
 export interface AuthState {
@@ -19,30 +19,30 @@ function createAuthStore() {
     subscribe,
     init: async () => {
       if (typeof window === 'undefined') return;
-      const token = localStorage.getItem('cp_token');
-      if (!token) {
-        set({ user: null, token: null, loading: false });
-        return;
-      }
-
       try {
+        const refreshed = await api.post<{ accessToken: string }>('/auth/refresh');
+        setAccessToken(refreshed.accessToken);
         const res = await api.get<{ user: User }>('/auth/me');
-        set({ user: res.user, token, loading: false });
+        set({ user: res.user, token: refreshed.accessToken, loading: false });
       } catch {
-        localStorage.removeItem('cp_token');
+        setAccessToken(null);
         set({ user: null, token: null, loading: false });
       }
     },
     setAuth: (user: User, token: string) => {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('cp_token', token);
-      }
+      setAccessToken(token);
       set({ user, token, loading: false });
     },
     logout: () => {
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('cp_token');
+        void api.post('/auth/logout').catch(() => undefined);
       }
+      setAccessToken(null);
+      set({ user: null, token: null, loading: false });
+    },
+    logoutAll: async () => {
+      await api.post('/auth/logout-all');
+      setAccessToken(null);
       set({ user: null, token: null, loading: false });
     },
   };

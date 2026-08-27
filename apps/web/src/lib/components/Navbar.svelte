@@ -65,6 +65,13 @@
           >
             <LogOut class="w-4 h-4" />
           </button>
+          <button
+            on:click={() => void auth.logoutAll().catch(() => undefined)}
+            class="text-[10px] text-zinc-500 hover:text-red-400 transition"
+            title="Log Out All Devices"
+          >
+            All devices
+          </button>
         </div>
       {:else}
         <div class="flex items-center space-x-2">

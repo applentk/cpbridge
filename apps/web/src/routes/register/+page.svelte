@@ -21,7 +21,7 @@
         username,
         password
       });
-      auth.setAuth(res.user, res.token);
+      auth.setAuth(res.user, res.accessToken);
       await goto(res.user.role === 'ADMIN' ? '/admin' : '/contests');
     } catch (err) {
       error = err instanceof Error ? err.message : 'Registration failed';

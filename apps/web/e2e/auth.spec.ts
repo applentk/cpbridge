@@ -5,7 +5,7 @@ import { mockRegularUser, mockAdminUser } from './fixtures/mock-data';
 test.describe('Authentication & Route Guard Flows', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('login with regular user credentials redirects to /contests and stores token', async ({ page }) => {
+  test('login with regular user credentials redirects to /contests without persistent token storage', async ({ page }) => {
     await setupApiMocks(page, { currentUser: null });
 
     await page.goto('/login');
@@ -20,7 +20,7 @@ test.describe('Authentication & Route Guard Flows', () => {
     await expect(page.locator('nav').first()).toContainText('tourist_fan');
 
     const token = await page.evaluate(() => localStorage.getItem('cp_token'));
-    expect(token).toBeTruthy();
+    expect(token).toBeNull();
   });
 
   test('unauthenticated extension settings redirects to login and returns after sign in', async ({ page }) => {
@@ -83,7 +83,7 @@ test.describe('Authentication & Route Guard Flows', () => {
     await expect(page).toHaveURL('/contests');
   });
 
-  test('logout action clears stored token and returns navbar to guest mode', async ({ page }) => {
+  test('logout clears the session and returns navbar to guest mode', async ({ page }) => {
     await loginAs(page, mockRegularUser);
     await setupApiMocks(page, { currentUser: mockRegularUser });
 
@@ -97,8 +97,6 @@ test.describe('Authentication & Route Guard Flows', () => {
     await expect(page.locator('nav').first()).toContainText('Sign In');
     await expect(page.locator('nav').first()).toContainText('Sign Up');
 
-    const token = await page.evaluate(() => localStorage.getItem('cp_token'));
-    expect(token).toBeNull();
   });
 
   test('RBAC guard: unauthenticated guest accessing /admin is redirected to /contests', async ({ page }) => {
@@ -133,11 +131,7 @@ test.describe('Authentication & Route Guard Flows', () => {
     await expect(page.locator('h1')).toContainText('Admin Dashboard');
   });
 
-  test('expired JWT in localStorage is cleared on 401 and resets user to guest state', async ({ page }) => {
-    // Inject invalid token but mock /auth/me to return 401
-    await page.addInitScript(() => {
-      localStorage.setItem('cp_token', 'expired_or_invalid_jwt');
-    });
+  test('a missing refresh session resets user to guest state', async ({ page }) => {
     await setupApiMocks(page, { currentUser: null });
 
     await page.goto('/contests');
@@ -147,9 +141,6 @@ test.describe('Authentication & Route Guard Flows', () => {
     await expect(page.locator('nav').first()).toContainText('Sign In');
     await expect(page.locator('nav').first()).toContainText('Sign Up');
 
-    // cp_token must be removed
-    const token = await page.evaluate(() => localStorage.getItem('cp_token'));
-    expect(token).toBeNull();
   });
 
   test('page reload preserves authenticated session', async ({ page }) => {

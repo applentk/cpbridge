@@ -208,6 +208,11 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       return jsonResponse(route, { error: 'Unauthorized' }, 401);
     }
 
+    if (path === '/auth/refresh' && method === 'POST') {
+      if (currentUser) return jsonResponse(route, { user: currentUser, accessToken: `mock_access_token_${currentUser.id}` });
+      return jsonResponse(route, { error: 'Unauthorized' }, 401);
+    }
+
     if (path === '/auth/login' && method === 'POST') {
       const body = JSON.parse(route.request().postData() || '{}');
       if (body.password === 'wrongpassword') {
@@ -215,7 +220,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       }
       const user = body.emailOrUsername?.includes('admin') ? mockAdminUser : mockRegularUser;
       currentUser = user;
-      return jsonResponse(route, { user, token: `mock_jwt_token_${user.id}` });
+      return jsonResponse(route, { user, accessToken: `mock_access_token_${user.id}` });
     }
 
     if (path === '/auth/register' && method === 'POST') {
@@ -233,7 +238,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
         updatedAt: new Date().toISOString(),
       };
       currentUser = newUser;
-      return jsonResponse(route, { user: newUser, token: `mock_jwt_token_${newUser.id}` });
+      return jsonResponse(route, { user: newUser, accessToken: `mock_access_token_${newUser.id}` });
     }
 
     if (path === '/integrations' && method === 'GET') {
@@ -758,7 +763,5 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
 }
 
 export async function loginAs(page: Page, user: User) {
-  await page.addInitScript((userData) => {
-    localStorage.setItem('cp_token', `mock_jwt_token_${userData.id}`);
-  }, user);
+  await page.addInitScript(() => undefined, user);
 }
