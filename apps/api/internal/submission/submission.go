@@ -935,7 +935,13 @@ func (s *Service) CalculateStandings(ctx context.Context, contestID string, requ
 		WHERE s.contest_id = $1
 		  AND COALESCE(s.external_submitted_at, s.submitted_at) >= $2
 		  AND COALESCE(s.external_submitted_at, s.submitted_at) < $3
-		ORDER BY COALESCE(s.external_submitted_at, s.submitted_at) ASC
+		ORDER BY COALESCE(s.external_submitted_at, s.submitted_at) ASC,
+			CASE
+				WHEN regexp_replace(COALESCE(s.external_submission_id, ''), '^.*/', '') ~ '^[0-9]+$'
+				THEN regexp_replace(COALESCE(s.external_submission_id, ''), '^.*/', '')::numeric
+			END ASC NULLS LAST,
+			s.external_submission_id ASC NULLS LAST,
+			s.id ASC
 	`
 	rows, err := s.db.QueryContext(ctx, subQuery, contestID, c.StartAt, c.EndAt)
 	if err != nil {

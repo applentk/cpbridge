@@ -453,6 +453,7 @@ func TestScoreboardPenaltyAndAttemptRules(t *testing.T) {
 	userBEmail := fmt.Sprintf("sb_ub_%d@test.com", suffix)
 	userCEmail := fmt.Sprintf("sb_uc_%d@test.com", suffix)
 	userDEmail := fmt.Sprintf("sb_ud_%d@test.com", suffix)
+	userEEmail := fmt.Sprintf("sb_ue_%d@test.com", suffix)
 	probExtID := fmt.Sprintf("sb_p_%d", suffix)
 
 	t.Cleanup(func() {
@@ -464,10 +465,10 @@ func TestScoreboardPenaltyAndAttemptRules(t *testing.T) {
 		}
 		defer tx.Rollback()
 
-		_, _ = tx.ExecContext(ctx, `DELETE FROM submissions WHERE user_id IN (SELECT id FROM users WHERE email IN ($1, $2, $3, $4, $5))`, ownerEmail, userAEmail, userBEmail, userCEmail, userDEmail)
+		_, _ = tx.ExecContext(ctx, `DELETE FROM submissions WHERE user_id IN (SELECT id FROM users WHERE email IN ($1, $2, $3, $4, $5, $6))`, ownerEmail, userAEmail, userBEmail, userCEmail, userDEmail, userEEmail)
 		_, _ = tx.ExecContext(ctx, `DELETE FROM contests WHERE owner_id IN (SELECT id FROM users WHERE email = $1)`, ownerEmail)
 		_, _ = tx.ExecContext(ctx, `DELETE FROM problems WHERE external_id = $1`, probExtID)
-		_, _ = tx.ExecContext(ctx, `DELETE FROM users WHERE email IN ($1, $2, $3, $4, $5)`, ownerEmail, userAEmail, userBEmail, userCEmail, userDEmail)
+		_, _ = tx.ExecContext(ctx, `DELETE FROM users WHERE email IN ($1, $2, $3, $4, $5, $6)`, ownerEmail, userAEmail, userBEmail, userCEmail, userDEmail, userEEmail)
 		_ = tx.Commit()
 	})
 
@@ -488,6 +489,8 @@ func TestScoreboardPenaltyAndAttemptRules(t *testing.T) {
 	userC, _, err := authSvc.Register(ctx, userCEmail, fmt.Sprintf("sb_uc_%d", suffix), "password123")
 	require.NoError(t, err)
 	userD, _, err := authSvc.Register(ctx, userDEmail, fmt.Sprintf("sb_ud_%d", suffix), "password123")
+	require.NoError(t, err)
+	userE, _, err := authSvc.Register(ctx, userEEmail, fmt.Sprintf("sb_ue_%d", suffix), "password123")
 	require.NoError(t, err)
 
 	prob, err := probSvc.CreateCustom(ctx, problem.CreateCustomReq{
@@ -521,6 +524,7 @@ func TestScoreboardPenaltyAndAttemptRules(t *testing.T) {
 	require.NoError(t, contestSvc.Join(ctx, con.ID, userB.ID))
 	require.NoError(t, contestSvc.Join(ctx, con.ID, userC.ID))
 	require.NoError(t, contestSvc.Join(ctx, con.ID, userD.ID))
+	require.NoError(t, contestSvc.Join(ctx, con.ID, userE.ID))
 
 	insertSub := func(subID, userID string, status submission.Status, minutesFromStart int) {
 		subTime := startAt.Add(time.Duration(minutesFromStart) * time.Minute)
@@ -556,6 +560,25 @@ func TestScoreboardPenaltyAndAttemptRules(t *testing.T) {
 	insertSub(fmt.Sprintf("sub_d2_%d", suffix), userD.ID, submission.Failed, 10)
 	insertSub(fmt.Sprintf("sub_d3_%d", suffix), userD.ID, submission.WrongAnswer, 15)
 	insertSub(fmt.Sprintf("sub_d4_%d", suffix), userD.ID, submission.RuntimeError, 20)
+
+	// Codeforces creation timestamps have second precision. The external IDs
+	// provide the chronological order when a WA and its following AC share a
+	// timestamp; the scoreboard must retain the 20-minute penalty.
+	sameSecond := startAt.Add(40 * time.Minute).Truncate(time.Second)
+	for _, sub := range []struct {
+		id     string
+		status submission.Status
+		extID  string
+	}{
+		{id: fmt.Sprintf("sub_e_wa_%d", suffix), status: submission.WrongAnswer, extID: "100"},
+		{id: fmt.Sprintf("sub_e_ac_%d", suffix), status: submission.Accepted, extID: "101"},
+	} {
+		_, err := database.ExecContext(ctx, `
+			INSERT INTO submissions (id, user_id, problem_id, contest_id, platform, language, source_code, status, external_submission_id, external_submitted_at, submitted_at, metadata)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11)
+		`, sub.id, userE.ID, prob.ID, con.ID, prob.Platform, "cpp23", sub.id, sub.status, sub.extID, sameSecond, "{}")
+		require.NoError(t, err)
+	}
 
 	standingsRes, err := subSvc.CalculateStandings(ctx, con.ID, owner.ID, true)
 	require.NoError(t, err)
@@ -600,6 +623,13 @@ func TestScoreboardPenaltyAndAttemptRules(t *testing.T) {
 	assert.False(t, scoreD.ProblemScores[prob.ID].Solved)
 	assert.Equal(t, 2, scoreD.ProblemScores[prob.ID].Attempts, "Only WA and RE should count as attempts; CE and Failed ignored")
 	assert.Equal(t, 0, scoreD.ProblemScores[prob.ID].PenaltyMinutes)
+
+	// User E's WA (ID 100) must be processed before the AC (ID 101), even
+	// though both verified external timestamps are identical.
+	scoreE := scoresByUser[userE.ID]
+	assert.Equal(t, 1, scoreE.SolvedCount)
+	assert.Equal(t, 60, scoreE.TotalPenalty)
+	assert.Equal(t, 2, scoreE.ProblemScores[prob.ID].Attempts)
 }
 
 func TestScoreboardDeterministicOrderingAndTiedRanks(t *testing.T) {
