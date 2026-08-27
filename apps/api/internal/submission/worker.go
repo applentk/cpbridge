@@ -23,6 +23,10 @@ type Worker struct {
 	timeClock    func() time.Time
 }
 
+func needsExternalSubmissionVerification(externalSubmittedAt sql.NullTime) bool {
+	return !externalSubmittedAt.Valid
+}
+
 func NewWorker(db *sql.DB, probSvc *problem.Service, platRegistry *platform.Registry) *Worker {
 	return &Worker{
 		db:           db,
@@ -139,7 +143,7 @@ func (w *Worker) ProcessPollVerdict(ctx context.Context, t *asynq.Task) error {
 	// UpdateDispatched performs the one-time verification before enqueueing this
 	// task. Once its timestamp is stored, later polls must tolerate status-only
 	// adapter fallbacks instead of re-running metadata verification.
-	if !externalSubmittedAt.Valid {
+	if needsExternalSubmissionVerification(externalSubmittedAt) {
 		problemExternalID := ""
 		if prob != nil {
 			problemExternalID = prob.ExternalID
