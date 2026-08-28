@@ -28,6 +28,7 @@ export interface SetupApiMocksOptions {
   manualSubmissionCompleteAfterChecks?: number;
   manualSubmissionCloseAfterChecks?: number;
   extensionPlatforms?: Record<string, { loggedIn: boolean; username?: string }>;
+  extensionPlatformSequence?: Array<Record<string, { loggedIn: boolean; username?: string }>>;
   extensionVersion?: string;
   extensionPollVerdict?: string;
   recoveredSubmissions?: unknown[];
@@ -51,17 +52,22 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
   if (!options.disableExtension) {
     await page.addInitScript((opts) => {
       let manualCompletionChecks = 0;
+      let pingCount = 0;
       window.addEventListener('message', (event) => {
         if (event.data && event.data.source === 'CPBRIDGE_WEB') {
           const { id, payload } = event.data;
           if (payload?.type === 'PING') {
+            const sequence = opts.extensionPlatformSequence;
+            const platforms = sequence?.length
+              ? sequence[Math.min(pingCount++, sequence.length - 1)]
+              : opts.extensionPlatforms;
             window.postMessage({
               source: 'CPBRIDGE_EXTENSION',
               id,
               payload: {
                 type: 'PONG',
                 version: opts.extensionVersion,
-                platforms: opts.extensionPlatforms || {
+                platforms: platforms || {
                   CODEFORCES: { loggedIn: true, username: 'tourist_fan' },
                   ATCODER: { loggedIn: true, username: 'tourist_fan' },
                 },
@@ -180,6 +186,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       manualSubmissionCompleteAfterChecks: options.manualSubmissionCompleteAfterChecks || 0,
       manualSubmissionCloseAfterChecks: options.manualSubmissionCloseAfterChecks || 0,
       extensionPlatforms: options.extensionPlatforms,
+      extensionPlatformSequence: options.extensionPlatformSequence,
       extensionVersion: options.extensionVersion || LATEST_EXTENSION_VERSION,
       extensionPollVerdict: options.extensionPollVerdict,
       recoveredSubmissions: options.recoveredSubmissions,

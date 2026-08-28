@@ -97,6 +97,43 @@ const inFlightSubmissions = new Map<string, Promise<DispatchResponse>>();
 const submittedCodeforcesSubmissions = new Set<string>();
 const interactiveCodeforcesTabs = new Map<number, string>();
 
+async function injectBridgeIntoOpenPages(): Promise<void> {
+  try {
+    const tabs = await chrome.tabs.query({});
+    await Promise.all(tabs.map(async (tab) => {
+      if (tab.id === undefined || !tab.url) return;
+
+      let origin: string;
+      try {
+        origin = new URL(tab.url).origin;
+      } catch {
+        return;
+      }
+      if (!isAllowedOrigin(origin)) return;
+
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['dist/bridge.js']
+        });
+      } catch {
+        // The tab may navigate or become unavailable while the extension is
+        // being installed. Normal page navigation will inject the script later.
+      }
+    }));
+  } catch {
+    // Chrome may suspend the service worker before the tab query completes.
+  }
+}
+
+// Cover extension reloads as well as first installs. This makes an already
+// open settings tab reconnect without requiring a full page reload.
+void injectBridgeIntoOpenPages();
+
+chrome.runtime.onInstalled.addListener(() => {
+  void injectBridgeIntoOpenPages();
+});
+
 function dispatchStorageKey(submissionId: string): string {
   return `${DISPATCH_STORAGE_PREFIX}${submissionId}`;
 }

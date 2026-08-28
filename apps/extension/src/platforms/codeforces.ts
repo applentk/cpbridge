@@ -155,7 +155,11 @@ export async function checkCodeforcesSession(): Promise<{ loggedIn: boolean; use
     // The settings page is account-scoped, so its profile link identifies the
     // active browser session without mistaking another user's public link for
     // the signed-in handle.
-    const res = await fetch('https://codeforces.com/settings/general', { method: 'GET', credentials: 'include' });
+    const res = await fetch(`https://codeforces.com/settings/general?cpbridge_ts=${Date.now()}`, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store'
+    });
     if (!res.ok || new URL(res.url).pathname.startsWith('/enter')) {
       return { loggedIn: false };
     }

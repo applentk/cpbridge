@@ -298,7 +298,11 @@ async function submitAtCoderFromSameOriginPage(
 
 export async function checkAtCoderSession(): Promise<{ loggedIn: boolean; username?: string }> {
   try {
-    const res = await fetch('https://atcoder.jp/home', { method: 'GET', credentials: 'include' });
+    const res = await fetch(`https://atcoder.jp/home?cpbridge_ts=${Date.now()}`, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store'
+    });
     const text = await res.text();
     const userMatch = text.match(/\/users\/([a-zA-Z0-9_-]+)/);
     return { loggedIn: !!userMatch && !text.includes('Sign In'), username: userMatch?.[1] };

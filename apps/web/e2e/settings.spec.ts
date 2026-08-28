@@ -88,6 +88,31 @@ test.describe('Platform Integrations Settings', () => {
     await expect(page.locator('text=Quick 4-Step Installation Guide')).toBeVisible();
   });
 
+  test('refreshes platform sessions when Check Status is clicked', async ({ page }) => {
+    await setupApiMocks(page, {
+      currentUser: mockRegularUser,
+      extensionPlatformSequence: [
+        {
+          CODEFORCES: { loggedIn: false },
+          ATCODER: { loggedIn: false },
+        },
+        {
+          CODEFORCES: { loggedIn: true, username: 'fresh_cf_user' },
+          ATCODER: { loggedIn: true, username: 'fresh_ac_user' },
+        },
+      ],
+    });
+
+    await page.goto('/settings/integrations');
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByText('Not Connected').first()).toBeVisible();
+
+    await page.getByRole('button', { name: 'Check Status' }).click();
+
+    await expect(page.getByText('Connected (fresh_cf_user)')).toBeVisible();
+    await expect(page.getByText('Connected (fresh_ac_user)')).toBeVisible();
+  });
+
   test('displays Not Connected badges and external login links when platform sessions are inactive', async ({ page }) => {
     await setupApiMocks(page, {
       currentUser: mockRegularUser,

@@ -60,7 +60,7 @@
 <div class="max-w-4xl mx-auto space-y-8 py-4">
   <div class="space-y-1.5 border-b border-zinc-800 pb-4">
     <h1 class="text-3xl font-bold text-white flex items-center space-x-2.5">
-      <Puzzle class="w-8 h-8 text-indigo-400" />
+      <Puzzle class="w-8 h-8 text-cyan-400" />
       <span>Platform Integrations</span>
     </h1>
     <p class="text-sm text-zinc-400">
@@ -69,9 +69,9 @@
   </div>
 
   <!-- Security Notice Card -->
-  <div class="p-6 rounded-2xl border border-indigo-500/30 bg-indigo-500/5 space-y-3">
-    <div class="flex items-center space-x-2 text-indigo-300 font-bold text-sm">
-      <ShieldCheck class="w-5 h-5 text-indigo-400 shrink-0" />
+  <div class="p-6 rounded-2xl border border-cyan-500/30 bg-cyan-500/5 space-y-3">
+    <div class="flex items-center space-x-2 text-cyan-300 font-bold text-sm">
+      <ShieldCheck class="w-5 h-5 text-cyan-400 shrink-0" />
       <span>Zero-Cookie Privacy Guarantee</span>
     </div>
     <p class="text-xs text-zinc-300 leading-relaxed">
@@ -121,9 +121,11 @@
             <div>
               <div class="text-base font-bold text-white flex items-center space-x-2">
                 <span>Extension Update Required</span>
-                <span class="text-xs px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30">
+                {#if extInfo.version}
+                  <span class="text-xs px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30">
                   v{extInfo.version}
-                </span>
+                  </span>
+                {/if}
               </div>
               <div class="text-xs text-zinc-400">Install v{LATEST_EXTENSION_VERSION} before using browser submissions.</div>
             </div>
@@ -142,7 +144,7 @@
           <a
             href="/downloads/cpbridge-extension.zip"
             download="cpbridge-extension.zip"
-            class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition flex items-center space-x-2 shadow-lg shadow-indigo-600/20"
+            class="px-4 py-2 rounded-xl text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white transition flex items-center space-x-2 shadow-lg shadow-cyan-600/20"
           >
             <Download class="w-4 h-4" />
             <span>{extInfo && extensionCompatible ? 'Re-download (.zip)' : 'Download Extension (.zip)'}</span>
@@ -171,22 +173,22 @@
             <!-- Step 1 -->
             <div class="p-3.5 rounded-xl border border-zinc-800 bg-zinc-900/80 space-y-1.5">
               <div class="flex items-center space-x-2 font-bold text-white">
-                <span class="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-300 flex items-center justify-center text-[10px]">1</span>
+                <span class="w-5 h-5 rounded-full bg-cyan-600/30 text-cyan-300 flex items-center justify-center text-[10px]">1</span>
                 <span>Download & Unzip</span>
               </div>
               <p class="text-zinc-400 text-[11px] leading-relaxed">
-                Click the download button above and extract the <code class="text-indigo-300">cpbridge-extension.zip</code> file to a folder.
+                Click the download button above and extract the <code class="text-cyan-300">cpbridge-extension.zip</code> file to a folder.
               </p>
             </div>
 
             <!-- Step 2 -->
             <div class="p-3.5 rounded-xl border border-zinc-800 bg-zinc-900/80 space-y-1.5">
               <div class="flex items-center space-x-2 font-bold text-white">
-                <span class="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-300 flex items-center justify-center text-[10px]">2</span>
+                <span class="w-5 h-5 rounded-full bg-cyan-600/30 text-cyan-300 flex items-center justify-center text-[10px]">2</span>
                 <span>Open Extensions</span>
               </div>
               <p class="text-zinc-400 text-[11px] leading-relaxed">
-                Navigate to <code class="text-indigo-300">chrome://extensions</code> in Chrome, Brave, or Edge.
+                Navigate to <code class="text-cyan-300">chrome://extensions</code> in Chrome, Brave, or Edge.
               </p>
               <button
                 on:click={copyExtensionsUrl}
@@ -205,7 +207,7 @@
             <!-- Step 3 -->
             <div class="p-3.5 rounded-xl border border-zinc-800 bg-zinc-900/80 space-y-1.5">
               <div class="flex items-center space-x-2 font-bold text-white">
-                <span class="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-300 flex items-center justify-center text-[10px]">3</span>
+                <span class="w-5 h-5 rounded-full bg-cyan-600/30 text-cyan-300 flex items-center justify-center text-[10px]">3</span>
                 <span>Developer Mode</span>
               </div>
               <p class="text-zinc-400 text-[11px] leading-relaxed">
@@ -216,7 +218,7 @@
             <!-- Step 4 -->
             <div class="p-3.5 rounded-xl border border-zinc-800 bg-zinc-900/80 space-y-1.5">
               <div class="flex items-center space-x-2 font-bold text-white">
-                <span class="w-5 h-5 rounded-full bg-indigo-600/30 text-indigo-300 flex items-center justify-center text-[10px]">4</span>
+                <span class="w-5 h-5 rounded-full bg-cyan-600/30 text-cyan-300 flex items-center justify-center text-[10px]">4</span>
                 <span>Load Unpacked</span>
               </div>
               <p class="text-zinc-400 text-[11px] leading-relaxed">

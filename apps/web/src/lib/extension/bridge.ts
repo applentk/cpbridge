@@ -78,10 +78,16 @@ function sendToExtension<T>(payload: ExtensionMessage, timeoutMs = 10000): Promi
   });
 }
 
+function isExtensionPingResponse(value: unknown): value is ExtensionPingResponse {
+  if (!value || typeof value !== 'object') return false;
+  const response = value as Partial<ExtensionPingResponse>;
+  return response.type === 'PONG' && typeof response.version === 'string' && response.version.length > 0;
+}
+
 export async function pingExtension(timeoutMs = 1500): Promise<ExtensionPingResponse | null> {
   try {
     const res = await sendToExtension<ExtensionPingResponse>({ type: 'PING' }, timeoutMs);
-    return res;
+    return isExtensionPingResponse(res) ? res : null;
   } catch {
     return null;
   }

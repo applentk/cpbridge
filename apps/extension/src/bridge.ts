@@ -1,10 +1,12 @@
 // Bridge script injected into cpbridge web application pages.
 // Facilitates message passing between the cpbridge Web App and the Chrome Extension background worker.
 
+declare const __CPBRIDGE_DEV__: boolean;
+
+(() => {
 const EXTENSION_ORIGIN = 'CPBRIDGE_EXTENSION';
 const WEB_APP_ORIGIN = 'CPBRIDGE_WEB';
 const PRODUCTION_WEB_ORIGIN = 'https://cpbridge.applentk.com';
-declare const __CPBRIDGE_DEV__: boolean;
 
 function isAllowedOrigin(origin: string): boolean {
   if (!origin) return false;
@@ -26,11 +28,19 @@ function isAllowedOrigin(origin: string): boolean {
   return false;
 }
 
-window.addEventListener('message', async (event) => {
-  // Only accept messages from same origin window
-  if (event.source !== window || !event.data || event.data.source !== WEB_APP_ORIGIN) {
-    return;
-  }
+const bridgeWindow = window as Window & { __cpbridgeBridgeInstalled?: boolean };
+
+// An extension can be installed or reloaded while cpbridge is already open.
+// The service worker may inject this script again in that case, so avoid
+// registering duplicate listeners or announcing duplicate bridge readiness.
+if (!bridgeWindow.__cpbridgeBridgeInstalled) {
+  bridgeWindow.__cpbridgeBridgeInstalled = true;
+
+  window.addEventListener('message', async (event) => {
+    // Only accept messages from same origin window
+    if (event.source !== window || !event.data || event.data.source !== WEB_APP_ORIGIN) {
+      return;
+    }
 
   const currentOrigin = window.location.origin;
   // Enforce allowed origin validation
@@ -67,16 +77,18 @@ window.addEventListener('message', async (event) => {
       currentOrigin
     );
   }
-});
+  });
 
-// Broadcast extension presence to trusted origins only
-if (isAllowedOrigin(window.location.origin)) {
-  window.postMessage(
-    {
-      source: EXTENSION_ORIGIN,
-      type: 'EXTENSION_READY',
-      version: chrome.runtime.getManifest().version
-    },
-    window.location.origin
-  );
+  // Broadcast extension presence to trusted origins only
+  if (isAllowedOrigin(window.location.origin)) {
+    window.postMessage(
+      {
+        source: EXTENSION_ORIGIN,
+        type: 'EXTENSION_READY',
+        version: chrome.runtime.getManifest().version
+      },
+      window.location.origin
+    );
+  }
 }
+})();
