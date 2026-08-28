@@ -32,6 +32,12 @@ test.describe('Navigation & Navbar States', () => {
     await expect(nav.getByRole('link', { name: 'Problems' })).not.toBeVisible();
     await expect(nav).toContainText('tourist_fan');
     await expect(nav.locator('button[title="Log Out"]')).toBeVisible();
+    const accountActions = nav.locator('summary[aria-label="More account actions"]');
+    await expect(accountActions).toBeVisible();
+    await expect(nav.getByRole('button', { name: 'Log Out All Devices' })).not.toBeVisible();
+
+    await accountActions.click();
+    await expect(nav.getByRole('button', { name: 'Log Out All Devices' })).toBeVisible();
   });
 
   test('admin navigation displays administrative links and ADMIN badge', async ({ page }) => {
@@ -78,4 +84,3 @@ test.describe('Navigation & Navbar States', () => {
     await expect(nav.locator('text=tourist_fan')).toBeVisible();
   });
 });
-

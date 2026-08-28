@@ -1,6 +1,6 @@
 <script lang="ts">
   import { auth } from '$lib/stores/auth';
-  import { Trophy, Code2, Cpu, LogOut, LogIn, UserPlus, Puzzle, LayoutDashboard } from 'lucide-svelte';
+  import { Trophy, Code2, Cpu, LogOut, LogIn, UserPlus, Puzzle, LayoutDashboard, ChevronDown } from 'lucide-svelte';
 </script>
 
 <nav class="border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-md sticky top-0 z-50">
@@ -58,20 +58,36 @@
               {/if}
             </div>
           </a>
-          <button
-            on:click={() => auth.logout()}
-            class="p-1.5 text-zinc-400 hover:text-red-400 rounded-md hover:bg-red-500/10 transition"
-            title="Log Out"
-          >
-            <LogOut class="w-4 h-4" />
-          </button>
-          <button
-            on:click={() => void auth.logoutAll().catch(() => undefined)}
-            class="text-[10px] text-zinc-500 hover:text-red-400 transition"
-            title="Log Out All Devices"
-          >
-            All devices
-          </button>
+          <div class="flex items-center">
+            <button
+                type="button"
+                on:click={() => auth.logout()}
+                class="p-1.5 text-zinc-400 hover:text-red-400 rounded-l-md hover:bg-red-500/10 transition"
+                title="Log Out"
+              >
+              <LogOut class="w-4 h-4" />
+            </button>
+            <details class="relative group">
+              <summary
+                class="list-none cursor-pointer py-1.5 text-zinc-600 hover:text-white rounded-r-md hover:bg-zinc-800 transition [&::-webkit-details-marker]:hidden"
+                title="More account actions"
+                aria-label="More account actions"
+              >
+                <ChevronDown class="w-4 h-4 transition-transform group-open:rotate-180" />
+              </summary>
+              <div class="absolute right-0 top-full mt-2 w-48 rounded-lg border border-zinc-700 bg-zinc-900 p-1.5 shadow-xl shadow-black/30">
+                <button
+                  type="button"
+                  on:click={() => void auth.logoutAll().catch(() => undefined)}
+                  class="w-full px-3 py-2 rounded-md text-left text-xs text-zinc-300 hover:text-red-400 hover:bg-red-500/10 transition flex items-center space-x-2"
+                  title="Log Out All Devices"
+                >
+                  <LogOut class="w-3.5 h-3.5" />
+                  <span>Log Out All Devices</span>
+                </button>
+              </div>
+            </details>
+          </div>
         </div>
       {:else}
         <div class="flex items-center space-x-2">
