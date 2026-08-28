@@ -149,13 +149,15 @@
         <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
           <ContestTimer startAt={contest.startAt} endAt={contest.endAt} state={contest.state} />
 
-          <a
-            href={`/contests/${contest.id}/standings`}
-            class="px-5 py-3 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center justify-center space-x-2 text-sm"
-          >
-            <Trophy class="w-4 h-4" />
-            <span>Scoreboard</span>
-          </a>
+          {#if contest.state !== 'UPCOMING'}
+            <a
+              href={`/contests/${contest.id}/standings`}
+              class="px-5 py-3 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center justify-center space-x-2 text-sm"
+            >
+              <Trophy class="w-4 h-4" />
+              <span>Scoreboard</span>
+            </a>
+          {/if}
 
           {#if $auth.user?.role === 'ADMIN'}
             <a

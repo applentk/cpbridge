@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
   import type { Standings, Contest } from '@cpbridge/contracts';
@@ -17,10 +18,13 @@
 
   async function loadData() {
     try {
-      const [cRes, sRes] = await Promise.all([
-        api.get<Contest>(`/contests/${contestId}`),
-        api.get<Standings>(`/contests/${contestId}/standings`)
-      ]);
+      const cRes = await api.get<Contest>(`/contests/${contestId}`);
+      if (cRes.state === 'UPCOMING') {
+        await goto(`/contests/${cRes.id}`, { replaceState: true });
+        return;
+      }
+
+      const sRes = await api.get<Standings>(`/contests/${contestId}/standings`);
       contest = cRes;
       standings = sRes;
     } catch (err) {

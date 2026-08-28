@@ -80,6 +80,18 @@ test.describe('Contests & ICPC Scoreboard', () => {
 
     await expect(page.locator('h1')).toContainText('Grand Prix of Tokyo');
     await expect(page.locator('text=Problems are Locked')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Scoreboard' })).not.toBeVisible();
+  });
+
+  test('upcoming contest standings route redirects to the contest lobby', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, { currentUser: mockRegularUser });
+
+    await page.goto('/contests/con_upcoming_01/standings');
+    await page.waitForURL('/contests/con_upcoming_01');
+
+    await expect(page.locator('text=Problems are Locked')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Scoreboard' })).not.toBeVisible();
   });
 
   test('upcoming contest shows unlocked problem list and edit controls for admin users', async ({ page }) => {
@@ -132,6 +144,17 @@ test.describe('Contests & ICPC Scoreboard', () => {
     // Contest Problems sidebar exists with Problem B
     const probBLink = page.locator('aside a:has-text("B")');
     await expect(probBLink).toBeVisible();
+  });
+
+  test('regular users accessing an upcoming problem are redirected to the contest lobby', async ({ page }) => {
+    await loginAs(page, mockRegularUser);
+    await setupApiMocks(page, { currentUser: mockRegularUser });
+
+    await page.goto('/problems/prb_cf_1900B?contestId=con_upcoming_01');
+    await page.waitForURL('/contests/con_upcoming_01');
+
+    await expect(page.locator('text=Problems are Locked')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Scoreboard' })).not.toBeVisible();
   });
 
   test('contest scoreboard renders participants, solved count, penalty, and problem verdict cells', async ({ page }) => {

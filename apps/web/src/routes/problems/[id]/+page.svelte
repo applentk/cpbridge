@@ -52,6 +52,7 @@
   let contestSolvedProblemIds: Set<string> = new Set();
   let contestWrongProblemIds: Set<string> = new Set();
   let _contestLoading = false;
+  let redirectingToContest = false;
 
   let currentLoadedProblemId: string = '';
   let currentLoadedContestId: string | null | undefined = undefined;
@@ -222,6 +223,7 @@
 
   async function loadProblemAndContest() {
     loading = true;
+    redirectingToContest = false;
     error = '';
     stopSubmissionPolling();
     stopManualSubmissionPolling();
@@ -296,6 +298,13 @@
     try {
       const cRes = await api.get<Contest>(`/contests/${cId}`);
       if (cId !== contestId) return;
+
+      if (cRes.state === 'UPCOMING' && $auth.user?.role !== 'ADMIN') {
+        redirectingToContest = true;
+        await goto(`/contests/${cRes.id}`, { replaceState: true });
+        return;
+      }
+
       contest = cRes;
       contestProblems = cRes.problems || [];
 
@@ -842,13 +851,15 @@
         <div class="flex items-center gap-3 shrink-0">
           <ContestTimer startAt={contest.startAt} endAt={contest.endAt} state={contest.state} />
 
-          <a
-            href={`/contests/${contest.id}/standings`}
-            class="px-5 py-3 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center justify-center space-x-2 text-sm"
-          >
-            <Trophy class="w-4 h-4" />
-            <span>Scoreboard</span>
-          </a>
+          {#if contest.state !== 'UPCOMING'}
+            <a
+              href={`/contests/${contest.id}/standings`}
+              class="px-5 py-3 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center justify-center space-x-2 text-sm"
+            >
+              <Trophy class="w-4 h-4" />
+              <span>Scoreboard</span>
+            </a>
+          {/if}
         </div>
       </div>
     </div>
@@ -883,6 +894,8 @@
             <div class="h-28 w-full bg-zinc-800/30 rounded-xl mt-6"></div>
           </div>
         </div>
+      {:else if redirectingToContest}
+        <div class="h-96 rounded-2xl bg-zinc-900/40 border border-zinc-800 animate-pulse"></div>
       {:else if error || !problem}
         <div class="p-8 rounded-2xl border border-red-500/30 bg-red-500/10 text-red-300 space-y-2">
           <h2 class="text-xl font-bold">Error loading problem</h2>
