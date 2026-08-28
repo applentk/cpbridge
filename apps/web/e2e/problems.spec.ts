@@ -49,9 +49,9 @@ test.describe('Problem Workspace', () => {
             <span class="MathJax_Preview">unrendered preview</span>
             <script type="math/tex">\\prod_{1\\le i \\lt j\\le n} |a_i-a_j|</script>
           </p>
-          <p>$$$$
+          <p>$$$$$
             (p_{1 \\cdot x} + p_{2 \\cdot x}) - (p_{1 \\cdot y} + p_{2 \\cdot y})
-          $$$$</p>
+          $$$$$</p>
           <p>Text after the display formula.</p>
           <img src="/images/problem-diagram.png" alt="Problem diagram" />
         `,
