@@ -23,8 +23,6 @@ var (
 	problemTitleRegex = regexp.MustCompile(`(?is)<div[^>]*class=["']title["'][^>]*>(.*?)</div>`)
 	htmlTitleRegex    = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
-	statementRegex        = regexp.MustCompile(`(?s)<div class="problem-statement">(.*?)</div>\s*<!--\s*end problem statement`)
-	statementRegex2       = regexp.MustCompile(`(?s)<div class="problem-statement">(.*)`)
 	headerDivRegex        = regexp.MustCompile(`(?is)<div class="header">.*?</div>\s*</div>`)
 	sampleDivRegex        = regexp.MustCompile(`(?is)<div class="sample-tests?">.*?</div>\s*</div>`)
 	divTagRegex           = regexp.MustCompile(`(?is)<(/?)div\b[^>]*>`)
@@ -239,12 +237,7 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 	}
 	htmlStr := string(bodyBytes)
 
-	var statementHTML string
-	if m := statementRegex.FindStringSubmatch(htmlStr); len(m) > 1 {
-		statementHTML = m[1]
-	} else if m := statementRegex2.FindStringSubmatch(htmlStr); len(m) > 1 {
-		statementHTML = m[1]
-	}
+	statementHTML, _ := extractDivContentByClass(htmlStr, "problem-statement")
 
 	var timeLimit, memoryLimit string
 	if m := timeLimitRegex.FindStringSubmatch(htmlStr); len(m) > 1 {
@@ -298,6 +291,38 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 		SampleCases: sampleCases,
 		Note:        noteHTML,
 	}, nil
+}
+
+func extractDivContentByClass(html, className string) (string, bool) {
+	tags := divTagRegex.FindAllStringIndex(html, -1)
+	for tagIndex, tagRange := range tags {
+		tag := html[tagRange[0]:tagRange[1]]
+		parts := divTagRegex.FindStringSubmatch(tag)
+		classMatch := classAttributeRegex.FindStringSubmatch(tag)
+		if len(parts) != 2 || parts[1] != "" || len(classMatch) != 2 || !hasCSSClass(classMatch[1], className) {
+			continue
+		}
+
+		depth := 1
+		for _, candidateRange := range tags[tagIndex+1:] {
+			candidate := html[candidateRange[0]:candidateRange[1]]
+			candidateParts := divTagRegex.FindStringSubmatch(candidate)
+			if len(candidateParts) != 2 {
+				continue
+			}
+			if candidateParts[1] == "" {
+				depth++
+				continue
+			}
+
+			depth--
+			if depth == 0 {
+				return html[tagRange[1]:candidateRange[0]], true
+			}
+		}
+	}
+
+	return "", false
 }
 
 func extractNote(statementHTML string) (string, string) {

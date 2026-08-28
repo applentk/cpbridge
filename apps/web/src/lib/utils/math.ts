@@ -140,7 +140,7 @@ export function cleanBoilerplate(html: string): string {
 /**
  * Parses and renders LaTeX formulas from:
  * 1. AtCoder (<var>...</var>, \(...\), \[...\])
- * 2. Codeforces ($$$...$$$, $$...$$, .tex-span)
+ * 2. Codeforces ($$$$...$$$$, $$$...$$$, $$...$$, .tex-span)
  * 3. Standard LaTeX ($...$, $$...$$)
  */
 export function renderMathInHtml(html: string, sourceUrl?: string): string {
@@ -154,12 +154,18 @@ export function renderMathInHtml(html: string, sourceUrl?: string): string {
     return renderKatexSafe(cleanMath, false);
   });
 
-  // 2. Codeforces triple dollar: $$$...$$$ (inline math)
+  // 2. Codeforces quadruple dollar: $$$$...$$$$ (display math). This must run
+  // before the triple-dollar rule so it cannot consume three of four markers.
+  output = output.replace(/\$\$\$\$(.+?)\$\$\$\$/gs, (_, math) => {
+    return renderKatexSafe(math, true);
+  });
+
+  // 3. Codeforces triple dollar: $$$...$$$ (inline math)
   output = output.replace(/\$\$\$(.+?)\$\$\$/gs, (_, math) => {
     return renderKatexSafe(math, false);
   });
 
-  // 3. Display math: \[ ... \] or $$ ... $$
+  // 4. Display math: \[ ... \] or $$ ... $$
   output = output.replace(/\\\[(.+?)\\\]/gs, (_, math) => {
     return renderKatexSafe(math, true);
   });
@@ -168,12 +174,12 @@ export function renderMathInHtml(html: string, sourceUrl?: string): string {
     return renderKatexSafe(math, true);
   });
 
-  // 4. Standard inline math: \( ... \)
+  // 5. Standard inline math: \( ... \)
   output = output.replace(/\\\((.+?)\\\)/gs, (_, math) => {
     return renderKatexSafe(math, false);
   });
 
-  // 5. Single dollar math: $...$
+  // 6. Single dollar math: $...$
   output = output.replace(/(^|[^$])\$([^$\n\r]+?)\$(?!\$)/g, (match, prefix, math) => {
     const trimmed = math.trim();
     if (/^[0-9]+(\.[0-9]+)?$/.test(trimmed) || !trimmed) {

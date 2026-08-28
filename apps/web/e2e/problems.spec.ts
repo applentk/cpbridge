@@ -49,6 +49,10 @@ test.describe('Problem Workspace', () => {
             <span class="MathJax_Preview">unrendered preview</span>
             <script type="math/tex">\\prod_{1\\le i \\lt j\\le n} |a_i-a_j|</script>
           </p>
+          <p>$$$$
+            (p_{1 \\cdot x} + p_{2 \\cdot x}) - (p_{1 \\cdot y} + p_{2 \\cdot y})
+          $$$$</p>
+          <p>Text after the display formula.</p>
           <img src="/images/problem-diagram.png" alt="Problem diagram" />
         `,
         sampleCases: [],
@@ -58,7 +62,10 @@ test.describe('Problem Workspace', () => {
     await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc');
     await page.waitForLoadState('networkidle');
 
-    await expect(page.locator('.statement-content .katex')).toBeVisible();
+    await expect(page.locator('.statement-content .katex')).toHaveCount(2);
+    await expect(page.locator('.statement-content .katex-display')).toBeVisible();
+    await expect(page.locator('.statement-content .katex-error')).toHaveCount(0);
+    await expect(page.locator('.statement-content')).toContainText('Text after the display formula.');
     await expect(page.locator('.statement-content')).not.toContainText('unrendered preview');
     await expect(page.getByAltText('Problem diagram')).toHaveAttribute(
       'src',

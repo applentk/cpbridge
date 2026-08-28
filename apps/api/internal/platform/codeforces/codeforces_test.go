@@ -51,3 +51,24 @@ func TestExtractNote(t *testing.T) {
 		t.Fatalf("extractNote() removed non-note statement content: %q", withoutNote)
 	}
 }
+
+func TestExtractDivContentByClassPreservesNestedStatementContent(t *testing.T) {
+	page := `<html><body><div class="problem-statement">
+<div class="header"><div class="title">C. Round Corridor</div></div>
+<div><p>First paragraph.</p><center><img src="https://espresso.codeforces.com/diagram.png"></center><p>Text after image.</p></div>
+<div class="input-specification"><div class="section-title">Input</div><p>Input details.</p></div>
+</div><!-- end problem statement --><footer>Codeforces</footer></body></html>`
+
+	statement, ok := extractDivContentByClass(page, "problem-statement")
+	if !ok {
+		t.Fatal("extractDivContentByClass() did not find the statement")
+	}
+	for _, want := range []string{"diagram.png", "Text after image.", "Input details."} {
+		if !strings.Contains(statement, want) {
+			t.Fatalf("extractDivContentByClass() omitted %q: %q", want, statement)
+		}
+	}
+	if strings.Contains(statement, "<footer>") {
+		t.Fatalf("extractDivContentByClass() included content after the statement: %q", statement)
+	}
+}
