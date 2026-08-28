@@ -228,6 +228,28 @@ func TestUpdateDispatchedLinksFirstVerifiedPlatformIdentity(t *testing.T) {
 
 	err = submissionSvc.UpdateDispatched(ctx, lateSubmission.ID, user.ID, false, lateExternalID)
 	require.ErrorContains(t, err, "outside the contest window")
+
+	// Finished contests remain open for practice. A record created after the
+	// contest ends may be linked, and standings exclude it by timestamp.
+	practiceRecordAt := endedAt.Add(time.Hour)
+	submissionSvc.SetClock(func() time.Time { return practiceRecordAt })
+	practiceSubmission, err := submissionSvc.Create(ctx, user.ID, false, createdProblem.ID, &endedContest.ID, "cpp23", "int main() { return 2; }")
+	require.NoError(t, err)
+
+	practiceExternalID := fmt.Sprintf("%d", suffix+3)
+	practiceExternalAt := practiceRecordAt.Add(5 * time.Second)
+	submissionSvc.SetClock(func() time.Time { return practiceExternalAt })
+	adapter.status = &platform.SubmissionStatus{
+		ExternalSubmissionID: fmt.Sprintf("%d/%s", suffix, practiceExternalID),
+		Status:               "JUDGING",
+		ProblemExternalID:    problemExternalID,
+		Language:             "GNU C++23 (64)",
+		PlatformUsername:     "verified_handle",
+		SourceCode:           practiceSubmission.SourceCode,
+		SubmittedAt:          &practiceExternalAt,
+	}
+
+	require.NoError(t, submissionSvc.UpdateDispatched(ctx, practiceSubmission.ID, user.ID, false, practiceExternalID))
 }
 
 func TestContestEndedSubmissionAndScoreboardRules(t *testing.T) {

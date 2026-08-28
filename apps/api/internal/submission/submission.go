@@ -275,6 +275,13 @@ func validateExternalSubmissionContestWindow(sub *Submission, externalSubmittedA
 	if sub == nil || sub.ContestID == nil || strings.TrimSpace(*sub.ContestID) == "" {
 		return nil
 	}
+	// Finished contests remain available for practice. Those submissions retain
+	// their contest context in the history, while standings independently ignore
+	// timestamps at or after endAt. Only a handoff created during the official
+	// window must also reach the external platform before the contest ends.
+	if !sub.SubmittedAt.Before(endAt) {
+		return nil
+	}
 	if externalSubmittedAt.Before(startAt) || !externalSubmittedAt.Before(endAt) {
 		return errors.New("external submission timestamp is outside the contest window")
 	}
