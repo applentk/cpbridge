@@ -158,6 +158,10 @@
       keepFocus: true,
       noScroll: true
     });
+
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
   }
 
   function detectLanguageFromFilename(filename: string): LanguageId | null {
@@ -547,6 +551,10 @@
       replaceState: true,
       keepFocus: true,
       noScroll: true
+    });
+
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   }
 

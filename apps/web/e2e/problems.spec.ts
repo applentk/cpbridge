@@ -48,13 +48,23 @@ test.describe('Problem Workspace', () => {
     await expect(page.locator('text=Time Limit: 2.0s')).toBeVisible();
     await expect(page.locator('text=Memory Limit: 256MB')).toBeVisible();
 
+    // Scroll down and verify switching to Code Editor tab smooth scrolls to top
+    await page.evaluate(() => window.scrollTo(0, 300));
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+
     // Switch to Code Editor tab
     await page.click('button:has-text("Code Editor & Submit")');
     await expect(page.locator('select').first()).toBeVisible(); // Language selector
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+
+    // Scroll down and verify switching to Submissions tab smooth scrolls to top
+    await page.evaluate(() => window.scrollTo(0, 300));
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
 
     // Switch to Submissions tab
     await page.click('button:has-text("Submissions")');
     await expect(page.locator('h3:has-text("Your Submission History")')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
   });
 
   test('language selector updates starter code and handles language change', async ({ page }) => {
