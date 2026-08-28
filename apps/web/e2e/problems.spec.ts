@@ -32,6 +32,42 @@ test.describe('Problem Workspace', () => {
     await expect(page.locator('text=3 1 2')).toBeVisible();
   });
 
+  test('renders Codeforces MathJax markup and resolves statement images', async ({ page }) => {
+    await page.route('https://codeforces.com/images/problem-diagram.png', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" />',
+      });
+    });
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, {
+      currentUser: mockAdminUser,
+      statement: {
+        html: `
+          <p>
+            <span class="MathJax_Preview">unrendered preview</span>
+            <script type="math/tex">\\prod_{1\\le i \\lt j\\le n} |a_i-a_j|</script>
+          </p>
+          <img src="/images/problem-diagram.png" alt="Problem diagram" />
+        `,
+        sampleCases: [],
+      },
+    });
+
+    await page.goto('/problems/prb_cf_1000A?contestId=con_active_icpc');
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.locator('.statement-content .katex')).toBeVisible();
+    await expect(page.locator('.statement-content')).not.toContainText('unrendered preview');
+    await expect(page.getByAltText('Problem diagram')).toHaveAttribute(
+      'src',
+      'https://codeforces.com/images/problem-diagram.png',
+    );
+    await expect(page.getByAltText('Problem diagram')).toHaveClass(/statement-image-png/);
+    await expect(page.getByAltText('Problem diagram')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  });
+
   test('problem workspace supports tab switching and renders time/memory limits', async ({ page }) => {
     await loginAs(page, mockAdminUser);
     await setupApiMocks(page, { currentUser: mockAdminUser });

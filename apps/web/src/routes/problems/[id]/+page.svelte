@@ -271,6 +271,10 @@
 
       const [probData] = await Promise.all(primaryPromises);
       problem = probData;
+      if (statement?.html) {
+        renderedHtml = renderMathInHtml(statement.html, probData.url);
+        renderedNote = statement.note ? renderMathInHtml(statement.note, probData.url) : '';
+      }
       extensionInfo = null;
       extensionCheckProblemId = pId;
       extensionCheckLoading = true;
@@ -344,8 +348,8 @@
       const qParam = cId ? `?contestId=${encodeURIComponent(cId)}` : '';
       statement = await api.get<ProblemStatement>(`/problems/${pId}/statement${qParam}`);
       if (statement && statement.html) {
-        renderedHtml = renderMathInHtml(statement.html);
-        renderedNote = statement.note ? renderMathInHtml(statement.note) : '';
+        renderedHtml = renderMathInHtml(statement.html, problem?.url);
+        renderedNote = statement.note ? renderMathInHtml(statement.note, problem?.url) : '';
       } else {
         renderedHtml = '';
         renderedNote = '';
@@ -1486,6 +1490,17 @@
     margin-bottom: 1.25rem;
     font-size: 1rem;
     line-height: 1.65;
+  }
+  :global(.statement-content img) {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 1.5rem auto;
+    border-radius: 0.75rem;
+  }
+  :global(.statement-content img.statement-image-png) {
+    padding: 0.75rem;
+    background-color: #ffffff;
   }
   :global(.statement-content h3),
   :global(.statement-content h4),

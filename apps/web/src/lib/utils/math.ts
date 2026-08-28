@@ -33,6 +33,52 @@ function renderKatexSafe(latex: string, displayMode: boolean): string {
   }
 }
 
+function prepareStatementHtml(html: string, sourceUrl?: string): string {
+  if (typeof DOMParser === 'undefined') return html;
+
+  const document = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+
+  // Statements copied from a browser after MathJax has started may contain its
+  // preview nodes plus the original TeX in inert script tags. Keep the TeX and
+  // discard the generated preview so formulas are not duplicated or lost.
+  for (const script of document.body.querySelectorAll('script')) {
+    const type = script.getAttribute('type')?.toLowerCase().replace(/\s+/g, ' ') ?? '';
+    if (type !== 'math/tex' && type !== 'math/tex; mode=display') continue;
+
+    const template = document.createElement('template');
+    template.innerHTML = renderKatexSafe(script.textContent ?? '', type.includes('mode=display'));
+    script.replaceWith(template.content);
+  }
+
+  for (const generatedMath of document.body.querySelectorAll(
+    '.MathJax_Preview, .MathJax_Display, .MathJax_Processing, .MathJax'
+  )) {
+    generatedMath.remove();
+  }
+
+  if (sourceUrl) {
+    for (const image of document.body.querySelectorAll<HTMLImageElement>('img[src]')) {
+      const src = image.getAttribute('src');
+      if (!src) continue;
+
+      try {
+        const resolvedUrl = new URL(src, sourceUrl);
+        image.src = resolvedUrl.href;
+        if (resolvedUrl.pathname.toLowerCase().endsWith('.png')) {
+          image.classList.add('statement-image-png');
+        }
+        image.setAttribute('loading', 'lazy');
+        image.setAttribute('decoding', 'async');
+        image.setAttribute('referrerpolicy', 'no-referrer');
+      } catch {
+        image.removeAttribute('src');
+      }
+    }
+  }
+
+  return document.body.innerHTML;
+}
+
 /**
  * Sanitizes HTML content with a strict allowlist to prevent XSS while preserving KaTeX math and layout.
  */
@@ -51,7 +97,8 @@ export function sanitizeHtml(html: string): string {
     ],
     ALLOWED_ATTR: [
       'href', 'src', 'alt', 'title', 'class', 'style', 'target', 'rel', 'id',
-      'aria-hidden', 'aria-label', 'role', 'tabindex', 'xmlns', 'display', 'width', 'height'
+      'aria-hidden', 'aria-label', 'role', 'tabindex', 'xmlns', 'display', 'width', 'height',
+      'loading', 'decoding', 'referrerpolicy'
     ],
     ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|data):|[^a-z]|[a-z+.-]+(?:[^a-z+.:]|$))/i,
     ALLOW_DATA_ATTR: false
@@ -96,10 +143,10 @@ export function cleanBoilerplate(html: string): string {
  * 2. Codeforces ($$$...$$$, $$...$$, .tex-span)
  * 3. Standard LaTeX ($...$, $$...$$)
  */
-export function renderMathInHtml(html: string): string {
+export function renderMathInHtml(html: string, sourceUrl?: string): string {
   if (!html) return '';
 
-  let output = cleanBoilerplate(html);
+  let output = cleanBoilerplate(prepareStatementHtml(html, sourceUrl));
 
   // 1. AtCoder <var>...</var> math and variable tags
   output = output.replace(/<var\b[^>]*>(.*?)<\/var>/gis, (_, math) => {

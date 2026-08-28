@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test';
-import type { User, Problem, Contest, Submission, ProblemSet, Standings, PlatformIntegration } from '@cpbridge/contracts';
+import type { User, Problem, ProblemStatement, Contest, Submission, ProblemSet, Standings, PlatformIntegration } from '@cpbridge/contracts';
 import { LATEST_EXTENSION_VERSION } from '../../../../packages/contracts/src/generated/extension-version.mjs';
 import {
   mockAdminUser,
@@ -18,6 +18,7 @@ export interface SetupApiMocksOptions {
   currentUser?: User | null;
   users?: User[];
   problems?: Problem[];
+  statement?: ProblemStatement;
   contests?: Contest[];
   problemSets?: ProblemSet[];
   submissions?: Submission[];
@@ -335,7 +336,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       if (pId === 'prb_non_existent') {
         return jsonResponse(route, { error: 'Problem not found' }, 404);
       }
-      return jsonResponse(route, mockStatement);
+      return jsonResponse(route, options.statement ?? mockStatement);
     }
 
     const problemDetailMatch = path.match(/^\/(?:admin\/)?problems\/([^/]+)$/);
