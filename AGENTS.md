@@ -124,6 +124,13 @@ pnpm --filter @cpbridge/web dev
 # or: pnpm dev:web
 ```
 
+### Synchronizing the Extension Version
+The canonical browser extension version is defined in `apps/extension/package.json`. This is not required after every extension code change. Run it after changing the version or before packaging/releasing the extension to synchronize both extension manifests and the generated contracts version files:
+```bash
+rtk pnpm --filter @cpbridge/extension sync-version
+```
+The extension's `build`, `check`, `dev`, and `package` lifecycle hooks run this synchronization automatically.
+
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
 
