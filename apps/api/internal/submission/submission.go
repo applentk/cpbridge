@@ -251,7 +251,21 @@ func validateExternalSubmissionMetadata(sub *Submission, externalID string, stat
 	if strings.TrimSpace(statusObj.PlatformUsername) == "" {
 		return errors.New("external submission platform identity is missing")
 	}
-	if strings.TrimSpace(statusObj.SourceCode) == "" || !strings.Contains(sub.SourceCode, dispatchProofPrefix) || normalizeSourceCode(statusObj.SourceCode) != normalizeSourceCode(sub.SourceCode) {
+	if !strings.Contains(sub.SourceCode, dispatchProofPrefix) {
+		return errors.New("external submission source could not be verified")
+	}
+	if strings.TrimSpace(statusObj.SourceCode) == "" {
+		// Codeforces' public API does not expose source code, and its submission
+		// pages can return a Cloudflare challenge to server-side requests. Keep
+		// the proof as a strict check whenever source is available, but fall back
+		// to the verified ID, problem, language, timestamp, and platform identity
+		// when Codeforces prevents the adapter from reading it.
+		if sub.Platform == platform.Codeforces {
+			return nil
+		}
+		return errors.New("external submission source could not be verified")
+	}
+	if normalizeSourceCode(statusObj.SourceCode) != normalizeSourceCode(sub.SourceCode) {
 		return errors.New("external submission source could not be verified")
 	}
 	return nil

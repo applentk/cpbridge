@@ -28,6 +28,14 @@ func TestValidateExternalSubmissionMetadata(t *testing.T) {
 
 	require.NoError(t, validateExternalSubmissionMetadata(sub, "2048/123456", status, now))
 
+	withoutSource := *status
+	withoutSource.SourceCode = ""
+	require.NoError(t, validateExternalSubmissionMetadata(sub, "2048/123456", &withoutSource, now))
+
+	atCoderSub := *sub
+	atCoderSub.Platform = platform.AtCoder
+	require.Error(t, validateExternalSubmissionMetadata(&atCoderSub, "2048/123456", &withoutSource, now))
+
 	tests := []struct {
 		name   string
 		change func(*platform.SubmissionStatus)
@@ -37,7 +45,9 @@ func TestValidateExternalSubmissionMetadata(t *testing.T) {
 		{name: "old timestamp", change: func(value *platform.SubmissionStatus) { value.SubmittedAt = timePtr(now.Add(-3 * time.Minute)) }},
 		{name: "late timestamp", change: func(value *platform.SubmissionStatus) { value.SubmittedAt = timePtr(now.Add(3 * time.Minute)) }},
 		{name: "missing identity", change: func(value *platform.SubmissionStatus) { value.PlatformUsername = "" }},
-		{name: "different source", change: func(value *platform.SubmissionStatus) { value.SourceCode = "int main() {}\n// cpbridge-dispatch-proof:other" }},
+		{name: "different source", change: func(value *platform.SubmissionStatus) {
+			value.SourceCode = "int main() {}\n// cpbridge-dispatch-proof:other"
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
