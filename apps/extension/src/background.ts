@@ -19,6 +19,7 @@ import {
   pollCodeforcesStatus
 } from './platforms/codeforces.js';
 import { checkAtCoderSession, submitAtCoder, pollAtCoderStatus } from './platforms/atcoder.js';
+import { activateTab } from './tab-utils.js';
 
 const DISPATCH_STORAGE_PREFIX = 'cpbridge_dispatch:';
 const MANUAL_STORAGE_PREFIX = 'cpbridge_manual:';
@@ -79,6 +80,7 @@ interface ManualCodeforcesSubmission {
   message: string;
   createdAt: number;
   tabId?: number;
+  sourceTabId?: number;
 }
 
 interface CodeforcesPrefillRequest {
@@ -174,7 +176,8 @@ async function beginInteractiveCodeforcesSubmission(
   message: ExtensionSubmitRequest,
   contestId: string,
   problemIndex: string,
-  actionError: CodeforcesUserActionRequired
+  actionError: CodeforcesUserActionRequired,
+  sourceTabId?: number
 ): Promise<ExtensionSubmissionActionRequiredResponse> {
   const submitUrl = `https://codeforces.com/problemset/submit#cpbridge=${encodeURIComponent(message.submissionId)}`;
   const pending: ManualCodeforcesSubmission = {
@@ -185,7 +188,8 @@ async function beginInteractiveCodeforcesSubmission(
     knownSubmissionIds: actionError.knownSubmissionIds,
     submitUrl,
     message: actionError.message,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    sourceTabId
   };
   await storeManualSubmission(pending, message.source);
   await storeDispatch({
@@ -268,6 +272,7 @@ async function completeSubmittedCodeforcesTab(submissionId: string, tabId?: numb
   // The submit form can navigate before Codeforces publishes the new row in
   // /my. Keep polling for a short window so the tab closes only after the
   // external ID is safely attached to this cpbridge submission.
+  const sourceTabId = (await readManualSubmission(submissionId))?.sourceTabId;
   let result: DispatchResponse = await completeManualCodeforcesSubmission(submissionId);
   for (let attempt = 0; attempt < 12 && result.type === 'SUBMISSION_ACTION_REQUIRED'; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -276,6 +281,7 @@ async function completeSubmittedCodeforcesTab(submissionId: string, tabId?: numb
 
   if (result.type === 'SUBMISSION_CREATED' && tabId !== undefined) {
     await chrome.tabs.remove(tabId).catch(() => undefined);
+    await activateTab(sourceTabId);
   }
   return result;
 }
@@ -292,7 +298,7 @@ async function prepareCodeforcesPrefill(submissionId: string): Promise<ManualCod
   return pending;
 }
 
-async function dispatchSubmission(message: ExtensionSubmitRequest): Promise<DispatchResponse> {
+async function dispatchSubmission(message: ExtensionSubmitRequest, sourceTabId?: number): Promise<DispatchResponse> {
   await storeDispatch({ submissionId: message.submissionId, state: 'DISPATCHING' });
 
   try {
@@ -306,14 +312,14 @@ async function dispatchSubmission(message: ExtensionSubmitRequest): Promise<Disp
         externalSubmissionId = res.externalSubmissionId;
       } catch (err) {
         if (err instanceof CodeforcesUserActionRequired) {
-          return beginInteractiveCodeforcesSubmission(message, parts[0], parts[1], err);
+          return beginInteractiveCodeforcesSubmission(message, parts[0], parts[1], err, sourceTabId);
         }
         throw err;
       }
     } else if (message.platform === 'ATCODER') {
       const parts = message.problem.externalId.split('/');
       if (parts.length !== 2) throw new Error('Invalid AtCoder externalId');
-      const res = await submitAtCoder(parts[0], parts[1], message.language, message.source);
+      const res = await submitAtCoder(parts[0], parts[1], message.language, message.source, sourceTabId);
       externalSubmissionId = res.externalSubmissionId;
     } else {
       throw new Error('Unsupported platform');
@@ -399,7 +405,7 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage | CodeforcesPref
     });
     return false;
   }
-  handleMessage(message)
+  handleMessage(message, sender.tab?.id)
     .then(sendResponse)
     .catch((err) => {
       const submissionId = 'submissionId' in message ? String(message.submissionId || '') : '';
@@ -430,7 +436,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   });
 });
 
-async function handleMessage(message: ExtensionMessage): Promise<unknown> {
+async function handleMessage(message: ExtensionMessage, sourceTabId?: number): Promise<unknown> {
   if (message.type === 'PING') {
     const [cf, ac] = await Promise.all([
       checkCodeforcesSession(),
@@ -470,7 +476,7 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       if (pending) return actionRequiredResponse(pending);
     }
 
-    const dispatchPromise = dispatchSubmission(message);
+    const dispatchPromise = dispatchSubmission(message, sourceTabId);
     inFlightSubmissions.set(message.submissionId, dispatchPromise);
     try {
       return await dispatchPromise;

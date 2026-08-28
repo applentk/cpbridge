@@ -1,4 +1,5 @@
 import type { LanguageId } from '@cpbridge/contracts';
+import { activateTab } from '../tab-utils.js';
 
 // Fallbacks only. AtCoder's language IDs change when compiler versions change;
 // submitAtCoder reads the current IDs from the submit form first.
@@ -119,7 +120,8 @@ async function submitAtCoderFromSameOriginPage(
   taskId: string,
   language: LanguageId,
   sourceCode: string,
-  known: AtCoderSubmissionSnapshot
+  known: AtCoderSubmissionSnapshot,
+  sourceTabId?: number
 ): Promise<string> {
   const tab = await chrome.tabs.create({
     url: `https://atcoder.jp/contests/${contestId}/submit`,
@@ -290,6 +292,7 @@ async function submitAtCoderFromSameOriginPage(
     throw new Error(result?.error || 'AtCoder accepted the request but the new submission ID was not visible yet.');
   } finally {
     await chrome.tabs.remove(tabId).catch(() => undefined);
+    await activateTab(sourceTabId);
   }
 }
 
@@ -304,7 +307,13 @@ export async function checkAtCoderSession(): Promise<{ loggedIn: boolean; userna
   }
 }
 
-export async function submitAtCoder(contestId: string, taskId: string, language: LanguageId, sourceCode: string): Promise<{ externalSubmissionId: string }> {
+export async function submitAtCoder(
+  contestId: string,
+  taskId: string,
+  language: LanguageId,
+  sourceCode: string,
+  sourceTabId?: number
+): Promise<{ externalSubmissionId: string }> {
   const submitPageUrl = `https://atcoder.jp/contests/${contestId}/submit`;
   const pageRes = await fetch(submitPageUrl, {
     method: 'GET',
@@ -332,7 +341,8 @@ export async function submitAtCoder(contestId: string, taskId: string, language:
         taskId,
         language,
         sourceCode,
-        known
+        known,
+        sourceTabId
       )
     };
   }
@@ -360,7 +370,8 @@ export async function submitAtCoder(contestId: string, taskId: string, language:
           taskId,
           language,
           sourceCode,
-          known
+          known,
+          sourceTabId
         )
       };
     }
