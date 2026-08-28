@@ -810,14 +810,6 @@
               <span>Contest Lobby</span>
             </a>
 
-            <a
-              href={`/contests/${contest.id}/standings`}
-              class="font-semibold text-zinc-300 hover:text-white transition flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-800 border border-zinc-700/60"
-            >
-              <Trophy class="w-3.5 h-3.5" />
-              <span>Scoreboard</span>
-            </a>
-
             <span class="px-2.5 py-0.5 rounded-full font-bold {
               contest.state === 'ACTIVE' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' :
               contest.state === 'UPCOMING' ? 'bg-zinc-800 text-zinc-300 border border-zinc-700' :
@@ -841,6 +833,14 @@
         <!-- Timer -->
         <div class="flex items-center gap-3 shrink-0">
           <ContestTimer startAt={contest.startAt} endAt={contest.endAt} state={contest.state} />
+
+          <a
+            href={`/contests/${contest.id}/standings`}
+            class="px-5 py-3 rounded-xl font-bold bg-white hover:bg-zinc-200 text-black shadow-sm transition flex items-center justify-center space-x-2 text-sm"
+          >
+            <Trophy class="w-4 h-4" />
+            <span>Scoreboard</span>
+          </a>
         </div>
       </div>
     </div>
@@ -969,7 +969,7 @@
             </div>
 
             <!-- Main Navigation Tabs -->
-            <div class="flex items-center space-x-2 pt-2 border-t border-zinc-800/80">
+            <div class="flex items-center space-x-2 pt-4 border-t border-zinc-800/80">
               <button
                 on:click={() => setActiveTab('statement')}
                 class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {

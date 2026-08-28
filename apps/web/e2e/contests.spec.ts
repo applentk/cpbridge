@@ -121,7 +121,9 @@ test.describe('Contests & ICPC Scoreboard', () => {
     // Contest banner in problem view
     await expect(page.locator('text=Weekly Practice Contest #42')).toBeVisible();
     await expect(page.locator('text=Contest Lobby')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Scoreboard' })).toBeVisible();
+    const scoreboardLink = page.getByRole('link', { name: 'Scoreboard' });
+    await expect(scoreboardLink).toBeVisible();
+    await expect(scoreboardLink).toHaveClass(/bg-white/);
 
     // Problem title and label
     await expect(page.locator('h1')).toContainText('Codehorses T-shirts');
