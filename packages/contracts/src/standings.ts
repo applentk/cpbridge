@@ -20,6 +20,7 @@ export interface Standings {
   contestId: string;
   scoringType: 'SIMPLE' | 'ICPC';
   standings: ParticipantScore[];
+  upsolveStandings?: ParticipantScore[];
   problems: {
     problemId: string;
     label: string;

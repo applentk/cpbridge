@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
+  import { auth } from '$lib/stores/auth';
   import type { Standings, Contest } from '@cpbridge/contracts';
   import Scoreboard from '$lib/components/Scoreboard.svelte';
   import ContestTimer from '$lib/components/ContestTimer.svelte';
@@ -76,6 +77,6 @@
     </div>
 
     <!-- Scoreboard Table -->
-    <Scoreboard {standings} />
+    <Scoreboard {standings} currentUserId={$auth.user?.id ?? null} contestFinished={contest.state === 'FINISHED'} />
   </div>
 {/if}

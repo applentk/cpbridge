@@ -8,7 +8,7 @@
   import ProblemCard from '$lib/components/ProblemCard.svelte';
   import { Trophy, Users, Lock, Edit3 } from 'lucide-svelte';
 
-  let contestId = $page.params.id;
+  let contestId = $page.params.id!;
   let contest: Contest | null = null;
   let problems: ContestProblem[] = [];
   let solvedProblemIds: Set<string> = new Set();
@@ -47,7 +47,11 @@
       return;
     }
     try {
-      const subsRes = await api.get<Submission[]>(`/submissions?contestId=${contestId}`);
+      const params = new URLSearchParams({
+        contestId,
+        userId: $auth.user.id,
+      });
+      const subsRes = await api.get<Submission[]>(`/submissions?${params.toString()}`);
       const solved = new Set<string>();
       const wrong = new Set<string>();
       if (Array.isArray(subsRes)) {

@@ -1,18 +1,55 @@
 <script lang="ts">
   import type { Standings } from '@cpbridge/contracts';
-  import { Trophy } from 'lucide-svelte';
+  import ScoreboardRow from '$lib/components/ScoreboardRow.svelte';
   import Pagination from '$lib/components/Pagination.svelte';
 
   export let standings: Standings;
+  export let currentUserId: string | null = null;
+  export let contestFinished = false;
 
+  type ScoreboardTab = 'contest' | 'after';
+
+  let activeTab: ScoreboardTab = 'contest';
   let currentPage = 1;
   let pageSize = 20;
 
-  $: paginatedStandings = standings.standings.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  $: if (currentPage > Math.max(1, Math.ceil(standings.standings.length / pageSize))) {
-    currentPage = Math.max(1, Math.ceil(standings.standings.length / pageSize));
+  $: activeStandings = activeTab === 'contest' ? standings.standings : standings.upsolveStandings ?? [];
+  $: orderedStandings = currentUserId
+    ? [...activeStandings].sort((a, b) => Number(b.userId === currentUserId) - Number(a.userId === currentUserId))
+    : activeStandings;
+  $: paginatedStandings = orderedStandings.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  $: if (currentPage > Math.max(1, Math.ceil(orderedStandings.length / pageSize))) {
+    currentPage = Math.max(1, Math.ceil(orderedStandings.length / pageSize));
+  }
+
+  function selectTab(tab: ScoreboardTab) {
+    activeTab = tab;
+    currentPage = 1;
   }
 </script>
+
+{#if contestFinished}
+  <div class="flex items-center gap-6 px-1" role="tablist" aria-label="Scoreboard period">
+    <button
+      type="button"
+      role="tab"
+      aria-selected={activeTab === 'contest'}
+      on:click={() => selectTab('contest')}
+      class="border-b-2 px-1 py-2 text-sm font-semibold transition {activeTab === 'contest' ? 'border-white text-white' : 'border-transparent text-zinc-500 hover:text-zinc-200'}"
+    >
+      In contest <span class="ml-1 text-xs opacity-70">({standings.standings.length})</span>
+    </button>
+    <button
+      type="button"
+      role="tab"
+      aria-selected={activeTab === 'after'}
+      on:click={() => selectTab('after')}
+      class="border-b-2 px-1 py-2 text-sm font-semibold transition {activeTab === 'after' ? 'border-white text-white' : 'border-transparent text-zinc-500 hover:text-zinc-200'}"
+    >
+      After contest <span class="ml-1 text-xs opacity-70">({standings.upsolveStandings?.length ?? 0})</span>
+    </button>
+  </div>
+{/if}
 
 <div class="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-900/60 shadow-lg">
   <table class="w-full text-left text-sm text-zinc-300">
@@ -32,66 +69,17 @@
       </tr>
     </thead>
     <tbody class="divide-y divide-zinc-800/60">
-      {#if standings.standings.length === 0}
+      {#if activeStandings.length === 0}
         <tr>
           <td colspan={4 + standings.problems.length} class="py-8 text-center text-zinc-500">
-            No participants or submissions recorded yet.
+            {activeTab === 'contest' ? 'No participants or submissions recorded yet.' : 'No post-contest solves recorded yet.'}
           </td>
         </tr>
+      {:else}
+        {#each paginatedStandings as participant}
+          <ScoreboardRow participant={participant} problems={standings.problems} />
+        {/each}
       {/if}
-
-      {#each paginatedStandings as participant}
-        <tr class="hover:bg-zinc-800/40 transition {participant.rank === 1 ? 'bg-zinc-800/20' : ''}">
-          <td class="py-3 px-4 text-center font-bold font-mono align-middle">
-            {#if participant.rank === 1}
-              <span class="inline-flex items-center justify-center text-white">
-                <Trophy class="w-4 h-4 inline mr-1 text-white" /> 1
-              </span>
-            {:else if participant.rank === 2}
-              <span class="text-zinc-300 font-bold">2</span>
-            {:else if participant.rank === 3}
-              <span class="text-zinc-400 font-bold">3</span>
-            {:else}
-              <span class="text-zinc-500">{participant.rank}</span>
-            {/if}
-          </td>
-
-          <td class="py-3 px-4 font-semibold text-zinc-100 align-middle">
-            <div class="flex items-center space-x-2">
-              <div class="w-6 h-6 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs text-white font-mono shrink-0">
-                {participant.username.slice(0, 1).toUpperCase()}
-              </div>
-              <span>{participant.username}</span>
-            </div>
-          </td>
-
-          <td class="py-3 px-4 text-center font-bold text-base text-white font-mono align-middle">
-            {participant.solvedCount}
-          </td>
-
-          <td class="py-3 px-4 text-center font-mono text-zinc-400 text-sm align-middle">
-            {participant.totalPenalty}
-          </td>
-
-          {#each standings.problems as prob}
-            {@const pScore = participant.problemScores[prob.problemId]}
-            <td class="py-3 px-4 text-center align-middle">
-              {#if pScore && pScore.solved}
-                <div class="p-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-xs font-bold">
-                  <div>+{pScore.attempts > 1 ? pScore.attempts - 1 : ''}</div>
-                  <div class="text-[10px] text-emerald-400/80 font-normal">{pScore.firstSolvedAtMinutes}m</div>
-                </div>
-              {:else if pScore && pScore.attempts > 0}
-                <div class="p-1.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 font-mono text-xs font-bold">
-                  -{pScore.attempts}
-                </div>
-              {:else}
-                <span class="text-zinc-600 font-mono">.</span>
-              {/if}
-            </td>
-          {/each}
-        </tr>
-      {/each}
     </tbody>
   </table>
 </div>
@@ -99,9 +87,9 @@
 <Pagination
   {currentPage}
   {pageSize}
-  totalItems={standings.standings.length}
+  totalItems={orderedStandings.length}
   pageSizeOptions={[10, 20, 50, 100]}
-  itemName="participants"
+  itemName={activeTab === 'contest' ? 'participants' : 'upsolvers'}
   on:pageChange={(e) => (currentPage = e.detail)}
   on:pageSizeChange={(e) => {
     pageSize = e.detail;

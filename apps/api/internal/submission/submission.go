@@ -69,6 +69,15 @@ func isPenaltyStatus(status Status) bool {
 	}
 }
 
+func hasAttempts(problemScores map[string]ProblemScore) bool {
+	for _, problemScore := range problemScores {
+		if problemScore.Attempts > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 type Submission struct {
 	ID                   string         `json:"id"`
 	UserID               string         `json:"userId"`
@@ -136,11 +145,12 @@ type ParticipantScore struct {
 }
 
 type StandingsResponse struct {
-	ContestID   string             `json:"contestId"`
-	ScoringType string             `json:"scoringType"`
-	Standings   []ParticipantScore `json:"standings"`
-	Problems    []ProblemHeader    `json:"problems"`
-	GeneratedAt time.Time          `json:"generatedAt"`
+	ContestID        string             `json:"contestId"`
+	ScoringType      string             `json:"scoringType"`
+	Standings        []ParticipantScore `json:"standings"`
+	UpsolveStandings []ParticipantScore `json:"upsolveStandings"`
+	Problems         []ProblemHeader    `json:"problems"`
+	GeneratedAt      time.Time          `json:"generatedAt"`
 }
 
 type ProblemHeader struct {
@@ -1065,6 +1075,117 @@ func (s *Service) CalculateStandings(ctx context.Context, contestID string, requ
 		return nil, err
 	}
 
+	// After-contest standings contain post-contest activity without changing the
+	// contest-period standings. This includes contest participants who had no
+	// contest-period submissions and users who first submit after the contest.
+	upsolveScores := make(map[string]*ParticipantScore, len(scoresByParticipant))
+	for uid, participant := range scoresByParticipant {
+		upsolveScores[uid] = &ParticipantScore{
+			UserID:        participant.UserID,
+			Username:      participant.Username,
+			ProblemScores: make(map[string]ProblemScore, len(problems)),
+		}
+		for _, p := range problems {
+			upsolveScores[uid].ProblemScores[p.ProblemID] = ProblemScore{
+				ProblemID: p.ProblemID,
+				Label:     p.Label,
+			}
+		}
+	}
+
+	upsolveRows, err := s.db.QueryContext(ctx, `
+		SELECT s.user_id, u.username, s.problem_id, s.status, COALESCE(s.external_submitted_at, s.submitted_at)
+		FROM submissions s
+		JOIN users u ON u.id = s.user_id
+		JOIN contest_problems cpr ON cpr.contest_id = s.contest_id AND cpr.problem_id = s.problem_id
+		WHERE s.contest_id = $1
+		  AND COALESCE(s.external_submitted_at, s.submitted_at) >= $2
+		ORDER BY COALESCE(s.external_submitted_at, s.submitted_at) ASC, s.id ASC
+	`, contestID, c.EndAt)
+	if err != nil {
+		return nil, err
+	}
+	defer upsolveRows.Close()
+
+	for upsolveRows.Next() {
+		var uid, uname, pid string
+		var status Status
+		var subTime time.Time
+		if err := upsolveRows.Scan(&uid, &uname, &pid, &status, &subTime); err != nil {
+			return nil, err
+		}
+
+		upsolveScore, exists := upsolveScores[uid]
+		if !exists {
+			upsolveScore = &ParticipantScore{
+				UserID:        uid,
+				Username:      uname,
+				ProblemScores: make(map[string]ProblemScore, len(problems)),
+			}
+			for _, p := range problems {
+				upsolveScore.ProblemScores[p.ProblemID] = ProblemScore{
+					ProblemID: p.ProblemID,
+					Label:     p.Label,
+				}
+			}
+			upsolveScores[uid] = upsolveScore
+		}
+		problemScore, exists := upsolveScore.ProblemScores[pid]
+		if !exists || problemScore.Solved {
+			// A repeat solve is not an upsolve; the problem was already solved
+			// during the contest window for participants who were in the contest.
+			continue
+		}
+		if contestScore, wasParticipant := scoresByParticipant[uid]; wasParticipant && contestScore.ProblemScores[pid].Solved {
+			continue
+		}
+
+		if status == Accepted {
+			problemScore.Attempts++
+			problemScore.Solved = true
+			elapsedMinutes := max(0, int(math.Floor(subTime.Sub(c.EndAt).Minutes())))
+			problemScore.FirstSolvedAtMinutes = &elapsedMinutes
+			problemScore.PenaltyMinutes = elapsedMinutes + (20 * (problemScore.Attempts - 1))
+			upsolveScore.SolvedCount++
+			upsolveScore.TotalPenalty += problemScore.PenaltyMinutes
+		} else if isPenaltyStatus(status) {
+			problemScore.Attempts++
+		}
+		upsolveScore.ProblemScores[pid] = problemScore
+	}
+	if err := upsolveRows.Err(); err != nil {
+		return nil, err
+	}
+
+	var upsolveStandings []ParticipantScore
+	for _, participant := range upsolveScores {
+		if participant.SolvedCount > 0 || hasAttempts(participant.ProblemScores) {
+			upsolveStandings = append(upsolveStandings, *participant)
+		}
+	}
+	sort.SliceStable(upsolveStandings, func(i, j int) bool {
+		if upsolveStandings[i].SolvedCount != upsolveStandings[j].SolvedCount {
+			return upsolveStandings[i].SolvedCount > upsolveStandings[j].SolvedCount
+		}
+		if upsolveStandings[i].TotalPenalty != upsolveStandings[j].TotalPenalty {
+			return upsolveStandings[i].TotalPenalty < upsolveStandings[j].TotalPenalty
+		}
+		if upsolveStandings[i].Username != upsolveStandings[j].Username {
+			return upsolveStandings[i].Username < upsolveStandings[j].Username
+		}
+		return upsolveStandings[i].UserID < upsolveStandings[j].UserID
+	})
+	for i := range upsolveStandings {
+		if i > 0 && upsolveStandings[i].SolvedCount == upsolveStandings[i-1].SolvedCount && upsolveStandings[i].TotalPenalty == upsolveStandings[i-1].TotalPenalty {
+			upsolveStandings[i].Rank = upsolveStandings[i-1].Rank
+		} else {
+			upsolveStandings[i].Rank = i + 1
+		}
+	}
+	if upsolveStandings == nil {
+		upsolveStandings = []ParticipantScore{}
+	}
+
 	// Sort standings
 	var standings []ParticipantScore
 	for _, pScore := range scoresByParticipant {
@@ -1097,11 +1218,12 @@ func (s *Service) CalculateStandings(ctx context.Context, contestID string, requ
 	}
 
 	return &StandingsResponse{
-		ContestID:   contestID,
-		ScoringType: string(c.ScoringType),
-		Standings:   standings,
-		Problems:    headers,
-		GeneratedAt: s.timeClock(),
+		ContestID:        contestID,
+		ScoringType:      string(c.ScoringType),
+		Standings:        standings,
+		UpsolveStandings: upsolveStandings,
+		Problems:         headers,
+		GeneratedAt:      s.timeClock(),
 	}, nil
 }
 

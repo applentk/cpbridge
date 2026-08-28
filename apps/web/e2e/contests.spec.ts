@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { setupApiMocks, loginAs } from './fixtures/api-mock';
-import { mockRegularUser, mockAdminUser } from './fixtures/mock-data';
+import { mockRegularUser, mockAdminUser, mockContests, mockStandings } from './fixtures/mock-data';
 
 test.describe('Contests & ICPC Scoreboard', () => {
   test('contests list page displays contests and filters by state', async ({ page }) => {
@@ -51,6 +51,24 @@ test.describe('Contests & ICPC Scoreboard', () => {
     const problemCardLink = page.getByRole('link', { name: /Codehorses T-shirts/i });
     await expect(problemCardLink).toBeVisible();
     await expect(page.getByRole('link', { name: 'Solve', exact: true })).not.toBeVisible();
+  });
+
+  test('admin contest lobby derives problem status only from the admin submissions', async ({ page }) => {
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    const submissionsRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname.endsWith('/submissions') && url.searchParams.get('contestId') === 'con_active_icpc';
+    });
+
+    await page.goto('/contests/con_active_icpc');
+    const request = await submissionsRequest;
+    const url = new URL(request.url());
+
+    expect(url.searchParams.get('userId')).toBe(mockAdminUser.id);
+    await expect(page.getByText('Solved', { exact: true })).not.toBeVisible();
+    await expect(page.getByText('Attempted', { exact: true })).not.toBeVisible();
   });
 
   test('upcoming contest shows locked problem message for regular users', async ({ page }) => {
@@ -138,6 +156,8 @@ test.describe('Contests & ICPC Scoreboard', () => {
     // Problem scores (green + and red - attempts)
     await expect(page.locator('text=+1')).toBeVisible();
     await expect(page.locator('text=-3')).toBeVisible();
+    await expect(page.getByRole('tab', { name: /In contest/ })).not.toBeVisible();
+    await expect(page.getByRole('tab', { name: /After contest/ })).not.toBeVisible();
 
     // Pagination summary
     await expect(page.getByText(/Showing 1 to \d+ of \d+ participants/)).toBeVisible();
@@ -147,6 +167,67 @@ test.describe('Contests & ICPC Scoreboard', () => {
     await expect(page).toHaveURL(/\/problems\/prb_cf_1000A\?contestId=con_active_icpc/);
     await expect(page.locator('h1')).toContainText('Codehorses T-shirts');
     await expect(page.locator('text=Problem A')).toBeVisible();
+  });
+
+  test('contest scoreboard keeps post-contest upsolve rows across pagination', async ({ page }) => {
+    const manyParticipants = Array.from({ length: 21 }, (_, index) => ({
+      ...mockStandings.standings[0],
+      userId: index === 0 ? mockRegularUser.id : `usr_participant_${index}`,
+      username: index === 0 ? mockRegularUser.username : `participant_${index}`,
+      rank: index + 1,
+    }));
+
+    await setupApiMocks(page, {
+      currentUser: mockRegularUser,
+      contests: mockContests.map((contest) => contest.id === 'con_active_icpc' ? { ...contest, state: 'FINISHED' } : contest),
+      standings: {
+        ...mockStandings,
+        standings: manyParticipants,
+        upsolveStandings: [
+          {
+            ...mockStandings.standings[0],
+            userId: 'usr_upsolver_1',
+            username: 'upsolver_one',
+            rank: 1,
+            solvedCount: 1,
+            totalPenalty: 12,
+            problemScores: {
+              [mockStandings.problems[0].problemId]: { ...mockStandings.standings[0].problemScores[mockStandings.problems[0].problemId], solved: true, attempts: 1, firstSolvedAtMinutes: 12 },
+              [mockStandings.problems[1].problemId]: { ...mockStandings.standings[0].problemScores[mockStandings.problems[1].problemId], solved: false, attempts: 1, firstSolvedAtMinutes: null },
+            },
+          },
+          {
+            ...mockStandings.standings[0],
+            userId: mockRegularUser.id,
+            username: mockRegularUser.username,
+            rank: 2,
+            solvedCount: 1,
+            totalPenalty: 30,
+          },
+        ],
+      },
+    });
+
+    await page.goto('/contests/con_active_icpc/standings');
+    await page.waitForLoadState('networkidle');
+
+    const contestTab = page.getByRole('tab', { name: /In contest/ });
+    const afterContestTab = page.getByRole('tab', { name: /After contest/ });
+    await expect(contestTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('tbody tr').first()).toContainText(mockRegularUser.username);
+
+    await afterContestTab.click();
+    await expect(afterContestTab).toHaveAttribute('aria-selected', 'true');
+    const afterContestRows = page.locator('tbody tr');
+    await expect(afterContestRows).toHaveCount(2);
+    await expect(afterContestRows.first()).toContainText(mockRegularUser.username);
+    await expect(page.getByRole('row', { name: /upsolver_one/ })).toBeVisible();
+
+    await contestTab.click();
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect(page.getByText('participant_20')).toBeVisible();
+    await afterContestTab.click();
+    await expect(afterContestRows.first()).toContainText(mockRegularUser.username);
   });
 
   test('contest submission records contestId and reflects attempts in live scoreboard', async ({ page }) => {
@@ -292,4 +373,3 @@ test.describe('Contests & ICPC Scoreboard', () => {
     await expect(page.getByText(/\d+ registered participants?/)).toBeVisible();
   });
 });
-

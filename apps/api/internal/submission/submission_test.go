@@ -442,7 +442,16 @@ func TestContestEndedSubmissionAndScoreboardRules(t *testing.T) {
 	err = subSvc.UpdateResult(ctx, sub2.ID, user1.ID, true, submission.Accepted, map[string]any{})
 	require.NoError(t, err)
 
-	// 3b. Non-participant user2 submits problem A after contest end
+	// 3b. The contest owner was automatically joined but had no in-contest
+	// submissions; an after-contest solve should still appear in upsolve standings.
+	ownerAfterSub, err := subSvc.Create(ctx, owner.ID, false, p2.ID, &cEnded.ID, "cpp23", "int main() { return 0; }")
+	require.NoError(t, err, "A participant with no contest-period submissions should be able to upsolve")
+	require.NotNil(t, ownerAfterSub)
+	err = subSvc.UpdateResult(ctx, ownerAfterSub.ID, owner.ID, true, submission.Accepted, map[string]any{})
+	require.NoError(t, err)
+
+	// 3c. User2 was not a contest participant and submits problem A after the
+	// contest; the after-contest tab should still include the solve.
 	sub3, err := subSvc.Create(ctx, user2.ID, false, p1.ID, &cEnded.ID, "cpp23", "int main() {}")
 	require.NoError(t, err, "Submitting to ended contest by non-participant should succeed")
 	require.NotNil(t, sub3)
@@ -472,6 +481,33 @@ func TestContestEndedSubmissionAndScoreboardRules(t *testing.T) {
 	assert.Equal(t, 1, u1ScorePost.SolvedCount, "User1 should not get points for problem B submitted after contest end")
 	assert.Equal(t, 60, u1ScorePost.TotalPenalty, "User1 penalty should not change from post-contest submissions")
 	assert.False(t, u1ScorePost.ProblemScores[p2.ID].Solved, "Problem B on scoreboard should remain unsolved for contest standings")
+
+	// Post-contest accepted submissions appear only in the separate upsolve tab,
+	// including participants who had no contest-period submissions and users
+	// who first submitted after the contest.
+	require.Len(t, standingsPostContest.UpsolveStandings, 3)
+	var ownerUpsolve, user1Upsolve, user2Upsolve *submission.ParticipantScore
+	for i := range standingsPostContest.UpsolveStandings {
+		participant := &standingsPostContest.UpsolveStandings[i]
+		switch participant.UserID {
+		case owner.ID:
+			ownerUpsolve = participant
+		case user1.ID:
+			user1Upsolve = participant
+		case user2.ID:
+			user2Upsolve = participant
+		}
+	}
+	require.NotNil(t, ownerUpsolve)
+	require.NotNil(t, user1Upsolve)
+	require.NotNil(t, user2Upsolve)
+	assert.Equal(t, 1, ownerUpsolve.SolvedCount)
+	assert.True(t, ownerUpsolve.ProblemScores[p2.ID].Solved)
+	assert.Equal(t, 1, user1Upsolve.SolvedCount)
+	assert.True(t, user1Upsolve.ProblemScores[p2.ID].Solved)
+	assert.Equal(t, 0, user1Upsolve.ProblemScores[p1.ID].Attempts)
+	assert.Equal(t, 1, user2Upsolve.SolvedCount)
+	assert.True(t, user2Upsolve.ProblemScores[p1.ID].Solved)
 }
 
 func TestScoreboardPenaltyAndAttemptRules(t *testing.T) {
