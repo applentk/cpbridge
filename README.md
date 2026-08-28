@@ -115,7 +115,15 @@ Build and package the extension:
 pnpm --filter @cpbridge/extension build
 ```
 
-Load `apps/extension` as an unpacked extension, or extract `apps/extension/cpbridge-extension.zip` and load the extracted directory. Sign in to Codeforces or AtCoder in the same browser before submitting.
+For local development, run the watch build in another terminal:
+
+```bash
+pnpm dev:ext
+```
+
+Then load `apps/extension/.dev` as the unpacked extension in `chrome://extensions`. The development build includes the localhost origins; the packaged production build does not. Sign in to Codeforces or AtCoder in the same browser before submitting.
+
+For a packaged build, extract `apps/extension/cpbridge-extension.zip` and load the extracted directory.
 
 ### Demo Data
 

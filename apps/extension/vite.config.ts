@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => ({
     __CPBRIDGE_DEV__: mode === 'development'
   },
   build: {
-    outDir: 'dist',
+    outDir: mode === 'development' ? '.dev/dist' : 'dist',
     emptyOutDir: true,
     rollupOptions: {
       input: {

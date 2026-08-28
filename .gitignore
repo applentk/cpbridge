@@ -10,6 +10,7 @@ apps/api/bin/
 apps/api/tmp/
 apps/web/.vercel
 apps/extension/dist/
+apps/extension/.dev/
 .DS_Store
 
 # Playwright Test Artifacts & Reports

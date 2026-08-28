@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite build --mode development --watch",
     "sync-version": "node scripts/sync-version.mjs",
-    "predev": "pnpm sync-version",
+    "prepare-dev": "node scripts/prepare-dev.mjs",
+    "predev": "pnpm sync-version && pnpm prepare-dev",
     "prebuild": "pnpm sync-version",
     "prepackage": "pnpm sync-version",
     "precheck": "pnpm sync-version",
