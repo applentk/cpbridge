@@ -9,7 +9,7 @@ A unified competitive programming platform for Codeforces and AtCoder.
 ## Features
 
 - **Multi-Platform Problems**: Administrators import and manage normalized Codeforces and AtCoder problems with official statement links and parsed sample cases.
-- **Admin-Managed Problem Sets**: Administrators create and reorder curated collections used to assemble virtual contests.
+- **Admin-Managed Problem Sets**: Administrators create and reorder curated collections, or import an entire public Codeforces, Codeforces Gym, or AtCoder contest as an ordered set.
 - **Virtual Contests**: Run timed contests with snapshotted problem lists, controlled problem reveal, participant tracking, and live standings.
 - **ICPC Scoring**: Rank participants by solved problems and penalty time using submissions recorded during the contest window.
 - **Integrated Code Editor**: Write C++23, Python 3, or Java 21 solutions in Monaco Editor with starter templates and file upload detection.

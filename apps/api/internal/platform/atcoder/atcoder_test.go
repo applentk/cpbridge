@@ -33,6 +33,46 @@ func TestNormalizeProblemTitle(t *testing.T) {
 	}
 }
 
+func TestMatchContestURL(t *testing.T) {
+	adapter := New()
+	for _, input := range []string{"https://atcoder.jp/contests/abc350", "https://atcoder.jp/contests/abc350/tasks", "atcoder.jp/contests/abc350"} {
+		if got, ok := adapter.MatchContestURL(input); !ok || got != "abc350" {
+			t.Fatalf("MatchContestURL(%q) = %q, %v; want abc350, true", input, got, ok)
+		}
+	}
+	for _, input := range []string{"abc350", "/contests/abc350", "not-a-url"} {
+		if got, ok := adapter.MatchContestURL(input); ok {
+			t.Fatalf("MatchContestURL(%q) = %q, true; want no match", input, got)
+		}
+	}
+}
+
+func TestGetContestParsesOrderedTasks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/contests/abc350/tasks" {
+			t.Fatalf("request path = %q", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`<html><body><span class="h2">AtCoder Beginner Contest 350</span>
+		<table><tbody>
+		<tr><td><a href="/contests/abc350/tasks/abc350_a">A</a></td><td><a href="/contests/abc350/tasks/abc350_a">Past ABCs</a></td></tr>
+		<tr><td><a href="/contests/abc350/tasks/abc350_b">B</a></td><td><a href="/contests/abc350/tasks/abc350_b">Dentist Aoki</a></td></tr>
+		</tbody></table></body></html>`))
+	}))
+	defer server.Close()
+
+	adapter := &Adapter{client: server.Client(), baseURL: server.URL}
+	snapshot, err := adapter.GetContest(context.Background(), "abc350")
+	if err != nil {
+		t.Fatalf("GetContest() error = %v", err)
+	}
+	if snapshot.Name != "AtCoder Beginner Contest 350" || len(snapshot.Problems) != 2 {
+		t.Fatalf("unexpected snapshot: %+v", snapshot)
+	}
+	if snapshot.Problems[0].ExternalID != "abc350/abc350_a" || snapshot.Problems[1].Title != "Dentist Aoki" {
+		t.Fatalf("task order or metadata is wrong: %+v", snapshot.Problems)
+	}
+}
+
 func TestExtractTaskStatementUsesEnglishAndStopsAtTaskBoundary(t *testing.T) {
 	page := `<main><div id="task-statement">
 <span class="lang"><span class="lang-ja"><p>日本語の問題文</p></span>

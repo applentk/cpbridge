@@ -39,6 +39,8 @@ Recognized URLs include:
 
 The normalized external ID is `{contest}/{INDEX}`. Problem metadata first comes from the Codeforces `contest.standings` API. If that is unavailable or omits the problem, the adapter scrapes the official problem page title and finally creates a generic placeholder title.
 
+The adapter also implements the optional `ContestProvider` capability. Administrators can supply a numeric contest ID, a regular `codeforces.com/contest/{id}` URL, or a public `codeforces.com/gym/{id}` URL. Regular contests use an anonymous `contest.standings?contestId={id}` request. Because the anonymous API does not expose most gyms, public Gym dashboards are parsed for their ordered problem tables. Private, restricted, and unrevealed contests fail without storing partial data.
+
 Statements are scraped from the official HTML page. The adapter extracts limits and sample input/output blocks, removes redundant headers/sample sections, and falls back to a link to the official statement when parsing fails.
 
 Verdicts are read from Codeforces `contest.status`; the adapter also has an HTML-page fallback for individual submissions. IDs with the mock `cf_` prefix are treated as invalid and become `FAILED`.
@@ -54,6 +56,8 @@ https://atcoder.jp/contests/{contest}/tasks/{task}
 ```
 
 The normalized external ID is `{contest}/{task}`. Metadata and statements are parsed from the AtCoder task page, including the English statement, limits, and sample cases. The adapter removes the Japanese section and common footer content.
+
+AtCoder also implements `ContestProvider`. A contest slug or `atcoder.jp/contests/{slug}` URL is resolved through its public tasks page, preserving the displayed task order and normalizing every task into the existing problem model.
 
 AtCoder submission status is read from the individual submission page. IDs with the mock `ac_` prefix are treated as invalid and become `FAILED`.
 

@@ -69,7 +69,7 @@ func main() {
 	}
 
 	probSvc := problem.NewService(database, platRegistry)
-	setSvc := problemset.NewService(database)
+	setSvc := problemset.NewService(database, platRegistry)
 	contestSvc := contest.NewService(database, setSvc)
 	subSvc := submission.NewService(database, contestSvc, probSvc, platRegistry)
 	subSvc.SetAsynqClient(asynqClient)

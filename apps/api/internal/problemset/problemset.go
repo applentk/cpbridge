@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cpbridge/api/internal/idgen"
+	"github.com/cpbridge/api/internal/platform"
 	"github.com/cpbridge/api/internal/problem"
 )
 
@@ -42,11 +43,134 @@ type ProblemSet struct {
 }
 
 type Service struct {
-	db *sql.DB
+	db       *sql.DB
+	registry *platform.Registry
 }
 
-func NewService(db *sql.DB) *Service {
-	return &Service{db: db}
+func NewService(db *sql.DB, registries ...*platform.Registry) *Service {
+	service := &Service{db: db}
+	if len(registries) > 0 {
+		service.registry = registries[0]
+	}
+	return service
+}
+
+type ImportContestRequest struct {
+	Platform    platform.Type `json:"platform"`
+	ContestURL  string        `json:"contestUrl"`
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	Visibility  Visibility    `json:"visibility"`
+}
+
+type ImportContestResult struct {
+	ProblemSet      *ProblemSet `json:"problemSet"`
+	ProblemCount    int         `json:"problemCount"`
+	CreatedProblems int         `json:"createdProblems"`
+	UpdatedProblems int         `json:"updatedProblems"`
+}
+
+func (s *Service) ImportContest(ctx context.Context, ownerID string, req ImportContestRequest) (*ImportContestResult, error) {
+	if s.registry == nil {
+		return nil, errors.New("contest import is not configured")
+	}
+	if strings.TrimSpace(ownerID) == "" {
+		return nil, errors.New("problem set owner is required")
+	}
+
+	pType, externalID, provider, err := s.registry.ParseContestURL(req.ContestURL)
+	if err != nil {
+		return nil, err
+	}
+	if req.Platform != "" && req.Platform != pType {
+		return nil, fmt.Errorf("contest URL does not match selected platform %s", req.Platform)
+	}
+
+	snapshot, err := provider.GetContest(ctx, externalID)
+	if err != nil {
+		return nil, err
+	}
+	if snapshot == nil || len(snapshot.Problems) == 0 {
+		return nil, fmt.Errorf("%s contest contains no importable problems", pType)
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = snapshot.Name
+	}
+	if name == "" {
+		return nil, errors.New("problem set name is required")
+	}
+	visibility := req.Visibility
+	if visibility == "" {
+		visibility = Public
+	}
+	if visibility != Public && visibility != Unlisted && visibility != Private {
+		return nil, errors.New("invalid problem set visibility")
+	}
+	description := strings.TrimSpace(req.Description)
+	if description == "" {
+		description = fmt.Sprintf("Imported from %s", snapshot.URL)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin contest import: %w", err)
+	}
+	defer tx.Rollback()
+
+	set := &ProblemSet{
+		ID:          idgen.New(idgen.PrefixProblemSet),
+		OwnerID:     ownerID,
+		Name:        name,
+		Description: description,
+		Visibility:  visibility,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO problem_sets (id, owner_id, name, description, visibility, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, set.ID, set.OwnerID, set.Name, set.Description, set.Visibility, set.CreatedAt, set.UpdatedAt); err != nil {
+		return nil, fmt.Errorf("failed to create imported problem set: %w", err)
+	}
+
+	result := &ImportContestResult{ProblemCount: len(snapshot.Problems)}
+	for position := range snapshot.Problems {
+		normalized := &snapshot.Problems[position]
+		var existed bool
+		if err := tx.QueryRowContext(ctx, `
+			SELECT EXISTS(SELECT 1 FROM problems WHERE platform = $1 AND external_id = $2)
+		`, normalized.Platform, normalized.ExternalID).Scan(&existed); err != nil {
+			return nil, fmt.Errorf("failed to inspect imported problem: %w", err)
+		}
+
+		importedProblem, err := problem.UpsertNormalized(ctx, tx, normalized)
+		if err != nil {
+			return nil, fmt.Errorf("failed to import problem %s: %w", normalized.ExternalID, err)
+		}
+		if existed {
+			result.UpdatedProblems++
+		} else {
+			result.CreatedProblems++
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO problem_set_items (problem_set_id, problem_id, position)
+			VALUES ($1, $2, $3)
+		`, set.ID, importedProblem.ID, position); err != nil {
+			return nil, fmt.Errorf("failed to add problem %s to imported set: %w", normalized.ExternalID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit contest import: %w", err)
+	}
+	createdSet, err := s.GetByID(ctx, set.ID, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load imported problem set: %w", err)
+	}
+	result.ProblemSet = createdSet
+	return result, nil
 }
 
 func (s *Service) Create(ctx context.Context, ownerID, name, description string, visibility Visibility) (*ProblemSet, error) {

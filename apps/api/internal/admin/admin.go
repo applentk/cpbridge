@@ -59,6 +59,7 @@ func (h *Handler) Routes() chi.Router {
 	r.Route("/problem-sets", func(psr chi.Router) {
 		psr.Get("/", h.ListProblemSets)
 		psr.Post("/", h.CreateProblemSet)
+		psr.Post("/import", h.ImportContest)
 		psr.Get("/{id}", h.GetProblemSet)
 		psr.Patch("/{id}", h.UpdateProblemSet)
 		psr.Delete("/{id}", h.DeleteProblemSet)
@@ -88,6 +89,29 @@ func (h *Handler) Routes() chi.Router {
 	})
 
 	return r
+}
+
+func (h *Handler) ImportContest(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetUserFromContext(r.Context())
+	var req problemset.ImportContestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	result, err := h.setSvc.ImportContest(r.Context(), claims.UserID, req)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 // Stats

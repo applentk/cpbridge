@@ -16,12 +16,20 @@ import (
 )
 
 var (
-	urlPattern1       = regexp.MustCompile(`codeforces\.com/(?:problemset/)?problem/(\d+)/([A-Za-z0-9]+)`)
-	urlPattern2       = regexp.MustCompile(`codeforces\.com/contest/(\d+)/problem/([A-Za-z0-9]+)`)
-	urlPattern3       = regexp.MustCompile(`codeforces\.com/gym/(\d+)/problem/([A-Za-z0-9]+)`)
-	titlePrefixRegex  = regexp.MustCompile(`(?i)^[a-z](?:\s*[.\-:]\s*|\s+)`)
-	problemTitleRegex = regexp.MustCompile(`(?is)<div[^>]*class=["']title["'][^>]*>(.*?)</div>`)
-	htmlTitleRegex    = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+	urlPattern1          = regexp.MustCompile(`codeforces\.com/(?:problemset/)?problem/(\d+)/([A-Za-z0-9]+)`)
+	urlPattern2          = regexp.MustCompile(`codeforces\.com/contest/(\d+)/problem/([A-Za-z0-9]+)`)
+	urlPattern3          = regexp.MustCompile(`codeforces\.com/gym/(\d+)/problem/([A-Za-z0-9]+)`)
+	contestURLPattern    = regexp.MustCompile(`(?i)^(?:https?://)?(?:www\.)?codeforces\.com/contest/(\d+)(?:/?(?:\?.*)?)?$`)
+	gymContestURLPattern = regexp.MustCompile(`(?i)^(?:https?://)?(?:www\.)?codeforces\.com/gym/(\d+)(?:/?(?:\?.*)?)?$`)
+	contestIDPattern        = regexp.MustCompile(`^\d+$`)
+	gymExternalIDPattern    = regexp.MustCompile(`^gym/(\d+)$`)
+	contestTitleRegex       = regexp.MustCompile(`(?is)<a[^>]+href=["']/contest/(\d+)["'][^>]*>(.*?)</a>`)
+	contestProblemLinkRegex = regexp.MustCompile(`(?is)<a[^>]+href=["']/contest/(\d+)/problem/([A-Za-z0-9]+)["'][^>]*>(.*?)</a>`)
+	gymContestTitleRegex    = regexp.MustCompile(`(?is)<a[^>]+href=["']/gym/(\d+)["'][^>]*>(.*?)</a>`)
+	gymProblemLinkRegex     = regexp.MustCompile(`(?is)<a[^>]+href=["']/gym/(\d+)/problem/([A-Za-z0-9]+)["'][^>]*>(.*?)</a>`)
+	titlePrefixRegex     = regexp.MustCompile(`(?i)^[a-z](?:\s*[.\-:]\s*|\s+)`)
+	problemTitleRegex    = regexp.MustCompile(`(?is)<div[^>]*class=["']title["'][^>]*>(.*?)</div>`)
+	htmlTitleRegex       = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
 	headerDivRegex        = regexp.MustCompile(`(?is)<div class="header">.*?</div>\s*</div>`)
 	sampleDivRegex        = regexp.MustCompile(`(?is)<div class="sample-tests?">.*?</div>\s*</div>`)
@@ -36,7 +44,8 @@ var (
 )
 
 type Adapter struct {
-	client *http.Client
+	client  *http.Client
+	baseURL string
 }
 
 func New() *Adapter {
@@ -44,6 +53,7 @@ func New() *Adapter {
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		baseURL: "https://codeforces.com",
 	}
 }
 
@@ -59,65 +69,236 @@ func (a *Adapter) MatchURL(rawURL string) (string, bool) {
 		return fmt.Sprintf("%s/%s", m[1], strings.ToUpper(m[2])), true
 	}
 	if m := urlPattern3.FindStringSubmatch(rawURL); len(m) == 3 {
-		return fmt.Sprintf("%s/%s", m[1], strings.ToUpper(m[2])), true
+		return fmt.Sprintf("gym/%s/%s", m[1], strings.ToUpper(m[2])), true
 	}
 	return "", false
 }
 
-type cfApiResponse struct {
-	Status string `json:"status"`
-	Result struct {
-		Problems []struct {
-			ContestID int      `json:"contestId"`
-			Index     string   `json:"index"`
-			Name      string   `json:"name"`
-			Type      string   `json:"type"`
-			Rating    *int     `json:"rating"`
-			Tags      []string `json:"tags"`
-		} `json:"problems"`
-	} `json:"result"`
-	Comment string `json:"comment"`
+func (a *Adapter) MatchContestURL(rawURL string) (string, bool) {
+	rawURL = strings.TrimSpace(rawURL)
+	if match := contestURLPattern.FindStringSubmatch(rawURL); len(match) == 2 {
+		return match[1], true
+	}
+	if match := gymContestURLPattern.FindStringSubmatch(rawURL); len(match) == 2 {
+		return "gym/" + match[1], true
+	}
+	return "", false
 }
 
-func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.NormalizedProblem, error) {
-	parts := strings.Split(externalID, "/")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid codeforces external id: %s", externalID)
+func (a *Adapter) GetContest(ctx context.Context, externalID string) (*platform.ContestSnapshot, error) {
+	if match := gymExternalIDPattern.FindStringSubmatch(externalID); len(match) == 2 {
+		return a.getGymContest(ctx, match[1])
 	}
-	contestIDStr, index := parts[0], strings.ToUpper(parts[1])
-	officialURL := fmt.Sprintf("https://codeforces.com/problemset/problem/%s/%s", contestIDStr, index)
+	if !contestIDPattern.MatchString(externalID) {
+		return nil, fmt.Errorf("invalid codeforces contest id: %s", externalID)
+	}
 
-	apiURL := fmt.Sprintf("https://codeforces.com/api/contest.standings?contestId=%s&from=1&count=1", contestIDStr)
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err == nil {
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-		resp, err := a.client.Do(req)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			defer resp.Body.Close()
-			var cfResp cfApiResponse
-			if err := json.NewDecoder(resp.Body).Decode(&cfResp); err == nil && cfResp.Status == "OK" {
-				for _, p := range cfResp.Result.Problems {
-					if strings.EqualFold(p.Index, index) {
-						return &platform.NormalizedProblem{
-							Platform:   platform.Codeforces,
-							ExternalID: externalID,
-							Title:      normalizeProblemTitle(p.Name),
-							URL:        officialURL,
-							Difficulty: p.Rating,
-							Tags:       p.Tags,
-							Metadata: map[string]any{
-								"contestId": p.ContestID,
-								"index":     p.Index,
-							},
-						}, nil
-					}
-				}
+	return a.getRegularContest(ctx, externalID)
+}
+
+func (a *Adapter) getRegularContest(ctx context.Context, contestID string) (*platform.ContestSnapshot, error) {
+	pageURL := fmt.Sprintf("%s/contest/%s", a.baseURL, contestID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch Codeforces contest: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Codeforces returned status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Codeforces contest: %w", err)
+	}
+	htmlStr := string(body)
+
+	name := ""
+	for _, match := range contestTitleRegex.FindAllStringSubmatch(htmlStr, -1) {
+		if len(match) == 3 && match[1] == contestID {
+			name = strings.TrimSpace(htmllib.UnescapeString(cleanHTMLTags(match[2])))
+			if name != "" {
+				break
 			}
 		}
 	}
+	if name == "" {
+		if match := htmlTitleRegex.FindStringSubmatch(htmlStr); len(match) > 1 {
+			title := strings.TrimSpace(htmllib.UnescapeString(cleanHTMLTags(match[1])))
+			title = strings.TrimSuffix(title, " - Codeforces")
+			if title != "" && !strings.EqualFold(title, "codeforces") {
+				name = title
+			}
+		}
+	}
+	if name == "" {
+		name = fmt.Sprintf("Codeforces Contest %s", contestID)
+	}
 
-	// The public API can be unavailable or can omit a problem temporarily. Use
-	// the official problem page before falling back to a generic placeholder.
+	type problemItem struct {
+		index string
+		title string
+	}
+	ordered := make([]problemItem, 0)
+	positions := make(map[string]int)
+	for _, match := range contestProblemLinkRegex.FindAllStringSubmatch(htmlStr, -1) {
+		if len(match) != 4 || match[1] != contestID {
+			continue
+		}
+		index := strings.ToUpper(strings.TrimSpace(match[2]))
+		text := strings.TrimSpace(htmllib.UnescapeString(cleanHTMLTags(match[3])))
+		position, exists := positions[index]
+		if !exists {
+			positions[index] = len(ordered)
+			ordered = append(ordered, problemItem{index: index})
+			position = len(ordered) - 1
+		}
+		if text != "" && !strings.EqualFold(text, index) {
+			ordered[position].title = text
+		}
+	}
+	if len(ordered) == 0 {
+		return nil, fmt.Errorf("Codeforces contest is private, unrevealed, or contains no importable problems")
+	}
+
+	contestIDNumber, _ := strconv.Atoi(contestID)
+	problems := make([]platform.NormalizedProblem, 0, len(ordered))
+	for _, item := range ordered {
+		if item.title == "" {
+			return nil, fmt.Errorf("Codeforces contest returned problem %s without a title", item.index)
+		}
+		problems = append(problems, platform.NormalizedProblem{
+			Platform:   platform.Codeforces,
+			ExternalID: fmt.Sprintf("%s/%s", contestID, item.index),
+			Title:      item.title,
+			URL:        fmt.Sprintf("https://codeforces.com/problemset/problem/%s/%s", contestID, item.index),
+			Difficulty: nil,
+			Tags:       []string{"codeforces"},
+			Metadata: map[string]any{
+				"contestId": contestIDNumber,
+				"index":     item.index,
+			},
+		})
+	}
+
+	return &platform.ContestSnapshot{
+		Platform:   platform.Codeforces,
+		ExternalID: contestID,
+		Name:       name,
+		URL:        fmt.Sprintf("https://codeforces.com/contest/%s", contestID),
+		Phase:      "AVAILABLE",
+		Problems:   problems,
+	}, nil
+}
+
+func (a *Adapter) getGymContest(ctx context.Context, gymID string) (*platform.ContestSnapshot, error) {
+	pageURL := fmt.Sprintf("%s/gym/%s", a.baseURL, gymID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch Codeforces Gym contest: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Codeforces Gym returned status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Codeforces Gym contest: %w", err)
+	}
+	htmlStr := string(body)
+
+	name := ""
+	for _, match := range gymContestTitleRegex.FindAllStringSubmatch(htmlStr, -1) {
+		if len(match) == 3 && match[1] == gymID {
+			name = strings.TrimSpace(htmllib.UnescapeString(cleanHTMLTags(match[2])))
+			if name != "" {
+				break
+			}
+		}
+	}
+	if name == "" {
+		name = fmt.Sprintf("Codeforces Gym %s", gymID)
+	}
+
+	type gymProblem struct {
+		index string
+		title string
+	}
+	ordered := make([]gymProblem, 0)
+	positions := make(map[string]int)
+	for _, match := range gymProblemLinkRegex.FindAllStringSubmatch(htmlStr, -1) {
+		if len(match) != 4 || match[1] != gymID {
+			continue
+		}
+		index := strings.ToUpper(strings.TrimSpace(match[2]))
+		text := strings.TrimSpace(htmllib.UnescapeString(cleanHTMLTags(match[3])))
+		position, exists := positions[index]
+		if !exists {
+			positions[index] = len(ordered)
+			ordered = append(ordered, gymProblem{index: index})
+			position = len(ordered) - 1
+		}
+		if text != "" && !strings.EqualFold(text, index) {
+			ordered[position].title = text
+		}
+	}
+	if len(ordered) == 0 {
+		return nil, fmt.Errorf("Codeforces Gym contest is private, unrevealed, or contains no importable problems")
+	}
+
+	gymIDNumber, _ := strconv.Atoi(gymID)
+	problems := make([]platform.NormalizedProblem, 0, len(ordered))
+	for _, item := range ordered {
+		if item.title == "" {
+			return nil, fmt.Errorf("Codeforces Gym returned problem %s without a title", item.index)
+		}
+		problems = append(problems, platform.NormalizedProblem{
+			Platform:   platform.Codeforces,
+			ExternalID: fmt.Sprintf("gym/%s/%s", gymID, item.index),
+			Title:      item.title,
+			URL:        fmt.Sprintf("https://codeforces.com/gym/%s/problem/%s", gymID, item.index),
+			Difficulty: nil,
+			Tags:       []string{"codeforces", "gym"},
+			Metadata: map[string]any{
+				"contestId": gymIDNumber,
+				"index":     item.index,
+				"gym":       true,
+			},
+		})
+	}
+
+	return &platform.ContestSnapshot{
+		Platform:   platform.Codeforces,
+		ExternalID: "gym/" + gymID,
+		Name:       name,
+		URL:        fmt.Sprintf("https://codeforces.com/gym/%s", gymID),
+		Phase:      "AVAILABLE",
+		Problems:   problems,
+	}, nil
+}
+
+func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.NormalizedProblem, error) {
+	contestIDStr, index, isGym, err := parseProblemRef(externalID)
+	if err != nil {
+		return nil, err
+	}
+	officialURL := codeforcesProblemURL(contestIDStr, index, isGym)
+	if isGym {
+		return a.getGymProblem(ctx, externalID, contestIDStr, index, officialURL)
+	}
+
+	// Fetch problem details from the official problem page.
 	if title, timeLimit, memoryLimit, ok := a.fetchProblemDetails(ctx, officialURL); ok {
 		meta := map[string]any{
 			"contestId": contestIDStr,
@@ -154,6 +335,52 @@ func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.
 			"index":     index,
 		},
 	}, nil
+}
+
+func (a *Adapter) getGymProblem(ctx context.Context, externalID, gymID, index, officialURL string) (*platform.NormalizedProblem, error) {
+	if title, timeLimit, memoryLimit, ok := a.fetchProblemDetails(ctx, officialURL); ok {
+		metadata := map[string]any{
+			"contestId": gymID,
+			"index":     index,
+			"gym":       true,
+		}
+		if timeLimit != "" {
+			metadata["timeLimit"] = timeLimit
+		}
+		if memoryLimit != "" {
+			metadata["memoryLimit"] = memoryLimit
+		}
+		return &platform.NormalizedProblem{
+			Platform:   platform.Codeforces,
+			ExternalID: externalID,
+			Title:      title,
+			URL:        officialURL,
+			Difficulty: nil,
+			Tags:       []string{"codeforces", "gym"},
+			Metadata:   metadata,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("failed to fetch Codeforces Gym problem %s", externalID)
+}
+
+func parseProblemRef(externalID string) (contestID, index string, isGym bool, err error) {
+	parts := strings.Split(strings.TrimSpace(externalID), "/")
+	switch {
+	case len(parts) == 2 && contestIDPattern.MatchString(parts[0]) && strings.TrimSpace(parts[1]) != "":
+		return parts[0], strings.ToUpper(parts[1]), false, nil
+	case len(parts) == 3 && strings.EqualFold(parts[0], "gym") && contestIDPattern.MatchString(parts[1]) && strings.TrimSpace(parts[2]) != "":
+		return parts[1], strings.ToUpper(parts[2]), true, nil
+	default:
+		return "", "", false, fmt.Errorf("invalid codeforces external id: %s", externalID)
+	}
+}
+
+func codeforcesProblemURL(contestID, index string, isGym bool) string {
+	if isGym {
+		return fmt.Sprintf("https://codeforces.com/gym/%s/problem/%s", contestID, index)
+	}
+	return fmt.Sprintf("https://codeforces.com/problemset/problem/%s/%s", contestID, index)
 }
 
 func (a *Adapter) fetchProblemDetails(ctx context.Context, officialURL string) (string, string, string, bool) {
@@ -212,12 +439,11 @@ func normalizeProblemTitle(title string) string {
 }
 
 func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platform.ProblemStatement, error) {
-	parts := strings.Split(externalID, "/")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid codeforces external id: %s", externalID)
+	contestID, index, isGym, err := parseProblemRef(externalID)
+	if err != nil {
+		return nil, err
 	}
-	contestID, index := parts[0], strings.ToUpper(parts[1])
-	officialURL := fmt.Sprintf("https://codeforces.com/problemset/problem/%s/%s", contestID, index)
+	officialURL := codeforcesProblemURL(contestID, index, isGym)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", officialURL, nil)
 	if err != nil {

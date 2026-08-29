@@ -38,6 +38,18 @@ type NormalizedProblem struct {
 	Metadata   map[string]any `json:"metadata"`
 }
 
+// ContestSnapshot is a public external contest normalized for importing into a
+// cpbridge problem set. Problems remain ordered exactly as the source exposes
+// them so labels such as A1/A2 are not accidentally reordered.
+type ContestSnapshot struct {
+	Platform   Type                `json:"platform"`
+	ExternalID string              `json:"externalId"`
+	Name       string              `json:"name"`
+	URL        string              `json:"url"`
+	Phase      string              `json:"phase"`
+	Problems   []NormalizedProblem `json:"problems"`
+}
+
 type SubmissionStatus struct {
 	ExternalSubmissionID string         `json:"externalSubmissionId"`
 	Status               string         `json:"status"` // PENDING, JUDGING, ACCEPTED, WRONG_ANSWER, TIME_LIMIT, COMPILATION_ERROR, RUNTIME_ERROR, MEMORY_LIMIT
@@ -59,6 +71,13 @@ type Platform interface {
 	GetProblem(ctx context.Context, externalID string) (*NormalizedProblem, error)
 	GetStatement(ctx context.Context, externalID string) (*ProblemStatement, error)
 	GetSubmission(ctx context.Context, externalSubmissionID string) (*SubmissionStatus, error)
+}
+
+// ContestProvider is an optional platform capability. Keeping it separate
+// avoids requiring platforms without contest import support to implement it.
+type ContestProvider interface {
+	MatchContestURL(rawURL string) (externalID string, matched bool)
+	GetContest(ctx context.Context, externalID string) (*ContestSnapshot, error)
 }
 
 type Registry struct {
@@ -90,4 +109,17 @@ func (r *Registry) ParseURL(rawURL string) (Type, string, Platform, error) {
 		}
 	}
 	return "", "", nil, errors.New("unrecognized problem url: must be a supported Codeforces or AtCoder problem link")
+}
+
+func (r *Registry) ParseContestURL(rawURL string) (Type, string, ContestProvider, error) {
+	for pType, adapter := range r.adapters {
+		provider, ok := adapter.(ContestProvider)
+		if !ok {
+			continue
+		}
+		if extID, matched := provider.MatchContestURL(rawURL); matched {
+			return pType, extID, provider, nil
+		}
+	}
+	return "", "", nil, errors.New("unrecognized contest url: must be a supported public contest link")
 }

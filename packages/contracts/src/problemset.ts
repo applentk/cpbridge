@@ -1,4 +1,4 @@
-import type { Problem } from './problem.js';
+import type { PlatformType, Problem } from './problem.js';
 
 export type Visibility = 'PUBLIC' | 'UNLISTED' | 'PRIVATE';
 
@@ -41,4 +41,19 @@ export interface AddProblemToSetRequest {
 
 export interface ReorderProblemSetRequest {
   problemIds: string[];
+}
+
+export interface ImportContestRequest {
+  platform: PlatformType;
+  contestUrl: string;
+  name?: string;
+  description?: string;
+  visibility?: Visibility;
+}
+
+export interface ImportContestResult {
+  problemSet: ProblemSet;
+  problemCount: number;
+  createdProblems: number;
+  updatedProblems: number;
 }

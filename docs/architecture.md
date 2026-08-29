@@ -52,6 +52,8 @@ Public/optional-auth endpoints include problem reads, contest reads, and contest
 
 Problems are normalized into the `problems` table. Imports are keyed by `(platform, external_id)` and update an existing row when re-imported. Importing stores problem metadata, not a scraped statement snapshot. Statements are read from custom problem metadata when present or fetched from the registered platform adapter when requested.
 
+Administrators can also import a public, revealed external contest as a new problem set through the optional platform `ContestProvider` capability. Codeforces regular contests use the public API, Codeforces Gyms use their public dashboard, and AtCoder contests use their public tasks page. The problem-set domain then upserts all normalized problems and inserts the ordered memberships in a single PostgreSQL transaction. Re-importing reuses existing problem records but creates a separate set so administrators can customize multiple collections independently.
+
 Contest problem lists are blocked for non-owners/non-admins while a contest is upcoming. `GetStatement` has an additional upcoming-contest check, but it only blocks stored statements whose platform value is `CUSTOM` or empty. The public direct problem endpoint still returns stored metadata, and external-platform statements remain directly addressable. The code therefore does not provide universal secrecy through every direct problem route; callers must treat the contest problem endpoint as the authoritative reveal gate.
 
 ## Contest timing and scoring

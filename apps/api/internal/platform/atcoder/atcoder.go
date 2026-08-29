@@ -14,10 +14,15 @@ import (
 )
 
 var (
-	urlPattern         = regexp.MustCompile(`atcoder\.jp/contests/([a-zA-Z0-9_\-]+)/tasks/([a-zA-Z0-9_\-]+)`)
-	titleRegex         = regexp.MustCompile(`(?is)<title>\s*(.*?)\s*</title>`)
-	titlePrefixRegex   = regexp.MustCompile(`(?i)^[a-z0-9]+\s*[-.:)]\s*`)
-	contestSuffixRegex = regexp.MustCompile(`(?i)\s+-\s+atcoder.*$`)
+	urlPattern          = regexp.MustCompile(`atcoder\.jp/contests/([a-zA-Z0-9_\-]+)/tasks/([a-zA-Z0-9_\-]+)`)
+	contestURLPattern   = regexp.MustCompile(`(?i)^(?:https?://)?(?:www\.)?atcoder\.jp/contests/([a-zA-Z0-9_\-]+)(?:/tasks)?/?(?:\?.*)?$`)
+	contestIDPattern    = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_\-]*$`)
+	contestHeadingRegex = regexp.MustCompile(`(?is)<span[^>]*class=["'][^"']*\bh2\b[^"']*["'][^>]*>(.*?)</span>`)
+	taskRowRegex        = regexp.MustCompile(`(?is)<tr\b[^>]*>(.*?)</tr>`)
+	taskLinkRegex       = regexp.MustCompile(`(?is)<a[^>]+href=["'](?:https?://atcoder\.jp)?/contests/([a-zA-Z0-9_\-]+)/tasks/([a-zA-Z0-9_\-]+)["'][^>]*>(.*?)</a>`)
+	titleRegex          = regexp.MustCompile(`(?is)<title>\s*(.*?)\s*</title>`)
+	titlePrefixRegex    = regexp.MustCompile(`(?i)^[a-z0-9]+\s*[-.:)]\s*`)
+	contestSuffixRegex  = regexp.MustCompile(`(?i)\s+-\s+atcoder.*$`)
 
 	timeLimitRegex          = regexp.MustCompile(`Time Limit:\s*([0-9\.]+\s*sec)`)
 	memoryLimitRegex        = regexp.MustCompile(`Memory Limit:\s*([0-9\.]+\s*(?:Mi?B|KB))`)
@@ -43,7 +48,8 @@ var (
 )
 
 type Adapter struct {
-	client *http.Client
+	client  *http.Client
+	baseURL string
 }
 
 func New() *Adapter {
@@ -51,6 +57,7 @@ func New() *Adapter {
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		baseURL: "https://atcoder.jp",
 	}
 }
 
@@ -63,6 +70,107 @@ func (a *Adapter) MatchURL(rawURL string) (string, bool) {
 		return fmt.Sprintf("%s/%s", m[1], m[2]), true
 	}
 	return "", false
+}
+
+func (a *Adapter) MatchContestURL(rawURL string) (string, bool) {
+	rawURL = strings.TrimSpace(rawURL)
+	if match := contestURLPattern.FindStringSubmatch(rawURL); len(match) == 2 {
+		return strings.ToLower(match[1]), true
+	}
+	return "", false
+}
+
+func (a *Adapter) GetContest(ctx context.Context, externalID string) (*platform.ContestSnapshot, error) {
+	if !contestIDPattern.MatchString(externalID) {
+		return nil, fmt.Errorf("invalid AtCoder contest id: %s", externalID)
+	}
+	contestID := strings.ToLower(externalID)
+	tasksURL := fmt.Sprintf("%s/contests/%s/tasks", a.baseURL, contestID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tasksURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch AtCoder contest: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("AtCoder contest returned %s", resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, fmt.Errorf("read AtCoder contest response: %w", err)
+	}
+	htmlStr := string(body)
+
+	name := ""
+	if match := contestHeadingRegex.FindStringSubmatch(htmlStr); len(match) == 2 {
+		name = strings.TrimSpace(html.UnescapeString(cleanHTMLTags(match[1])))
+	}
+	if name == "" {
+		name = strings.ToUpper(contestID)
+	}
+
+	problems := make([]platform.NormalizedProblem, 0)
+	seenTasks := make(map[string]struct{})
+	for _, row := range taskRowRegex.FindAllStringSubmatch(htmlStr, -1) {
+		if len(row) != 2 {
+			continue
+		}
+		links := taskLinkRegex.FindAllStringSubmatch(row[1], -1)
+		if len(links) == 0 {
+			continue
+		}
+		taskID := ""
+		title := ""
+		for _, link := range links {
+			if len(link) != 4 || !strings.EqualFold(link[1], contestID) {
+				continue
+			}
+			if taskID == "" {
+				taskID = link[2]
+			}
+			text := strings.TrimSpace(html.UnescapeString(cleanHTMLTags(link[3])))
+			if text != "" && !strings.EqualFold(text, strings.TrimPrefix(strings.ToUpper(taskID), strings.ToUpper(contestID)+"_")) {
+				title = text
+			}
+		}
+		if taskID == "" || title == "" {
+			continue
+		}
+		if _, exists := seenTasks[taskID]; exists {
+			continue
+		}
+		seenTasks[taskID] = struct{}{}
+		problems = append(problems, platform.NormalizedProblem{
+			Platform:   platform.AtCoder,
+			ExternalID: fmt.Sprintf("%s/%s", contestID, taskID),
+			Title:      title,
+			URL:        fmt.Sprintf("https://atcoder.jp/contests/%s/tasks/%s", contestID, taskID),
+			Difficulty: nil,
+			Tags:       []string{"atcoder", contestID},
+			Metadata: map[string]any{
+				"contestId": contestID,
+				"taskId":    taskID,
+			},
+		})
+	}
+	if len(problems) == 0 {
+		return nil, fmt.Errorf("AtCoder contest is private, unrevealed, or contains no importable tasks")
+	}
+
+	return &platform.ContestSnapshot{
+		Platform:   platform.AtCoder,
+		ExternalID: contestID,
+		Name:       name,
+		URL:        fmt.Sprintf("https://atcoder.jp/contests/%s", contestID),
+		Phase:      "AVAILABLE",
+		Problems:   problems,
+	}, nil
 }
 
 func (a *Adapter) GetProblem(ctx context.Context, externalID string) (*platform.NormalizedProblem, error) {
