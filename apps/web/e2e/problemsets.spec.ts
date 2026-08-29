@@ -53,6 +53,32 @@ test.describe('Problem Sets Management', () => {
     await removeBtn.click();
   });
 
+  test('admin can import a Codeforces contest as a problem set', async ({ page }) => {
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    await page.goto('/admin/problem-sets');
+    await page.getByRole('button', { name: 'Import Contest' }).first().click();
+    await page.fill('#contest-url', 'https://codeforces.com/contest/1931');
+    await page.getByRole('button', { name: 'Import Contest', exact: true }).last().click();
+
+    await expect(page).toHaveURL(/\/admin\/problem-sets\/set_cf_/);
+    await expect(page.locator('h1')).toContainText('Codeforces Round 1931');
+  });
+
+  test('admin can import an AtCoder contest through the generic flow', async ({ page }) => {
+    await loginAs(page, mockAdminUser);
+    await setupApiMocks(page, { currentUser: mockAdminUser });
+
+    await page.goto('/admin/problem-sets');
+    await page.getByRole('button', { name: 'Import Contest' }).first().click();
+    await page.fill('#contest-url', 'https://atcoder.jp/contests/abc350');
+    await page.getByRole('button', { name: 'Import Contest', exact: true }).last().click();
+
+    await expect(page).toHaveURL(/\/admin\/problem-sets\/set_cf_/);
+    await expect(page.locator('h1')).toContainText('AtCoder Beginner Contest 350');
+  });
+
   test('admin can add problems to a problem set from library modal', async ({ page }) => {
     await loginAs(page, mockAdminUser);
     await setupApiMocks(page, { currentUser: mockAdminUser });

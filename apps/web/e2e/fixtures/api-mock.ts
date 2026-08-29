@@ -395,6 +395,40 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
       return jsonResponse(route, newSet);
     }
 
+    if (path === '/admin/problem-sets/import' && method === 'POST') {
+      const body = JSON.parse(route.request().postData() || '{}');
+      const isAtCoder = body.platform === 'ATCODER' || (typeof body.contestUrl === 'string' && body.contestUrl.includes('atcoder.jp'));
+      const id = `set_cf_${Date.now()}`;
+      const importedProblems = problemsList.slice(0, 2);
+      const importedSet: ProblemSet = {
+        id,
+        ownerId: currentUser?.id || 'usr_adm_999',
+        name: body.name || (isAtCoder ? 'AtCoder Beginner Contest 350' : 'Codeforces Round 1931'),
+        description:
+          body.description ||
+          (isAtCoder
+            ? 'Imported from https://atcoder.jp/contests/abc350'
+            : 'Imported from https://codeforces.com/contest/1931'),
+        visibility: body.visibility || 'PUBLIC',
+        problemCount: importedProblems.length,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        items: importedProblems.map((problem, position) => ({
+          problemSetId: id,
+          problemId: problem.id,
+          position,
+          problem,
+        })),
+      };
+      problemSetsList.push(importedSet);
+      return jsonResponse(route, {
+        problemSet: importedSet,
+        problemCount: importedProblems.length,
+        createdProblems: importedProblems.length,
+        updatedProblems: 0,
+      });
+    }
+
     const problemSetAddProblemMatch = path.match(/^\/admin\/problem-sets\/([^/]+)\/problems$/);
     if (problemSetAddProblemMatch && method === 'POST') {
       const setId = problemSetAddProblemMatch[1];
