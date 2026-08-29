@@ -58,6 +58,10 @@ type Service struct {
 	registry *platform.Registry
 }
 
+type QueryRower interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
 func NewService(db *sql.DB, registry *platform.Registry) *Service {
 	return &Service{
 		db:       db,
@@ -74,6 +78,29 @@ func (s *Service) ImportByUrl(ctx context.Context, rawURL string) (*Problem, err
 	norm, err := adapter.GetProblem(ctx, extID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch problem from %s: %w", pType, err)
+	}
+
+	p, err := UpsertNormalized(ctx, s.db, norm)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save problem: %w", err)
+	}
+	return p, nil
+}
+
+// UpsertNormalized persists already-fetched platform metadata. Accepting either
+// *sql.DB or *sql.Tx lets bulk importers keep problem and set creation atomic.
+func UpsertNormalized(ctx context.Context, db QueryRower, norm *platform.NormalizedProblem) (*Problem, error) {
+	if norm == nil {
+		return nil, errors.New("normalized problem is required")
+	}
+	if strings.TrimSpace(norm.ExternalID) == "" || strings.TrimSpace(norm.Title) == "" || strings.TrimSpace(norm.URL) == "" {
+		return nil, errors.New("normalized problem is incomplete")
+	}
+	if norm.Tags == nil {
+		norm.Tags = []string{}
+	}
+	if norm.Metadata == nil {
+		norm.Metadata = map[string]any{}
 	}
 
 	tagsJSON, err := json.Marshal(norm.Tags)
@@ -106,10 +133,10 @@ func (s *Service) ImportByUrl(ctx context.Context, rawURL string) (*Problem, err
 	var scannedTags []byte
 	var scannedMeta []byte
 
-	row := s.db.QueryRowContext(ctx, query, id, norm.Platform, norm.ExternalID, norm.Title, norm.URL, norm.Difficulty, tagsJSON, metaJSON, now, now)
+	row := db.QueryRowContext(ctx, query, id, norm.Platform, norm.ExternalID, norm.Title, norm.URL, norm.Difficulty, tagsJSON, metaJSON, now, now)
 	err = row.Scan(&p.ID, &p.Platform, &p.ExternalID, &p.Title, &p.URL, &p.Difficulty, &scannedTags, &scannedMeta, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("failed to save problem: %w", err)
+		return nil, err
 	}
 
 	_ = json.Unmarshal(scannedTags, &p.Tags)

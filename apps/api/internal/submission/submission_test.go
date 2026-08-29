@@ -184,7 +184,8 @@ func TestUpdateDispatchedLinksFirstVerifiedPlatformIdentity(t *testing.T) {
 	require.NotNil(t, updated.ExternalSubmissionID)
 	assert.Equal(t, fmt.Sprintf("%d/%s", suffix, externalSubmissionID), *updated.ExternalSubmissionID)
 	require.NotNil(t, updated.ExternalSubmittedAt)
-	assert.Equal(t, createdSubmission.SubmittedAt, *updated.ExternalSubmittedAt)
+	// PostgreSQL timestamps are persisted at microsecond precision.
+	assert.WithinDuration(t, createdSubmission.SubmittedAt, *updated.ExternalSubmittedAt, time.Microsecond)
 
 	_, err = database.ExecContext(ctx, `
 		INSERT INTO submissions (id, user_id, problem_id, platform, language, source_code, status, external_submission_id, submitted_at, metadata)

@@ -85,6 +85,20 @@ func EnsureSchema(db *sql.DB) error {
 		CONSTRAINT unique_platform_external_id UNIQUE(platform, external_id)
 	);
 	CREATE INDEX IF NOT EXISTS idx_problems_platform ON problems(platform);
+	-- Gym problem URLs require their source context when statements are fetched.
+	-- Normalize records created before Gym IDs were prefixed, without touching a
+	-- record if the prefixed form already exists.
+	UPDATE problems AS legacy
+	SET external_id = 'gym/' || legacy.external_id
+	WHERE legacy.platform = 'CODEFORCES'
+		AND COALESCE(legacy.metadata->>'gym', 'false') = 'true'
+		AND legacy.external_id !~ '^gym/'
+		AND NOT EXISTS (
+			SELECT 1
+			FROM problems AS current
+			WHERE current.platform = legacy.platform
+				AND current.external_id = 'gym/' || legacy.external_id
+		);
 
 	CREATE TABLE IF NOT EXISTS problem_sets (
 		id VARCHAR(36) PRIMARY KEY,
