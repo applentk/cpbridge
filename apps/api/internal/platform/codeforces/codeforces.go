@@ -112,14 +112,14 @@ func (a *Adapter) getRegularContest(ctx context.Context, contestID string) (*pla
 		return nil, fmt.Errorf("failed to fetch Codeforces contest: %w", err)
 	}
 	defer resp.Body.Close()
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[Platform:Codeforces:Error] Contest %s (%s) returned status %d %s", contestID, pageURL, resp.StatusCode, resp.Status)
+		log.Printf("[Platform:Codeforces:Error] Contest %s (%s) returned status %d %s | Body: %s", contestID, pageURL, resp.StatusCode, resp.Status, previewBody(body, 1000))
 		return nil, fmt.Errorf("Codeforces returned status %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		log.Printf("[Platform:Codeforces:Error] Failed to read contest response body for %s: %v", contestID, err)
-		return nil, fmt.Errorf("failed to read Codeforces contest: %w", err)
+	if readErr != nil {
+		log.Printf("[Platform:Codeforces:Error] Failed to read contest response body for %s: %v", contestID, readErr)
+		return nil, fmt.Errorf("failed to read Codeforces contest: %w", readErr)
 	}
 	htmlStr := string(body)
 
@@ -216,14 +216,14 @@ func (a *Adapter) getGymContest(ctx context.Context, gymID string) (*platform.Co
 		return nil, fmt.Errorf("failed to fetch Codeforces Gym contest: %w", err)
 	}
 	defer resp.Body.Close()
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[Platform:Codeforces:Error] Gym contest %s (%s) returned status %d %s", gymID, pageURL, resp.StatusCode, resp.Status)
+		log.Printf("[Platform:Codeforces:Error] Gym contest %s (%s) returned status %d %s | Body: %s", gymID, pageURL, resp.StatusCode, resp.Status, previewBody(body, 1000))
 		return nil, fmt.Errorf("Codeforces Gym returned status %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		log.Printf("[Platform:Codeforces:Error] Failed to read gym contest response body for %s: %v", gymID, err)
-		return nil, fmt.Errorf("failed to read Codeforces Gym contest: %w", err)
+	if readErr != nil {
+		log.Printf("[Platform:Codeforces:Error] Failed to read gym contest response body for %s: %v", gymID, readErr)
+		return nil, fmt.Errorf("failed to read Codeforces Gym contest: %w", readErr)
 	}
 	htmlStr := string(body)
 
@@ -406,14 +406,13 @@ func (a *Adapter) fetchProblemDetails(ctx context.Context, officialURL string) (
 		return "", "", "", false
 	}
 	defer resp.Body.Close()
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[Platform:Codeforces:Error] Problem details %s returned status %d %s", officialURL, resp.StatusCode, resp.Status)
+		log.Printf("[Platform:Codeforces:Error] Problem details %s returned status %d %s | Body: %s", officialURL, resp.StatusCode, resp.Status, previewBody(body, 1000))
 		return "", "", "", false
 	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
-	if err != nil {
-		log.Printf("[Platform:Codeforces:Error] Failed to read problem details response body for %s: %v", officialURL, err)
+	if readErr != nil {
+		log.Printf("[Platform:Codeforces:Error] Failed to read problem details response body for %s: %v", officialURL, readErr)
 		return "", "", "", false
 	}
 	htmlStr := string(body)
@@ -471,14 +470,13 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 		return nil, fmt.Errorf("failed to fetch problem statement: %w", err)
 	}
 	defer resp.Body.Close()
+	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024*1024*2))
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[Platform:Codeforces:Error] Statement request %s returned status %d %s", officialURL, resp.StatusCode, resp.Status)
+		log.Printf("[Platform:Codeforces:Error] Statement request %s returned status %d %s | Body: %s", officialURL, resp.StatusCode, resp.Status, previewBody(bodyBytes, 1000))
 	}
-
-	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024*2))
-	if err != nil {
-		log.Printf("[Platform:Codeforces:Error] Failed to read statement response body for %s: %v", officialURL, err)
-		return nil, err
+	if readErr != nil {
+		log.Printf("[Platform:Codeforces:Error] Failed to read statement response body for %s: %v", officialURL, readErr)
+		return nil, readErr
 	}
 	htmlStr := string(bodyBytes)
 
@@ -675,13 +673,18 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 				log.Printf("[Platform:Codeforces:Error] HTTP request failed for contest.status (%s): %v", apiURL, err)
 			} else {
 				defer resp.Body.Close()
+				apiBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
 				if resp.StatusCode != http.StatusOK {
-					log.Printf("[Platform:Codeforces:Error] contest.status API returned status %d %s", resp.StatusCode, resp.Status)
+					log.Printf("[Platform:Codeforces:Error] contest.status API returned status %d %s | Body: %s", resp.StatusCode, resp.Status, previewBody(apiBody, 1000))
+				} else if readErr != nil {
+					log.Printf("[Platform:Codeforces:Error] Failed to read contest.status API response: %v", readErr)
 				} else {
 					var statusResp cfStatusApiResponse
-					if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
-						log.Printf("[Platform:Codeforces:Error] Failed to decode contest.status response: %v", err)
-					} else if statusResp.Status == "OK" {
+					if err := json.Unmarshal(apiBody, &statusResp); err != nil {
+						log.Printf("[Platform:Codeforces:Error] Failed to decode contest.status response: %v | Body: %s", err, previewBody(apiBody, 1000))
+					} else if statusResp.Status != "OK" {
+						log.Printf("[Platform:Codeforces:Error] contest.status API returned non-OK status: %s (comment: %s) | Body: %s", statusResp.Status, statusResp.Comment, previewBody(apiBody, 1000))
+					} else {
 						for _, sub := range statusResp.Result {
 							if strconv.FormatInt(sub.ID, 10) == subID {
 								status := mapCFVerdict(sub.Verdict)
@@ -740,24 +743,25 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 			}
 			defer resp.Body.Close()
 
+			bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
+
 			if resp.StatusCode == http.StatusNotFound {
 				return &platform.SubmissionStatus{
 					ExternalSubmissionID: externalSubmissionID,
 					Status:               "FAILED",
 					RawPayload: map[string]any{
 						"error": "Submission not found on Codeforces (404 Not Found)",
+						"body":  previewBody(bodyBytes, 500),
 					},
 				}, nil
 			}
 
 			if resp.StatusCode != http.StatusOK {
-				log.Printf("[Platform:Codeforces:Error] Submission scrape %s returned status %d %s", subURL, resp.StatusCode, resp.Status)
+				log.Printf("[Platform:Codeforces:Error] Submission scrape %s returned status %d %s | Body: %s", subURL, resp.StatusCode, resp.Status, previewBody(bodyBytes, 1000))
 				continue
 			}
-
-			bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
-			if err != nil {
-				log.Printf("[Platform:Codeforces:Error] Failed to read submission scrape body for %s: %v", subURL, err)
+			if readErr != nil {
+				log.Printf("[Platform:Codeforces:Error] Failed to read submission scrape body for %s: %v", subURL, readErr)
 				continue
 			}
 			htmlStr := string(bodyBytes)
@@ -847,7 +851,7 @@ func (a *Adapter) fetchSubmissionSource(ctx context.Context, contestID, submissi
 				return source, true
 			}
 		} else {
-			log.Printf("[Platform:Codeforces:Error] Submission source request %s returned status %d %s", submissionURL, resp.StatusCode, resp.Status)
+			log.Printf("[Platform:Codeforces:Error] Submission source request %s returned status %d %s | Body: %s", submissionURL, resp.StatusCode, resp.Status, previewBody(body, 1000))
 		}
 	}
 	return "", false
@@ -917,3 +921,15 @@ func cleanSampleCode(s string) string {
 	s = strings.ReplaceAll(s, `</div>`, "\n")
 	return strings.TrimSpace(cleanHTMLTags(s))
 }
+
+func previewBody(body []byte, maxLen int) string {
+	if len(body) == 0 {
+		return "<empty>"
+	}
+	s := strings.TrimSpace(string(body))
+	if maxLen > 0 && len(s) > maxLen {
+		return s[:maxLen] + " ... (truncated)"
+	}
+	return s
+}
+

@@ -101,14 +101,14 @@ func (a *Adapter) GetContest(ctx context.Context, externalID string) (*platform.
 		return nil, fmt.Errorf("failed to fetch AtCoder contest: %w", err)
 	}
 	defer resp.Body.Close()
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[Platform:AtCoder:Error] Contest %s (%s) returned status %d %s", contestID, tasksURL, resp.StatusCode, resp.Status)
+		log.Printf("[Platform:AtCoder:Error] Contest %s (%s) returned status %d %s | Body: %s", contestID, tasksURL, resp.StatusCode, resp.Status, previewBody(body, 1000))
 		return nil, fmt.Errorf("AtCoder contest returned %s", resp.Status)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		log.Printf("[Platform:AtCoder:Error] Failed to read contest response body for %s: %v", contestID, err)
-		return nil, fmt.Errorf("read AtCoder contest response: %w", err)
+	if readErr != nil {
+		log.Printf("[Platform:AtCoder:Error] Failed to read contest response body for %s: %v", contestID, readErr)
+		return nil, fmt.Errorf("read AtCoder contest response: %w", readErr)
 	}
 	htmlStr := string(body)
 
@@ -252,15 +252,15 @@ func (a *Adapter) fetchTaskPage(ctx context.Context, officialURL string) (string
 	}
 	defer resp.Body.Close()
 
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[Platform:AtCoder:Error] Task page %s returned status %d %s", officialURL, resp.StatusCode, resp.Status)
+		log.Printf("[Platform:AtCoder:Error] Task page %s returned status %d %s | Body: %s", officialURL, resp.StatusCode, resp.Status, previewBody(body, 1000))
 		return "", fmt.Errorf("AtCoder returned %s for problem", resp.Status)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
-	if err != nil {
-		log.Printf("[Platform:AtCoder:Error] Failed to read task page response body for %s: %v", officialURL, err)
-		return "", fmt.Errorf("read AtCoder problem response: %w", err)
+	if readErr != nil {
+		log.Printf("[Platform:AtCoder:Error] Failed to read task page response body for %s: %v", officialURL, readErr)
+		return "", fmt.Errorf("read AtCoder problem response: %w", readErr)
 	}
 	return string(body), nil
 }
@@ -443,58 +443,58 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 			} else {
 				defer resp.Body.Close()
 
+				bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
+
 				if resp.StatusCode == http.StatusNotFound {
 					return &platform.SubmissionStatus{
 						ExternalSubmissionID: externalSubmissionID,
 						Status:               "FAILED",
 						RawPayload: map[string]any{
 							"error": "Submission not found on AtCoder (404 Not Found)",
+							"body":  previewBody(bodyBytes, 500),
 						},
 					}, nil
 				}
 
 				if resp.StatusCode != http.StatusOK {
-					log.Printf("[Platform:AtCoder:Error] Submission %s (%s) returned status %d %s", externalSubmissionID, submissionURL, resp.StatusCode, resp.Status)
+					log.Printf("[Platform:AtCoder:Error] Submission %s (%s) returned status %d %s | Body: %s", externalSubmissionID, submissionURL, resp.StatusCode, resp.Status, previewBody(bodyBytes, 1000))
+				} else if readErr != nil {
+					log.Printf("[Platform:AtCoder:Error] Failed to read submission response body for %s: %v", externalSubmissionID, readErr)
 				} else {
-					bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
-					if err != nil {
-						log.Printf("[Platform:AtCoder:Error] Failed to read submission response body for %s: %v", externalSubmissionID, err)
-					} else {
-						htmlStr := string(bodyBytes)
-						verified := parseSubmissionMetadata(htmlStr, contestID)
-						verified.ExternalSubmissionID = externalSubmissionID
-						if strings.Contains(htmlStr, ">AC</span>") || strings.Contains(htmlStr, "label-success") {
-							verified.Status = "ACCEPTED"
-							return verified, nil
-						}
-						if strings.Contains(htmlStr, ">WA</span>") {
-							verified.Status = "WRONG_ANSWER"
-							return verified, nil
-						}
-						if strings.Contains(htmlStr, ">TLE</span>") {
-							verified.Status = "TIME_LIMIT"
-							return verified, nil
-						}
-						if strings.Contains(htmlStr, ">MLE</span>") {
-							verified.Status = "MEMORY_LIMIT"
-							return verified, nil
-						}
-						if strings.Contains(htmlStr, ">RE</span>") {
-							verified.Status = "RUNTIME_ERROR"
-							return verified, nil
-						}
-						if strings.Contains(htmlStr, ">CE</span>") {
-							verified.Status = "COMPILE_ERROR"
-							return verified, nil
-						}
-						if strings.Contains(htmlStr, ">OLE</span>") || strings.Contains(htmlStr, ">QLE</span>") {
-							verified.Status = "FAILED"
-							return verified, nil
-						}
-						if strings.Contains(htmlStr, ">WJ</span>") || strings.Contains(htmlStr, ">WR</span>") || strings.Contains(htmlStr, "label-default") {
-							verified.Status = "JUDGING"
-							return verified, nil
-						}
+					htmlStr := string(bodyBytes)
+					verified := parseSubmissionMetadata(htmlStr, contestID)
+					verified.ExternalSubmissionID = externalSubmissionID
+					if strings.Contains(htmlStr, ">AC</span>") || strings.Contains(htmlStr, "label-success") {
+						verified.Status = "ACCEPTED"
+						return verified, nil
+					}
+					if strings.Contains(htmlStr, ">WA</span>") {
+						verified.Status = "WRONG_ANSWER"
+						return verified, nil
+					}
+					if strings.Contains(htmlStr, ">TLE</span>") {
+						verified.Status = "TIME_LIMIT"
+						return verified, nil
+					}
+					if strings.Contains(htmlStr, ">MLE</span>") {
+						verified.Status = "MEMORY_LIMIT"
+						return verified, nil
+					}
+					if strings.Contains(htmlStr, ">RE</span>") {
+						verified.Status = "RUNTIME_ERROR"
+						return verified, nil
+					}
+					if strings.Contains(htmlStr, ">CE</span>") {
+						verified.Status = "COMPILE_ERROR"
+						return verified, nil
+					}
+					if strings.Contains(htmlStr, ">OLE</span>") || strings.Contains(htmlStr, ">QLE</span>") {
+						verified.Status = "FAILED"
+						return verified, nil
+					}
+					if strings.Contains(htmlStr, ">WJ</span>") || strings.Contains(htmlStr, ">WR</span>") || strings.Contains(htmlStr, "label-default") {
+						verified.Status = "JUDGING"
+						return verified, nil
 					}
 				}
 			}
@@ -505,6 +505,17 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 		ExternalSubmissionID: externalSubmissionID,
 		Status:               "JUDGING",
 	}, nil
+}
+
+func previewBody(body []byte, maxLen int) string {
+	if len(body) == 0 {
+		return "<empty>"
+	}
+	s := strings.TrimSpace(string(body))
+	if maxLen > 0 && len(s) > maxLen {
+		return s[:maxLen] + " ... (truncated)"
+	}
+	return s
 }
 
 func parseSubmissionMetadata(htmlStr, contestID string) *platform.SubmissionStatus {
