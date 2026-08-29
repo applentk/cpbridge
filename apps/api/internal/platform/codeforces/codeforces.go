@@ -6,6 +6,7 @@ import (
 	"fmt"
 	htmllib "html"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -100,20 +101,24 @@ func (a *Adapter) getRegularContest(ctx context.Context, contestID string) (*pla
 	pageURL := fmt.Sprintf("%s/contest/%s", a.baseURL, contestID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
+		log.Printf("[Platform:Codeforces:Error] Failed to create request for contest %s (%s): %v", contestID, pageURL, err)
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
+		log.Printf("[Platform:Codeforces:Error] HTTP request failed for contest %s (%s): %v", contestID, pageURL, err)
 		return nil, fmt.Errorf("failed to fetch Codeforces contest: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[Platform:Codeforces:Error] Contest %s (%s) returned status %d %s", contestID, pageURL, resp.StatusCode, resp.Status)
 		return nil, fmt.Errorf("Codeforces returned status %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
+		log.Printf("[Platform:Codeforces:Error] Failed to read contest response body for %s: %v", contestID, err)
 		return nil, fmt.Errorf("failed to read Codeforces contest: %w", err)
 	}
 	htmlStr := string(body)
@@ -200,20 +205,24 @@ func (a *Adapter) getGymContest(ctx context.Context, gymID string) (*platform.Co
 	pageURL := fmt.Sprintf("%s/gym/%s", a.baseURL, gymID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
+		log.Printf("[Platform:Codeforces:Error] Failed to create request for gym contest %s (%s): %v", gymID, pageURL, err)
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
+		log.Printf("[Platform:Codeforces:Error] HTTP request failed for gym contest %s (%s): %v", gymID, pageURL, err)
 		return nil, fmt.Errorf("failed to fetch Codeforces Gym contest: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[Platform:Codeforces:Error] Gym contest %s (%s) returned status %d %s", gymID, pageURL, resp.StatusCode, resp.Status)
 		return nil, fmt.Errorf("Codeforces Gym returned status %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
+		log.Printf("[Platform:Codeforces:Error] Failed to read gym contest response body for %s: %v", gymID, err)
 		return nil, fmt.Errorf("failed to read Codeforces Gym contest: %w", err)
 	}
 	htmlStr := string(body)
@@ -386,21 +395,25 @@ func codeforcesProblemURL(contestID, index string, isGym bool) string {
 func (a *Adapter) fetchProblemDetails(ctx context.Context, officialURL string) (string, string, string, bool) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, officialURL, nil)
 	if err != nil {
+		log.Printf("[Platform:Codeforces:Error] Failed to create request for problem details %s: %v", officialURL, err)
 		return "", "", "", false
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
+		log.Printf("[Platform:Codeforces:Error] HTTP request failed for problem details %s: %v", officialURL, err)
 		return "", "", "", false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[Platform:Codeforces:Error] Problem details %s returned status %d %s", officialURL, resp.StatusCode, resp.Status)
 		return "", "", "", false
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	if err != nil {
+		log.Printf("[Platform:Codeforces:Error] Failed to read problem details response body for %s: %v", officialURL, err)
 		return "", "", "", false
 	}
 	htmlStr := string(body)
@@ -447,18 +460,24 @@ func (a *Adapter) GetStatement(ctx context.Context, externalID string) (*platfor
 
 	req, err := http.NewRequestWithContext(ctx, "GET", officialURL, nil)
 	if err != nil {
+		log.Printf("[Platform:Codeforces:Error] Failed to create request for statement %s: %v", officialURL, err)
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
+		log.Printf("[Platform:Codeforces:Error] HTTP request failed for statement %s: %v", officialURL, err)
 		return nil, fmt.Errorf("failed to fetch problem statement: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[Platform:Codeforces:Error] Statement request %s returned status %d %s", officialURL, resp.StatusCode, resp.Status)
+	}
 
 	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024*2))
 	if err != nil {
+		log.Printf("[Platform:Codeforces:Error] Failed to read statement response body for %s: %v", officialURL, err)
 		return nil, err
 	}
 	htmlStr := string(bodyBytes)
@@ -647,42 +666,52 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 	if contestID != "" {
 		apiURL := fmt.Sprintf("https://codeforces.com/api/contest.status?contestId=%s&from=1&count=100", contestID)
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-		if err == nil {
+		if err != nil {
+			log.Printf("[Platform:Codeforces:Error] Failed to create contest.status request for contest %s: %v", contestID, err)
+		} else {
 			req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 			resp, err := a.client.Do(req)
-			if err == nil && resp.StatusCode == http.StatusOK {
+			if err != nil {
+				log.Printf("[Platform:Codeforces:Error] HTTP request failed for contest.status (%s): %v", apiURL, err)
+			} else {
 				defer resp.Body.Close()
-				var statusResp cfStatusApiResponse
-				if err := json.NewDecoder(resp.Body).Decode(&statusResp); err == nil && statusResp.Status == "OK" {
-					for _, sub := range statusResp.Result {
-						if strconv.FormatInt(sub.ID, 10) == subID {
-							status := mapCFVerdict(sub.Verdict)
-							timeMs := sub.TimeConsumedMillis
-							memBytes := sub.MemoryConsumedBytes
-							testcase := sub.PassedTestCount
-							if status != "ACCEPTED" && status != "JUDGING" {
-								testcase++
+				if resp.StatusCode != http.StatusOK {
+					log.Printf("[Platform:Codeforces:Error] contest.status API returned status %d %s", resp.StatusCode, resp.Status)
+				} else {
+					var statusResp cfStatusApiResponse
+					if err := json.NewDecoder(resp.Body).Decode(&statusResp); err != nil {
+						log.Printf("[Platform:Codeforces:Error] Failed to decode contest.status response: %v", err)
+					} else if statusResp.Status == "OK" {
+						for _, sub := range statusResp.Result {
+							if strconv.FormatInt(sub.ID, 10) == subID {
+								status := mapCFVerdict(sub.Verdict)
+								timeMs := sub.TimeConsumedMillis
+								memBytes := sub.MemoryConsumedBytes
+								testcase := sub.PassedTestCount
+								if status != "ACCEPTED" && status != "JUDGING" {
+									testcase++
+								}
+								statusObj := &platform.SubmissionStatus{
+									ExternalSubmissionID: externalSubmissionID,
+									Status:               status,
+									ProblemExternalID:    fmt.Sprintf("%d/%s", sub.Problem.ContestID, strings.ToUpper(sub.Problem.Index)),
+									Language:             sub.ProgrammingLanguage,
+									PlatformUsername:     firstCFHandle(sub.Author.Members),
+									SubmittedAt:          unixTime(sub.CreationTimeSeconds),
+									ExecutionTimeMs:      &timeMs,
+									MemoryBytes:          &memBytes,
+									FailedTestcase:       &testcase,
+									RawPayload: map[string]any{
+										"cfSubmissionId":  sub.ID,
+										"verdict":         sub.Verdict,
+										"passedTestCount": sub.PassedTestCount,
+									},
+								}
+								if source, ok := a.fetchSubmissionSource(ctx, contestID, subID); ok {
+									statusObj.SourceCode = source
+								}
+								return statusObj, nil
 							}
-							statusObj := &platform.SubmissionStatus{
-								ExternalSubmissionID: externalSubmissionID,
-								Status:               status,
-								ProblemExternalID:    fmt.Sprintf("%d/%s", sub.Problem.ContestID, strings.ToUpper(sub.Problem.Index)),
-								Language:             sub.ProgrammingLanguage,
-								PlatformUsername:     firstCFHandle(sub.Author.Members),
-								SubmittedAt:          unixTime(sub.CreationTimeSeconds),
-								ExecutionTimeMs:      &timeMs,
-								MemoryBytes:          &memBytes,
-								FailedTestcase:       &testcase,
-								RawPayload: map[string]any{
-									"cfSubmissionId":  sub.ID,
-									"verdict":         sub.Verdict,
-									"passedTestCount": sub.PassedTestCount,
-								},
-							}
-							if source, ok := a.fetchSubmissionSource(ctx, contestID, subID); ok {
-								statusObj.SourceCode = source
-							}
-							return statusObj, nil
 						}
 					}
 				}
@@ -700,11 +729,13 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 		for _, subURL := range submissionURLs {
 			req, err := http.NewRequestWithContext(ctx, "GET", subURL, nil)
 			if err != nil {
+				log.Printf("[Platform:Codeforces:Error] Failed to create submission scrape request for %s: %v", subURL, err)
 				continue
 			}
 			req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 			resp, err := a.client.Do(req)
 			if err != nil {
+				log.Printf("[Platform:Codeforces:Error] HTTP request failed for submission scrape %s: %v", subURL, err)
 				continue
 			}
 			defer resp.Body.Close()
@@ -719,61 +750,66 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 				}, nil
 			}
 
-			if resp.StatusCode == http.StatusOK {
-				bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
-				if err == nil {
-					htmlStr := string(bodyBytes)
-					source := extractSubmissionSource(htmlStr)
-					if strings.Contains(htmlStr, "verdict-accepted") || strings.Contains(htmlStr, ">Accepted<") {
-						return &platform.SubmissionStatus{
-							ExternalSubmissionID: externalSubmissionID,
-							Status:               "ACCEPTED",
-							SourceCode:           source,
-						}, nil
-					}
-					if strings.Contains(htmlStr, "Compilation error") || strings.Contains(htmlStr, "verdict-compilation-error") {
-						return &platform.SubmissionStatus{
-							ExternalSubmissionID: externalSubmissionID,
-							Status:               "COMPILE_ERROR",
-							SourceCode:           source,
-						}, nil
-					}
-					if strings.Contains(htmlStr, "Time limit exceeded") {
-						return &platform.SubmissionStatus{
-							ExternalSubmissionID: externalSubmissionID,
-							Status:               "TIME_LIMIT",
-							SourceCode:           source,
-						}, nil
-					}
-					if strings.Contains(htmlStr, "Memory limit exceeded") {
-						return &platform.SubmissionStatus{
-							ExternalSubmissionID: externalSubmissionID,
-							Status:               "MEMORY_LIMIT",
-							SourceCode:           source,
-						}, nil
-					}
-					if strings.Contains(htmlStr, "Runtime error") {
-						return &platform.SubmissionStatus{
-							ExternalSubmissionID: externalSubmissionID,
-							Status:               "RUNTIME_ERROR",
-							SourceCode:           source,
-						}, nil
-					}
-					if strings.Contains(htmlStr, "Wrong answer") || strings.Contains(htmlStr, "verdict-rejected") {
-						return &platform.SubmissionStatus{
-							ExternalSubmissionID: externalSubmissionID,
-							Status:               "WRONG_ANSWER",
-							SourceCode:           source,
-						}, nil
-					}
-					if strings.Contains(htmlStr, "verdict-waiting") || strings.Contains(htmlStr, "In queue") || strings.Contains(htmlStr, "Running on test") {
-						return &platform.SubmissionStatus{
-							ExternalSubmissionID: externalSubmissionID,
-							Status:               "JUDGING",
-							SourceCode:           source,
-						}, nil
-					}
-				}
+			if resp.StatusCode != http.StatusOK {
+				log.Printf("[Platform:Codeforces:Error] Submission scrape %s returned status %d %s", subURL, resp.StatusCode, resp.Status)
+				continue
+			}
+
+			bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
+			if err != nil {
+				log.Printf("[Platform:Codeforces:Error] Failed to read submission scrape body for %s: %v", subURL, err)
+				continue
+			}
+			htmlStr := string(bodyBytes)
+			source := extractSubmissionSource(htmlStr)
+			if strings.Contains(htmlStr, "verdict-accepted") || strings.Contains(htmlStr, ">Accepted<") {
+				return &platform.SubmissionStatus{
+					ExternalSubmissionID: externalSubmissionID,
+					Status:               "ACCEPTED",
+					SourceCode:           source,
+				}, nil
+			}
+			if strings.Contains(htmlStr, "Compilation error") || strings.Contains(htmlStr, "verdict-compilation-error") {
+				return &platform.SubmissionStatus{
+					ExternalSubmissionID: externalSubmissionID,
+					Status:               "COMPILE_ERROR",
+					SourceCode:           source,
+				}, nil
+			}
+			if strings.Contains(htmlStr, "Time limit exceeded") {
+				return &platform.SubmissionStatus{
+					ExternalSubmissionID: externalSubmissionID,
+					Status:               "TIME_LIMIT",
+					SourceCode:           source,
+				}, nil
+			}
+			if strings.Contains(htmlStr, "Memory limit exceeded") {
+				return &platform.SubmissionStatus{
+					ExternalSubmissionID: externalSubmissionID,
+					Status:               "MEMORY_LIMIT",
+					SourceCode:           source,
+				}, nil
+			}
+			if strings.Contains(htmlStr, "Runtime error") {
+				return &platform.SubmissionStatus{
+					ExternalSubmissionID: externalSubmissionID,
+					Status:               "RUNTIME_ERROR",
+					SourceCode:           source,
+				}, nil
+			}
+			if strings.Contains(htmlStr, "Wrong answer") || strings.Contains(htmlStr, "verdict-rejected") {
+				return &platform.SubmissionStatus{
+					ExternalSubmissionID: externalSubmissionID,
+					Status:               "WRONG_ANSWER",
+					SourceCode:           source,
+				}, nil
+			}
+			if strings.Contains(htmlStr, "verdict-waiting") || strings.Contains(htmlStr, "In queue") || strings.Contains(htmlStr, "Running on test") {
+				return &platform.SubmissionStatus{
+					ExternalSubmissionID: externalSubmissionID,
+					Status:               "JUDGING",
+					SourceCode:           source,
+				}, nil
 			}
 		}
 	}
@@ -791,19 +827,27 @@ func (a *Adapter) fetchSubmissionSource(ctx context.Context, contestID, submissi
 	} {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, submissionURL, nil)
 		if err != nil {
+			log.Printf("[Platform:Codeforces:Error] Failed to create submission source request for %s: %v", submissionURL, err)
 			continue
 		}
 		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 		resp, err := a.client.Do(req)
 		if err != nil {
+			log.Printf("[Platform:Codeforces:Error] HTTP request failed for submission source %s: %v", submissionURL, err)
 			continue
 		}
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
 		resp.Body.Close()
-		if readErr == nil && resp.StatusCode == http.StatusOK {
+		if readErr != nil {
+			log.Printf("[Platform:Codeforces:Error] Failed to read submission source body for %s: %v", submissionURL, readErr)
+			continue
+		}
+		if resp.StatusCode == http.StatusOK {
 			if source := extractSubmissionSource(string(body)); source != "" {
 				return source, true
 			}
+		} else {
+			log.Printf("[Platform:Codeforces:Error] Submission source request %s returned status %d %s", submissionURL, resp.StatusCode, resp.Status)
 		}
 	}
 	return "", false

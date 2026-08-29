@@ -19,6 +19,7 @@ import (
 	"github.com/cpbridge/api/internal/auth"
 	"github.com/cpbridge/api/internal/contest"
 	"github.com/cpbridge/api/internal/db"
+	"github.com/cpbridge/api/internal/httplog"
 	"github.com/cpbridge/api/internal/integration"
 	"github.com/cpbridge/api/internal/platform"
 	"github.com/cpbridge/api/internal/platform/atcoder"
@@ -134,7 +135,7 @@ func main() {
 
 	// Global Middlewares
 	r.Use(middleware.RequestID)
-	r.Use(middleware.Logger)
+	r.Use(httplog.RequestLogger)
 	r.Use(middleware.Recoverer)
 	r.Use(requestProtection)
 

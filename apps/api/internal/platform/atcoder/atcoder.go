@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -88,6 +89,7 @@ func (a *Adapter) GetContest(ctx context.Context, externalID string) (*platform.
 	tasksURL := fmt.Sprintf("%s/contests/%s/tasks", a.baseURL, contestID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tasksURL, nil)
 	if err != nil {
+		log.Printf("[Platform:AtCoder:Error] Failed to create request for contest %s (%s): %v", contestID, tasksURL, err)
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -95,14 +97,17 @@ func (a *Adapter) GetContest(ctx context.Context, externalID string) (*platform.
 
 	resp, err := a.client.Do(req)
 	if err != nil {
+		log.Printf("[Platform:AtCoder:Error] HTTP request failed for contest %s (%s): %v", contestID, tasksURL, err)
 		return nil, fmt.Errorf("failed to fetch AtCoder contest: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[Platform:AtCoder:Error] Contest %s (%s) returned status %d %s", contestID, tasksURL, resp.StatusCode, resp.Status)
 		return nil, fmt.Errorf("AtCoder contest returned %s", resp.Status)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
+		log.Printf("[Platform:AtCoder:Error] Failed to read contest response body for %s: %v", contestID, err)
 		return nil, fmt.Errorf("read AtCoder contest response: %w", err)
 	}
 	htmlStr := string(body)
@@ -233,6 +238,7 @@ func normalizeProblemTitle(title string) string {
 func (a *Adapter) fetchTaskPage(ctx context.Context, officialURL string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, officialURL, nil)
 	if err != nil {
+		log.Printf("[Platform:AtCoder:Error] Failed to create request for task page %s: %v", officialURL, err)
 		return "", err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -241,16 +247,19 @@ func (a *Adapter) fetchTaskPage(ctx context.Context, officialURL string) (string
 
 	resp, err := a.client.Do(req)
 	if err != nil {
+		log.Printf("[Platform:AtCoder:Error] HTTP request failed for task page %s: %v", officialURL, err)
 		return "", fmt.Errorf("failed to fetch AtCoder problem: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[Platform:AtCoder:Error] Task page %s returned status %d %s", officialURL, resp.StatusCode, resp.Status)
 		return "", fmt.Errorf("AtCoder returned %s for problem", resp.Status)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
+		log.Printf("[Platform:AtCoder:Error] Failed to read task page response body for %s: %v", officialURL, err)
 		return "", fmt.Errorf("read AtCoder problem response: %w", err)
 	}
 	return string(body), nil
@@ -422,12 +431,16 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 	if contestID != "" && subID != "" {
 		submissionURL := fmt.Sprintf("https://atcoder.jp/contests/%s/submissions/%s", contestID, subID)
 		req, err := http.NewRequestWithContext(ctx, "GET", submissionURL, nil)
-		if err == nil {
+		if err != nil {
+			log.Printf("[Platform:AtCoder:Error] Failed to create submission request for %s: %v", externalSubmissionID, err)
+		} else {
 			req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 			req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
 			req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 			resp, err := a.client.Do(req)
-			if err == nil {
+			if err != nil {
+				log.Printf("[Platform:AtCoder:Error] HTTP request failed for submission %s (%s): %v", externalSubmissionID, submissionURL, err)
+			} else {
 				defer resp.Body.Close()
 
 				if resp.StatusCode == http.StatusNotFound {
@@ -440,9 +453,13 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 					}, nil
 				}
 
-				if resp.StatusCode == http.StatusOK {
+				if resp.StatusCode != http.StatusOK {
+					log.Printf("[Platform:AtCoder:Error] Submission %s (%s) returned status %d %s", externalSubmissionID, submissionURL, resp.StatusCode, resp.Status)
+				} else {
 					bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
-					if err == nil {
+					if err != nil {
+						log.Printf("[Platform:AtCoder:Error] Failed to read submission response body for %s: %v", externalSubmissionID, err)
+					} else {
 						htmlStr := string(bodyBytes)
 						verified := parseSubmissionMetadata(htmlStr, contestID)
 						verified.ExternalSubmissionID = externalSubmissionID
