@@ -29,6 +29,10 @@ tmp_dir = "tmp"
   send_interrupt = false
   stop_on_error = true
 
+[build.windows]
+  entrypoint = "./tmp/main.exe"
+  cmd = "go build -o ./tmp/main.exe ./cmd/server"
+
 [color]
   app = ""
   build = "yellow"

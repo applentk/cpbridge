@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev:api": "cd apps/api && set -a && . ./.env && set +a && if PATH=\"$PATH:$(go env GOPATH 2>/dev/null || echo $HOME/go)/bin\" which air >/dev/null 2>&1; then PATH=\"$PATH:$(go env GOPATH 2>/dev/null || echo $HOME/go)/bin\" air; else go run cmd/server/main.go; fi",
+    "dev:api": "node scripts/dev-api.mjs",
     "dev:web": "pnpm --filter @cpbridge/web dev",
     "dev:ext": "pnpm --filter @cpbridge/extension dev",
     "package:ext": "pnpm --filter @cpbridge/extension package",

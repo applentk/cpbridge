@@ -83,6 +83,8 @@ In a new terminal:
 # Using root package script:
 pnpm dev:api
 
+# This command works from PowerShell as well as macOS/Linux shells.
+
 # Or directly in the api directory:
 cd apps/api
 go run cmd/server/main.go
