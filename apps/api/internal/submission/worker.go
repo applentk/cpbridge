@@ -123,10 +123,7 @@ func (w *Worker) ProcessPollVerdict(ctx context.Context, t *asynq.Task) error {
 	prob, _ := w.probSvc.GetByID(ctx, problemID)
 	formattedExtID := externalID
 	if prob != nil && !strings.Contains(formattedExtID, "/") {
-		parts := strings.Split(prob.ExternalID, "/")
-		if len(parts) >= 1 {
-			formattedExtID = fmt.Sprintf("%s/%s", parts[0], formattedExtID)
-		}
+		formattedExtID = externalSubmissionRef(prob.ExternalID, formattedExtID)
 	}
 
 	// 4. Poll external platform
@@ -225,4 +222,15 @@ func (w *Worker) ProcessPollVerdict(ctx context.Context, t *asynq.Task) error {
 	// Return error to trigger Asynq retry
 	log.Printf("[Worker:Judging] Submission %s is still %s on %s, scheduling retry...", p.SubmissionID, statusObj.Status, p.Platform)
 	return fmt.Errorf("submission %s is still %s (retry scheduled)", p.SubmissionID, statusObj.Status)
+}
+
+func externalSubmissionRef(problemExternalID, submissionID string) string {
+	parts := strings.Split(strings.TrimSpace(problemExternalID), "/")
+	if len(parts) >= 3 && strings.EqualFold(parts[0], "gym") {
+		return fmt.Sprintf("gym/%s/%s", parts[1], submissionID)
+	}
+	if len(parts) >= 1 && parts[0] != "" {
+		return fmt.Sprintf("%s/%s", parts[0], submissionID)
+	}
+	return submissionID
 }

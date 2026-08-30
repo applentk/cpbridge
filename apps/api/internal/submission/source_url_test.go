@@ -36,3 +36,16 @@ func TestAttachAdminSourceURLUsesSubmissionPartOfCompoundID(t *testing.T) {
 	require.NotNil(t, sub.SourceURL)
 	assert.Equal(t, "https://atcoder.jp/contests/abc300/submissions/987654", *sub.SourceURL)
 }
+
+func TestAttachAdminSourceURLUsesGymPath(t *testing.T) {
+	externalID := "987654321"
+	sub := Submission{
+		Platform:             platform.Codeforces,
+		ProblemExternalID:    "gym/105053/A",
+		ExternalSubmissionID: &externalID,
+	}
+
+	attachAdminSourceURL(&sub, true)
+	require.NotNil(t, sub.SourceURL)
+	assert.Equal(t, "https://codeforces.com/gym/105053/submission/987654321", *sub.SourceURL)
+}

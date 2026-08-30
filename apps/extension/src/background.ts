@@ -14,6 +14,7 @@ import {
   checkCodeforcesSession,
   CodeforcesUserActionRequired,
   detectManualCodeforcesSubmission,
+  parseCodeforcesExternalId,
   snapshotCodeforcesSubmissionIds,
   submitCodeforces,
   pollCodeforcesStatus
@@ -216,7 +217,8 @@ async function beginInteractiveCodeforcesSubmission(
   actionError: CodeforcesUserActionRequired,
   sourceTabId?: number
 ): Promise<ExtensionSubmissionActionRequiredResponse> {
-  const submitUrl = `https://codeforces.com/problemset/submit#cpbridge=${encodeURIComponent(message.submissionId)}`;
+  const submitPath = contestId.startsWith('gym/') ? `${contestId}/submit` : 'problemset/submit';
+  const submitUrl = `https://codeforces.com/${submitPath}#cpbridge=${encodeURIComponent(message.submissionId)}`;
   const pending: ManualCodeforcesSubmission = {
     submissionId: message.submissionId,
     contestId,
@@ -342,14 +344,14 @@ async function dispatchSubmission(message: ExtensionSubmitRequest, sourceTabId?:
     let externalSubmissionId = '';
 
     if (message.platform === 'CODEFORCES') {
-      const parts = message.problem.externalId.split('/');
-      if (parts.length !== 2) throw new Error('Invalid Codeforces externalId');
+      const problemRef = parseCodeforcesExternalId(message.problem.externalId);
+      if (!problemRef) throw new Error('Invalid Codeforces externalId');
       try {
-        const res = await submitCodeforces(parts[0], parts[1], message.language, message.source);
+        const res = await submitCodeforces(problemRef.contestId, problemRef.problemIndex, message.language, message.source);
         externalSubmissionId = res.externalSubmissionId;
       } catch (err) {
         if (err instanceof CodeforcesUserActionRequired) {
-          return beginInteractiveCodeforcesSubmission(message, parts[0], parts[1], err, sourceTabId);
+          return beginInteractiveCodeforcesSubmission(message, problemRef.contestId, problemRef.problemIndex, err, sourceTabId);
         }
         throw err;
       }
@@ -562,9 +564,9 @@ async function handleMessage(message: ExtensionMessage, sourceTabId?: number): P
     let resultStatus = 'JUDGING';
     try {
       if (message.platform === 'CODEFORCES') {
-        const parts = message.problem.externalId.split('/');
-        const contestId = parts[0] || '';
-        const res = await pollCodeforcesStatus(contestId, message.externalSubmissionId);
+        const problemRef = parseCodeforcesExternalId(message.problem.externalId);
+        if (!problemRef) throw new Error('Invalid Codeforces externalId');
+        const res = await pollCodeforcesStatus(problemRef.contestId, message.externalSubmissionId);
         resultStatus = res.status;
       } else if (message.platform === 'ATCODER') {
         const parts = message.problem.externalId.split('/');

@@ -34,6 +34,17 @@ func TestMatchURLKeepsGymSource(t *testing.T) {
 	}
 }
 
+func TestParseGymSubmissionRef(t *testing.T) {
+	contestID, submissionID, isGym := parseSubmissionRef("gym/105053/987654321")
+	if contestID != "105053" || submissionID != "987654321" || !isGym {
+		t.Fatalf("parseSubmissionRef(gym) = %q, %q, %v", contestID, submissionID, isGym)
+	}
+	urls := codeforcesSubmissionURLs(contestID, submissionID, isGym)
+	if len(urls) != 1 || urls[0] != "https://codeforces.com/gym/105053/submission/987654321" {
+		t.Fatalf("codeforcesSubmissionURLs(gym) = %v", urls)
+	}
+}
+
 func TestGetGymContestFromPublicPage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/gym/105053" {

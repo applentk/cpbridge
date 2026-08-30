@@ -117,7 +117,12 @@ func attachAdminSourceURL(sub *Submission, isAdmin bool) {
 	var sourceURL string
 	switch sub.Platform {
 	case platform.Codeforces:
-		sourceURL = fmt.Sprintf("https://codeforces.com/contest/%s/submission/%s", contestID, submissionID)
+		if len(problemParts) >= 3 && strings.EqualFold(problemParts[0], "gym") {
+			contestID = url.PathEscape(problemParts[1])
+			sourceURL = fmt.Sprintf("https://codeforces.com/gym/%s/submission/%s", contestID, submissionID)
+		} else {
+			sourceURL = fmt.Sprintf("https://codeforces.com/contest/%s/submission/%s", contestID, submissionID)
+		}
 	case platform.AtCoder:
 		sourceURL = fmt.Sprintf("https://atcoder.jp/contests/%s/submissions/%s", contestID, submissionID)
 	default:

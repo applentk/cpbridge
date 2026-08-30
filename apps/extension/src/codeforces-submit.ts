@@ -74,7 +74,8 @@ function fillSubmissionForm(pending: PrefillPayload, source: string | undefined)
 
   if ((!problemCode && !problemIndex) || !language || !sourceArea) return false;
 
-  if (problemCode) setFormValue(problemCode, `${pending.contestId}${pending.problemIndex}`);
+  const numericContestId = pending.contestId.startsWith('gym/') ? pending.contestId.slice('gym/'.length) : pending.contestId;
+  if (problemCode) setFormValue(problemCode, `${numericContestId}${pending.problemIndex}`);
   if (problemIndex) setFormValue(problemIndex, pending.problemIndex);
   selectLanguage(language, pending.language);
 

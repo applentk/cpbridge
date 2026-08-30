@@ -31,7 +31,8 @@
     {
       "matches": [
         "https://codeforces.com/problemset/submit*",
-        "https://codeforces.com/contest/*/submit*"
+        "https://codeforces.com/contest/*/submit*",
+        "https://codeforces.com/gym/*/submit*"
       ],
       "js": [
         "dist/codeforces-submit.js"

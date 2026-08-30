@@ -4,6 +4,7 @@ import { afterEach, describe, test } from 'node:test';
 import {
   checkCodeforcesSession,
   CodeforcesUserActionRequired,
+  parseCodeforcesExternalId,
   pollCodeforcesStatus,
   submitCodeforces
 } from '../dist/test/codeforces.js';
@@ -38,6 +39,12 @@ function atCoderSubmissionRow(id, taskId = 'abc123_a') {
 }
 
 describe('Codeforces adapter', () => {
+  test('parses regular and Gym problem external IDs', () => {
+    assert.deepEqual(parseCodeforcesExternalId('123/A'), { contestId: '123', problemIndex: 'A' });
+    assert.deepEqual(parseCodeforcesExternalId('gym/105053/a'), { contestId: 'gym/105053', problemIndex: 'A' });
+    assert.equal(parseCodeforcesExternalId('gym/105053'), undefined);
+  });
+
   test('recognizes the dynamic Codeforces problemset submission form', () => {
     const form = {
       classList: { contains: (name) => name === 'submit-form' },
@@ -124,6 +131,31 @@ describe('Codeforces adapter', () => {
     await submitCodeforces('123', 'A', 'cpp23', '#include <iostream>');
 
     assert.equal(submittedForm?.get('programTypeId'), '91');
+  });
+
+  test('submits Gym problems through the Gym contest endpoint', async () => {
+    let myPageReads = 0;
+    let submittedForm;
+    globalThis.fetch = async (input, init = {}) => {
+      const url = String(input);
+      if (url.endsWith('/gym/105053/submit') && init.method === 'GET') {
+        return htmlResponse('<input name="_tta" value="1234"><script>var csrf_token = "csrf";</script>');
+      }
+      if (url.endsWith('/gym/105053/my')) {
+        myPageReads += 1;
+        return htmlResponse(codeforcesSubmissionRow(myPageReads === 1 ? '300' : '301'));
+      }
+      if (url.includes('/gym/105053/submit?') && init.method === 'POST') {
+        submittedForm = new URLSearchParams(String(init.body));
+        return htmlResponse('<div class="success">has been submitted</div>');
+      }
+      throw new Error(`Unexpected request: ${init.method || 'GET'} ${url}`);
+    };
+
+    const result = await submitCodeforces('gym/105053', 'A', 'cpp23', '#include <iostream>');
+
+    assert.deepEqual(result, { externalSubmissionId: '301' });
+    assert.equal(submittedForm?.get('submittedProblemCode'), '105053A');
   });
 
   test('requires an interactive handoff when Codeforces returns an anti-bot challenge', async () => {

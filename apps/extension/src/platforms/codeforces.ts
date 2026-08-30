@@ -8,6 +8,30 @@ const CF_LANGUAGE_MAP: Record<LanguageId, string> = {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export interface CodeforcesProblemRef {
+  contestId: string;
+  problemIndex: string;
+}
+
+export function parseCodeforcesExternalId(externalId: string): CodeforcesProblemRef | undefined {
+  const parts = externalId.trim().split('/');
+  if (parts.length === 2 && /^\d+$/.test(parts[0]) && parts[1].trim()) {
+    return { contestId: parts[0], problemIndex: parts[1].trim().toUpperCase() };
+  }
+  if (parts.length === 3 && parts[0].toLowerCase() === 'gym' && /^\d+$/.test(parts[1]) && parts[2].trim()) {
+    return { contestId: `gym/${parts[1]}`, problemIndex: parts[2].trim().toUpperCase() };
+  }
+  return undefined;
+}
+
+function codeforcesContestPath(contestId: string): string {
+  return contestId.startsWith('gym/') ? contestId : `contest/${contestId}`;
+}
+
+function codeforcesNumericContestId(contestId: string): string {
+  return contestId.startsWith('gym/') ? contestId.slice('gym/'.length) : contestId;
+}
+
 function cleanOptionText(value: string): string {
   return htmlText(value).toLowerCase();
 }
@@ -74,7 +98,7 @@ function extractSubmissionIds(html: string, problemIndex?: string): string[] {
  */
 async function snapshotMyCodeforcesSubmissionIds(contestId: string, problemIndex: string): Promise<Set<string> | undefined> {
   try {
-    const response = await fetch(`https://codeforces.com/contest/${contestId}/my`, {
+    const response = await fetch(`https://codeforces.com/${codeforcesContestPath(contestId)}/my`, {
       method: 'GET',
       credentials: 'include'
     });
@@ -183,9 +207,10 @@ async function getCodeforcesTTA(): Promise<string> {
 }
 
 export async function submitCodeforces(contestId: string, index: string, language: LanguageId, sourceCode: string): Promise<{ externalSubmissionId: string }> {
-  const submitUrls = /^\d+$/.test(contestId)
-    ? [`https://codeforces.com/contest/${contestId}/submit`, `https://codeforces.com/problemset/submit`]
-    : ['https://codeforces.com/problemset/submit'];
+  const isGym = contestId.startsWith('gym/');
+  const submitUrls = isGym
+    ? [`https://codeforces.com/${codeforcesContestPath(contestId)}/submit`]
+    : [`https://codeforces.com/${codeforcesContestPath(contestId)}/submit`, `https://codeforces.com/problemset/submit`];
   let lastError = '';
 
   for (const submitUrl of submitUrls) {
@@ -211,7 +236,7 @@ export async function submitCodeforces(contestId: string, index: string, languag
       }
       const formData = new URLSearchParams({
         csrf_token: csrfToken, action: 'submitSolutionFormSubmitted', submittedProblemIndex: index,
-        submittedProblemCode: `${contestId}${index}`, programTypeId: getOptionValue(html, language) || CF_LANGUAGE_MAP[language] || '89',
+        submittedProblemCode: `${codeforcesNumericContestId(contestId)}${index}`, programTypeId: getOptionValue(html, language) || CF_LANGUAGE_MAP[language] || '89',
         source: sourceCode, tabSize: '4', _tta: getInputValue(html, '_tta') || await getCodeforcesTTA()
       });
       const submitRes = await fetch(`${submitUrl}?csrf_token=${encodeURIComponent(csrfToken)}`, {
@@ -272,8 +297,9 @@ export async function snapshotCodeforcesSubmissionIds(
 
 export async function pollCodeforcesStatus(contestId: string, externalSubmissionId: string): Promise<{ status: 'JUDGING' | 'ACCEPTED' | 'WRONG_ANSWER' | 'TIME_LIMIT' | 'MEMORY_LIMIT' | 'RUNTIME_ERROR' | 'COMPILE_ERROR' | 'FAILED' }> {
   if (externalSubmissionId.startsWith('cf_')) return { status: 'FAILED' };
+  const numericContestId = codeforcesNumericContestId(contestId);
   try {
-    const res = await fetch(`https://codeforces.com/api/contest.status?contestId=${contestId}&from=1&count=1000&cpbridge_ts=${Date.now()}`, { method: 'GET', credentials: 'include', cache: 'no-store' });
+    const res = await fetch(`https://codeforces.com/api/contest.status?contestId=${numericContestId}&from=1&count=1000&cpbridge_ts=${Date.now()}`, { method: 'GET', credentials: 'include', cache: 'no-store' });
     if (res.ok) {
       const data = await res.json();
       const sub = data.status === 'OK' && Array.isArray(data.result) ? data.result.find((item: { id?: number | string; verdict?: string }) => String(item.id) === String(externalSubmissionId)) : undefined;
@@ -289,7 +315,9 @@ export async function pollCodeforcesStatus(contestId: string, externalSubmission
   } catch {}
 
   try {
-    const urls = [`https://codeforces.com/contest/${contestId}/submission/${externalSubmissionId}`, `https://codeforces.com/problemset/submission/${contestId}/${externalSubmissionId}`];
+    const urls = contestId.startsWith('gym/')
+      ? [`https://codeforces.com/${codeforcesContestPath(contestId)}/submission/${externalSubmissionId}`]
+      : [`https://codeforces.com/${codeforcesContestPath(contestId)}/submission/${externalSubmissionId}`, `https://codeforces.com/problemset/submission/${contestId}/${externalSubmissionId}`];
     for (const url of urls) {
       const res = await fetch(url, { method: 'GET', credentials: 'include' });
       if (res.status === 404 || !res.ok) continue;

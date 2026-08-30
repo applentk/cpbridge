@@ -17,20 +17,20 @@ import (
 )
 
 var (
-	urlPattern1          = regexp.MustCompile(`codeforces\.com/(?:problemset/)?problem/(\d+)/([A-Za-z0-9]+)`)
-	urlPattern2          = regexp.MustCompile(`codeforces\.com/contest/(\d+)/problem/([A-Za-z0-9]+)`)
-	urlPattern3          = regexp.MustCompile(`codeforces\.com/gym/(\d+)/problem/([A-Za-z0-9]+)`)
-	contestURLPattern    = regexp.MustCompile(`(?i)^(?:https?://)?(?:www\.)?codeforces\.com/contest/(\d+)(?:/?(?:\?.*)?)?$`)
-	gymContestURLPattern = regexp.MustCompile(`(?i)^(?:https?://)?(?:www\.)?codeforces\.com/gym/(\d+)(?:/?(?:\?.*)?)?$`)
+	urlPattern1             = regexp.MustCompile(`codeforces\.com/(?:problemset/)?problem/(\d+)/([A-Za-z0-9]+)`)
+	urlPattern2             = regexp.MustCompile(`codeforces\.com/contest/(\d+)/problem/([A-Za-z0-9]+)`)
+	urlPattern3             = regexp.MustCompile(`codeforces\.com/gym/(\d+)/problem/([A-Za-z0-9]+)`)
+	contestURLPattern       = regexp.MustCompile(`(?i)^(?:https?://)?(?:www\.)?codeforces\.com/contest/(\d+)(?:/?(?:\?.*)?)?$`)
+	gymContestURLPattern    = regexp.MustCompile(`(?i)^(?:https?://)?(?:www\.)?codeforces\.com/gym/(\d+)(?:/?(?:\?.*)?)?$`)
 	contestIDPattern        = regexp.MustCompile(`^\d+$`)
 	gymExternalIDPattern    = regexp.MustCompile(`^gym/(\d+)$`)
 	contestTitleRegex       = regexp.MustCompile(`(?is)<a[^>]+href=["']/contest/(\d+)["'][^>]*>(.*?)</a>`)
 	contestProblemLinkRegex = regexp.MustCompile(`(?is)<a[^>]+href=["']/contest/(\d+)/problem/([A-Za-z0-9]+)["'][^>]*>(.*?)</a>`)
 	gymContestTitleRegex    = regexp.MustCompile(`(?is)<a[^>]+href=["']/gym/(\d+)["'][^>]*>(.*?)</a>`)
 	gymProblemLinkRegex     = regexp.MustCompile(`(?is)<a[^>]+href=["']/gym/(\d+)/problem/([A-Za-z0-9]+)["'][^>]*>(.*?)</a>`)
-	titlePrefixRegex     = regexp.MustCompile(`(?i)^[a-z](?:\s*[.\-:]\s*|\s+)`)
-	problemTitleRegex    = regexp.MustCompile(`(?is)<div[^>]*class=["']title["'][^>]*>(.*?)</div>`)
-	htmlTitleRegex       = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+	titlePrefixRegex        = regexp.MustCompile(`(?i)^[a-z](?:\s*[.\-:]\s*|\s+)`)
+	problemTitleRegex       = regexp.MustCompile(`(?is)<div[^>]*class=["']title["'][^>]*>(.*?)</div>`)
+	htmlTitleRegex          = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
 	headerDivRegex        = regexp.MustCompile(`(?is)<div class="header">.*?</div>\s*</div>`)
 	sampleDivRegex        = regexp.MustCompile(`(?is)<div class="sample-tests?">.*?</div>\s*</div>`)
@@ -652,13 +652,7 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 		}, nil
 	}
 
-	var contestID, subID string
-	if strings.Contains(externalSubmissionID, "/") {
-		parts := strings.Split(externalSubmissionID, "/")
-		contestID, subID = parts[0], parts[1]
-	} else {
-		subID = externalSubmissionID
-	}
+	contestID, subID, isGym := parseSubmissionRef(externalSubmissionID)
 
 	// 1. Try Codeforces Public REST API (contest.status)
 	if contestID != "" {
@@ -694,10 +688,14 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 								if status != "ACCEPTED" && status != "JUDGING" {
 									testcase++
 								}
+								problemExternalID := fmt.Sprintf("%d/%s", sub.Problem.ContestID, strings.ToUpper(sub.Problem.Index))
+								if isGym {
+									problemExternalID = "gym/" + problemExternalID
+								}
 								statusObj := &platform.SubmissionStatus{
 									ExternalSubmissionID: externalSubmissionID,
 									Status:               status,
-									ProblemExternalID:    fmt.Sprintf("%d/%s", sub.Problem.ContestID, strings.ToUpper(sub.Problem.Index)),
+									ProblemExternalID:    problemExternalID,
 									Language:             sub.ProgrammingLanguage,
 									PlatformUsername:     firstCFHandle(sub.Author.Members),
 									SubmittedAt:          unixTime(sub.CreationTimeSeconds),
@@ -710,7 +708,7 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 										"passedTestCount": sub.PassedTestCount,
 									},
 								}
-								if source, ok := a.fetchSubmissionSource(ctx, contestID, subID); ok {
+								if source, ok := a.fetchSubmissionSource(ctx, contestID, subID, isGym); ok {
 									statusObj.SourceCode = source
 								}
 								return statusObj, nil
@@ -724,10 +722,7 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 
 	// 2. Fallback to scraping Codeforces submission page
 	if contestID != "" && subID != "" {
-		submissionURLs := []string{
-			fmt.Sprintf("https://codeforces.com/contest/%s/submission/%s", contestID, subID),
-			fmt.Sprintf("https://codeforces.com/problemset/submission/%s/%s", contestID, subID),
-		}
+		submissionURLs := codeforcesSubmissionURLs(contestID, subID, isGym)
 
 		for _, subURL := range submissionURLs {
 			req, err := http.NewRequestWithContext(ctx, "GET", subURL, nil)
@@ -824,11 +819,29 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 	}, nil
 }
 
-func (a *Adapter) fetchSubmissionSource(ctx context.Context, contestID, submissionID string) (string, bool) {
-	for _, submissionURL := range []string{
+func parseSubmissionRef(externalSubmissionID string) (contestID, submissionID string, isGym bool) {
+	parts := strings.Split(strings.TrimSpace(externalSubmissionID), "/")
+	if len(parts) == 3 && strings.EqualFold(parts[0], "gym") {
+		return parts[1], parts[2], true
+	}
+	if len(parts) == 2 {
+		return parts[0], parts[1], false
+	}
+	return "", strings.TrimSpace(externalSubmissionID), false
+}
+
+func codeforcesSubmissionURLs(contestID, submissionID string, isGym bool) []string {
+	if isGym {
+		return []string{fmt.Sprintf("https://codeforces.com/gym/%s/submission/%s", contestID, submissionID)}
+	}
+	return []string{
 		fmt.Sprintf("https://codeforces.com/contest/%s/submission/%s", contestID, submissionID),
 		fmt.Sprintf("https://codeforces.com/problemset/submission/%s/%s", contestID, submissionID),
-	} {
+	}
+}
+
+func (a *Adapter) fetchSubmissionSource(ctx context.Context, contestID, submissionID string, isGym bool) (string, bool) {
+	for _, submissionURL := range codeforcesSubmissionURLs(contestID, submissionID, isGym) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, submissionURL, nil)
 		if err != nil {
 			log.Printf("[Platform:Codeforces:Error] Failed to create submission source request for %s: %v", submissionURL, err)
@@ -932,4 +945,3 @@ func previewBody(body []byte, maxLen int) string {
 	}
 	return s
 }
-
