@@ -91,7 +91,7 @@ describe('Codeforces adapter', () => {
           </select>
         `);
       }
-      if (url.endsWith('/contest/123/my')) {
+      if (url.includes('/contest/123/my?cpbridge_ts=')) {
         myPageReads += 1;
         return htmlResponse(codeforcesSubmissionRow(myPageReads === 1 ? '100' : '101'));
       }
@@ -117,7 +117,7 @@ describe('Codeforces adapter', () => {
       if (url.endsWith('/contest/123/submit') && init.method === 'GET') {
         return htmlResponse('<input name="_tta" value="1234"><script>var csrf_token = "csrf";</script>');
       }
-      if (url.endsWith('/contest/123/my')) {
+      if (url.includes('/contest/123/my?cpbridge_ts=')) {
         myPageReads += 1;
         return htmlResponse(codeforcesSubmissionRow(myPageReads === 1 ? '200' : '201'));
       }
@@ -136,12 +136,14 @@ describe('Codeforces adapter', () => {
   test('submits Gym problems through the Gym contest endpoint', async () => {
     let myPageReads = 0;
     let submittedForm;
+    const myPageRequests = [];
     globalThis.fetch = async (input, init = {}) => {
       const url = String(input);
       if (url.endsWith('/gym/105053/submit') && init.method === 'GET') {
         return htmlResponse('<input name="_tta" value="1234"><script>var csrf_token = "csrf";</script>');
       }
-      if (url.endsWith('/gym/105053/my')) {
+      if (url.includes('/gym/105053/my?cpbridge_ts=')) {
+        myPageRequests.push({ url, cache: init.cache });
         myPageReads += 1;
         return htmlResponse(codeforcesSubmissionRow(myPageReads === 1 ? '300' : '301'));
       }
@@ -156,6 +158,8 @@ describe('Codeforces adapter', () => {
 
     assert.deepEqual(result, { externalSubmissionId: '301' });
     assert.equal(submittedForm?.get('submittedProblemCode'), '105053A');
+    assert.equal(myPageRequests.length, 2);
+    assert.equal(myPageRequests.every((request) => request.cache === 'no-store'), true);
   });
 
   test('requires an interactive handoff when Codeforces returns an anti-bot challenge', async () => {
@@ -166,7 +170,7 @@ describe('Codeforces adapter', () => {
       if (url.endsWith('/contest/123/submit') && init.method === 'GET') {
         return htmlResponse('<input name="_tta" value="1234"><script>var csrf_token = "contest-csrf";</script>');
       }
-      if (url.endsWith('/contest/123/my')) {
+      if (url.includes('/contest/123/my?cpbridge_ts=')) {
         myPageReads += 1;
         return htmlResponse(codeforcesSubmissionRow('500'));
       }
@@ -200,7 +204,7 @@ describe('Codeforces adapter', () => {
       if (url.endsWith('/problemset/submit') && init.method === 'GET') {
         return htmlResponse('<input name="_tta" value="1234"><script>var csrf_token = "problemset-csrf";</script>');
       }
-      if (url.endsWith('/contest/123/my')) {
+      if (url.includes('/contest/123/my?cpbridge_ts=')) {
         myPageReads += 1;
         return htmlResponse(codeforcesSubmissionRow(myPageReads <= 2 ? '600' : '601'));
       }

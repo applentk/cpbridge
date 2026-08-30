@@ -5,6 +5,7 @@ import type { LanguageId } from '@cpbridge/contracts';
 const CF_LANGUAGE_MAP: Record<LanguageId, string> = {
   cpp23: '91', python3: '70', java21: '87'
 };
+const CODEFORCES_SUBMISSION_DETECTION_ATTEMPTS = 12;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -98,9 +99,10 @@ function extractSubmissionIds(html: string, problemIndex?: string): string[] {
  */
 async function snapshotMyCodeforcesSubmissionIds(contestId: string, problemIndex: string): Promise<Set<string> | undefined> {
   try {
-    const response = await fetch(`https://codeforces.com/${codeforcesContestPath(contestId)}/my`, {
+    const response = await fetch(`https://codeforces.com/${codeforcesContestPath(contestId)}/my?cpbridge_ts=${Date.now()}`, {
       method: 'GET',
-      credentials: 'include'
+      credentials: 'include',
+      cache: 'no-store'
     });
     if (!response.ok) return undefined;
     return new Set(extractSubmissionIds(await response.text(), problemIndex));
@@ -117,11 +119,11 @@ function singleNewSubmissionId(knownIds: Set<string>, currentIds: Set<string>): 
 }
 
 async function waitForCodeforcesSubmission(contestId: string, problemIndex: string, knownIds: Set<string>): Promise<string | undefined> {
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < CODEFORCES_SUBMISSION_DETECTION_ATTEMPTS; attempt++) {
     const currentIds = await snapshotMyCodeforcesSubmissionIds(contestId, problemIndex);
     const id = currentIds && singleNewSubmissionId(knownIds, currentIds);
     if (id) return id;
-    if (attempt < 5) await sleep(500);
+    if (attempt < CODEFORCES_SUBMISSION_DETECTION_ATTEMPTS - 1) await sleep(500);
   }
   return undefined;
 }
