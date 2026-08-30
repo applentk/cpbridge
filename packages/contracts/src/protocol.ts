@@ -99,22 +99,6 @@ export interface ExtensionAcknowledgeSubmissionResponse {
   acknowledged: boolean;
 }
 
-export interface ExtensionStatusPollRequest {
-  type: 'POLL_STATUS';
-  platform: PlatformType;
-  externalSubmissionId: string;
-  problem: {
-    externalId: string;
-    url: string;
-  };
-}
-
-export interface ExtensionStatusPollResponse {
-  type: 'POLL_STATUS_RESULT';
-  externalSubmissionId: string;
-  status: 'JUDGING' | 'ACCEPTED' | 'WRONG_ANSWER' | 'TIME_LIMIT' | 'MEMORY_LIMIT' | 'RUNTIME_ERROR' | 'COMPILE_ERROR' | 'FAILED';
-}
-
 export type ExtensionMessage =
   | ExtensionPingRequest
   | ExtensionPingResponse
@@ -126,6 +110,4 @@ export type ExtensionMessage =
   | ExtensionRecoverSubmissionsRequest
   | ExtensionRecoverSubmissionsResponse
   | ExtensionAcknowledgeSubmissionRequest
-  | ExtensionAcknowledgeSubmissionResponse
-  | ExtensionStatusPollRequest
-  | ExtensionStatusPollResponse;
+  | ExtensionAcknowledgeSubmissionResponse;

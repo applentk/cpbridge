@@ -1,6 +1,7 @@
 package submission
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -56,6 +57,36 @@ func TestValidateExternalSubmissionMetadata(t *testing.T) {
 			require.Error(t, validateExternalSubmissionMetadata(sub, "2048/123456", &copy, now))
 		})
 	}
+}
+
+func TestValidateExternalSubmissionMetadataClassifiesIncompleteResponses(t *testing.T) {
+	now := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	sub := &Submission{
+		ProblemExternalID: "2048/A",
+		Platform:          platform.Codeforces,
+		Language:          "cpp23",
+		SourceCode:        "int main() {}\n// cpbridge-dispatch-proof:test",
+		SubmittedAt:       now,
+	}
+	incomplete := &platform.SubmissionStatus{
+		ExternalSubmissionID: "2048/123456",
+		Status:               "JUDGING",
+	}
+	err := validateExternalSubmissionMetadata(sub, "2048/123456", incomplete, now)
+	var verificationErr *VerificationError
+	require.True(t, errors.As(err, &verificationErr))
+	require.Equal(t, VerificationRetryable, verificationErr.Kind)
+
+	wrongProblem := &platform.SubmissionStatus{
+		ExternalSubmissionID: "2048/123456",
+		ProblemExternalID:    "2048/B",
+		Language:             "GNU C++23 (64)",
+		PlatformUsername:     "contestant",
+		SubmittedAt:          timePtr(now),
+	}
+	err = validateExternalSubmissionMetadata(sub, "2048/123456", wrongProblem, now)
+	require.True(t, errors.As(err, &verificationErr))
+	require.Equal(t, VerificationDefinitive, verificationErr.Kind)
 }
 
 func TestValidateExternalSubmissionMetadataKeepsGymProblemAndSubmissionScope(t *testing.T) {

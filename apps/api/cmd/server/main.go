@@ -78,6 +78,7 @@ func main() {
 
 	// Asynq Worker Server
 	subWorker := submission.NewWorker(database, probSvc, platRegistry)
+	subWorker.SetAsynqClient(asynqClient)
 	asynqServer := asynq.NewServer(
 		redisOpt,
 		asynq.Config{
@@ -90,23 +91,8 @@ func main() {
 			ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
 				retried, _ := asynq.GetRetryCount(ctx)
 				maxRetry, _ := asynq.GetMaxRetry(ctx)
-				if retried >= maxRetry && task.Type() == queue.TypePollSubmissionVerdict {
-					log.Printf("[Worker:Exhausted] Task %s exhausted all %d retries: %v", task.Type(), maxRetry, err)
-					var p queue.PollVerdictPayload
-					if unmarshalErr := json.Unmarshal(task.Payload(), &p); unmarshalErr == nil && p.SubmissionID != "" {
-						meta := map[string]any{
-							"error": "Judging polling timed out: exceeded maximum retries on platform",
-						}
-						metaJSON, _ := json.Marshal(meta)
-						_, updateErr := database.ExecContext(context.Background(), `
-							UPDATE submissions
-							SET status = 'FAILED', judged_at = NOW(), metadata = $1
-							WHERE id = $2 AND status IN ('PENDING', 'DISPATCHING', 'JUDGING')
-						`, metaJSON, p.SubmissionID)
-						if updateErr != nil {
-							log.Printf("[Worker:ExhaustedError] Failed to update exhausted submission %s: %v", p.SubmissionID, updateErr)
-						}
-					}
+				if task.Type() == queue.TypePollSubmissionVerdict {
+					log.Printf("[Worker:Retry] Poll task attempt %d/%d failed: %v", retried, maxRetry, err)
 				}
 			}),
 		},

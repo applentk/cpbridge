@@ -149,16 +149,6 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
                 externalSubmissionId: `cf_${Date.now()}`,
               },
             }, '*');
-          } else if (payload?.type === 'POLL_STATUS') {
-            window.postMessage({
-              source: 'CPBRIDGE_EXTENSION',
-              id,
-              payload: {
-                type: 'POLL_STATUS_RESULT',
-                externalSubmissionId: payload.externalSubmissionId,
-                status: opts.extensionPollVerdict || 'ACCEPTED',
-              },
-            }, '*');
           } else if (payload?.type === 'RECOVER_SUBMISSIONS') {
             window.postMessage({
               source: 'CPBRIDGE_EXTENSION',

@@ -2,6 +2,8 @@ package submission_test
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -14,7 +16,9 @@ import (
 	"github.com/cpbridge/api/internal/platform"
 	"github.com/cpbridge/api/internal/problem"
 	"github.com/cpbridge/api/internal/problemset"
+	"github.com/cpbridge/api/internal/queue"
 	"github.com/cpbridge/api/internal/submission"
+	"github.com/hibiken/asynq"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,8 +28,19 @@ func init() {
 	log.SetOutput(io.Discard)
 }
 
+func markSubmissionStatus(t *testing.T, database *sql.DB, id string, status submission.Status) {
+	t.Helper()
+	_, err := database.ExecContext(context.Background(), `
+		UPDATE submissions SET status = $1, judged_at = NOW(), metadata = '{}'
+		WHERE id = $2 AND status IN ('PENDING', 'DISPATCHING', 'JUDGING')
+	`, status, id)
+	require.NoError(t, err)
+}
+
 type verifiedSubmissionPlatform struct {
-	status *platform.SubmissionStatus
+	status   *platform.SubmissionStatus
+	statuses []*platform.SubmissionStatus
+	calls    int
 }
 
 func (p *verifiedSubmissionPlatform) Type() platform.Type {
@@ -45,6 +60,11 @@ func (p *verifiedSubmissionPlatform) GetStatement(context.Context, string) (*pla
 }
 
 func (p *verifiedSubmissionPlatform) GetSubmission(context.Context, string) (*platform.SubmissionStatus, error) {
+	if len(p.statuses) > 0 {
+		status := p.statuses[min(p.calls, len(p.statuses)-1)]
+		p.calls++
+		return status, nil
+	}
 	return p.status, nil
 }
 
@@ -90,6 +110,15 @@ func TestSubmissionStatuses(t *testing.T) {
 	assert.Equal(t, submission.Status("ACCEPTED"), submission.Accepted)
 	assert.Equal(t, submission.Status("WRONG_ANSWER"), submission.WrongAnswer)
 	assert.Equal(t, submission.Status("FAILED"), submission.Failed)
+}
+
+func TestParseStatusRejectsUnnormalizedPlatformVerdict(t *testing.T) {
+	parsed, err := submission.ParseStatus("WRONG_ANSWER")
+	assert.NoError(t, err)
+	assert.Equal(t, submission.WrongAnswer, parsed)
+
+	_, err = submission.ParseStatus("AC")
+	assert.ErrorContains(t, err, "unsupported submission status")
 }
 
 func TestUpdateDispatchedLinksFirstVerifiedPlatformIdentity(t *testing.T) {
@@ -164,8 +193,36 @@ func TestUpdateDispatchedLinksFirstVerifiedPlatformIdentity(t *testing.T) {
 		SourceCode:           createdSubmission.SourceCode,
 		SubmittedAt:          &createdSubmission.SubmittedAt,
 	}
+	adapter.statuses = []*platform.SubmissionStatus{
+		{
+			ExternalSubmissionID: fmt.Sprintf("%d/%s", suffix, externalSubmissionID),
+			Status:               "JUDGING",
+		},
+		{
+			ExternalSubmissionID: fmt.Sprintf("%d/%s", suffix, externalSubmissionID),
+			Status:               "ACCEPTED",
+			ProblemExternalID:    problemExternalID,
+			Language:             "GNU C++23 (64)",
+			PlatformUsername:     "verified_handle",
+			SourceCode:           createdSubmission.SourceCode,
+			SubmittedAt:          &createdSubmission.SubmittedAt,
+		},
+	}
 
 	require.NoError(t, submissionSvc.UpdateDispatched(ctx, createdSubmission.ID, user.ID, false, externalSubmissionID))
+
+	// Dispatch only records the handoff. The worker owns the first external
+	// verification and verdict observation.
+	updated, err := submissionSvc.GetByID(ctx, createdSubmission.ID, user.ID, false)
+	require.NoError(t, err)
+	assert.Equal(t, submission.Judging, updated.Status)
+	assert.Nil(t, updated.ExternalSubmittedAt)
+
+	worker := submission.NewWorker(database, problemSvc, registry)
+	task, err := queue.NewPollVerdictTask(createdSubmission.ID, externalSubmissionID, string(platform.Codeforces), createdProblem.ID)
+	require.NoError(t, err)
+	require.Error(t, worker.ProcessPollVerdict(ctx, task), "incomplete metadata must remain asynchronously retryable")
+	require.NoError(t, worker.ProcessPollVerdict(ctx, task), "the next complete response should verify and finalize")
 
 	var username, connectionStatus string
 	err = database.QueryRowContext(ctx, `
@@ -177,15 +234,44 @@ func TestUpdateDispatchedLinksFirstVerifiedPlatformIdentity(t *testing.T) {
 	assert.Equal(t, "verified_handle", username)
 	assert.Equal(t, "CONNECTED", connectionStatus)
 
-	updated, err := submissionSvc.GetByID(ctx, createdSubmission.ID, user.ID, false)
+	updated, err = submissionSvc.GetByID(ctx, createdSubmission.ID, user.ID, false)
 	require.NoError(t, err)
-	assert.Equal(t, submission.Judging, updated.Status)
+	assert.Equal(t, submission.Accepted, updated.Status)
 	assert.Contains(t, updated.SourceCode, "cpbridge-dispatch-proof:")
 	require.NotNil(t, updated.ExternalSubmissionID)
 	assert.Equal(t, fmt.Sprintf("%d/%s", suffix, externalSubmissionID), *updated.ExternalSubmissionID)
 	require.NotNil(t, updated.ExternalSubmittedAt)
 	// PostgreSQL timestamps are persisted at microsecond precision.
 	assert.WithinDuration(t, createdSubmission.SubmittedAt, *updated.ExternalSubmittedAt, time.Microsecond)
+
+	// A delayed browser handoff must not inherit the age of the internal
+	// record. The external submission is still inside its own 15-minute
+	// judging window, so a JUDGING response remains recoverable.
+	delayedRecordAt := now.Add(-15*time.Minute - time.Second)
+	submissionSvc.SetClock(func() time.Time { return delayedRecordAt })
+	delayedSubmission, err := submissionSvc.Create(ctx, user.ID, false, createdProblem.ID, &activeContest.ID, "cpp23", "int main() { return 3; }")
+	require.NoError(t, err)
+	delayedExternalAt := delayedRecordAt.Add(30 * time.Second)
+	adapter.statuses = nil
+	adapter.status = &platform.SubmissionStatus{
+		ExternalSubmissionID: fmt.Sprintf("%d/%d", suffix, suffix+4),
+		Status:               "JUDGING",
+		ProblemExternalID:    problemExternalID,
+		Language:             "GNU C++23 (64)",
+		PlatformUsername:     "verified_handle",
+		SourceCode:           delayedSubmission.SourceCode,
+		SubmittedAt:          &delayedExternalAt,
+	}
+	handoffAt := now
+	submissionSvc.SetClock(func() time.Time { return handoffAt })
+	require.NoError(t, submissionSvc.UpdateDispatched(ctx, delayedSubmission.ID, user.ID, false, fmt.Sprintf("%d", suffix+4)))
+	worker.SetClock(func() time.Time { return handoffAt })
+	delayedTask, err := queue.NewPollVerdictTask(delayedSubmission.ID, fmt.Sprintf("%d", suffix+4), string(platform.Codeforces), createdProblem.ID)
+	require.NoError(t, err)
+	require.NoError(t, worker.ProcessPollVerdict(ctx, delayedTask))
+	delayedUpdated, err := submissionSvc.GetByID(ctx, delayedSubmission.ID, user.ID, false)
+	require.NoError(t, err)
+	assert.Equal(t, submission.Judging, delayedUpdated.Status)
 
 	_, err = database.ExecContext(ctx, `
 		INSERT INTO submissions (id, user_id, problem_id, platform, language, source_code, status, external_submission_id, submitted_at, metadata)
@@ -226,9 +312,17 @@ func TestUpdateDispatchedLinksFirstVerifiedPlatformIdentity(t *testing.T) {
 		SourceCode:           lateSubmission.SourceCode,
 		SubmittedAt:          &lateExternalAt,
 	}
+	adapter.statuses = nil
 
 	err = submissionSvc.UpdateDispatched(ctx, lateSubmission.ID, user.ID, false, lateExternalID)
-	require.ErrorContains(t, err, "outside the contest window")
+	require.NoError(t, err)
+	worker.SetClock(func() time.Time { return lateExternalAt })
+	lateTask, err := queue.NewPollVerdictTask(lateSubmission.ID, lateExternalID, string(platform.Codeforces), createdProblem.ID)
+	require.NoError(t, err)
+	require.NoError(t, worker.ProcessPollVerdict(ctx, lateTask))
+	lateUpdated, err := submissionSvc.GetByID(ctx, lateSubmission.ID, user.ID, false)
+	require.NoError(t, err)
+	assert.Equal(t, submission.Failed, lateUpdated.Status)
 
 	// Finished contests remain open for practice. A record created after the
 	// contest ends may be linked, and standings exclude it by timestamp.
@@ -249,8 +343,31 @@ func TestUpdateDispatchedLinksFirstVerifiedPlatformIdentity(t *testing.T) {
 		SourceCode:           practiceSubmission.SourceCode,
 		SubmittedAt:          &practiceExternalAt,
 	}
+	adapter.statuses = nil
 
+	enqueueErr := errors.New("redis unavailable")
+	submissionSvc.SetPollEnqueuer(func(context.Context, *asynq.Task) error {
+		return enqueueErr
+	})
+	err = submissionSvc.UpdateDispatched(ctx, practiceSubmission.ID, user.ID, false, practiceExternalID)
+	require.ErrorIs(t, err, enqueueErr)
+	practiceAfterFailure, err := submissionSvc.GetByID(ctx, practiceSubmission.ID, user.ID, false)
+	require.NoError(t, err)
+	assert.Equal(t, submission.Judging, practiceAfterFailure.Status)
+	assert.Equal(t, fmt.Sprintf("%d/%s", suffix, practiceExternalID), *practiceAfterFailure.ExternalSubmissionID)
+
+	enqueueCalls := 0
+	submissionSvc.SetPollEnqueuer(func(context.Context, *asynq.Task) error {
+		enqueueCalls++
+		return nil
+	})
 	require.NoError(t, submissionSvc.UpdateDispatched(ctx, practiceSubmission.ID, user.ID, false, practiceExternalID))
+	assert.Equal(t, 1, enqueueCalls, "same-ID recovery should enqueue a fresh poll")
+	err = submissionSvc.UpdateDispatched(ctx, practiceSubmission.ID, user.ID, false, fmt.Sprintf("%d", suffix+99))
+	require.ErrorContains(t, err, "different external submission ID")
+	practiceRecovered, err := submissionSvc.GetByID(ctx, practiceSubmission.ID, user.ID, false)
+	require.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("%d/%s", suffix, practiceExternalID), *practiceRecovered.ExternalSubmissionID)
 }
 
 func TestContestEndedSubmissionAndScoreboardRules(t *testing.T) {
@@ -392,8 +509,7 @@ func TestContestEndedSubmissionAndScoreboardRules(t *testing.T) {
 	require.NotNil(t, retried)
 
 	// Mark sub1 as ACCEPTED
-	err = subSvc.UpdateResult(ctx, sub1.ID, user1.ID, true, submission.Accepted, map[string]any{})
-	require.NoError(t, err)
+	markSubmissionStatus(t, database, sub1.ID, submission.Accepted)
 
 	standingsActive, err := subSvc.CalculateStandings(ctx, cActive.ID, user1.ID, false)
 	require.NoError(t, err)
@@ -440,16 +556,14 @@ func TestContestEndedSubmissionAndScoreboardRules(t *testing.T) {
 	require.NotNil(t, sub2)
 
 	// Mark sub2 as ACCEPTED
-	err = subSvc.UpdateResult(ctx, sub2.ID, user1.ID, true, submission.Accepted, map[string]any{})
-	require.NoError(t, err)
+	markSubmissionStatus(t, database, sub2.ID, submission.Accepted)
 
 	// 3b. The contest owner was automatically joined but had no in-contest
 	// submissions; an after-contest solve should still appear in upsolve standings.
 	ownerAfterSub, err := subSvc.Create(ctx, owner.ID, false, p2.ID, &cEnded.ID, "cpp23", "int main() { return 0; }")
 	require.NoError(t, err, "A participant with no contest-period submissions should be able to upsolve")
 	require.NotNil(t, ownerAfterSub)
-	err = subSvc.UpdateResult(ctx, ownerAfterSub.ID, owner.ID, true, submission.Accepted, map[string]any{})
-	require.NoError(t, err)
+	markSubmissionStatus(t, database, ownerAfterSub.ID, submission.Accepted)
 
 	// 3c. User2 was not a contest participant and submits problem A after the
 	// contest; the after-contest tab should still include the solve.
@@ -458,8 +572,7 @@ func TestContestEndedSubmissionAndScoreboardRules(t *testing.T) {
 	require.NotNil(t, sub3)
 
 	// Mark sub3 as ACCEPTED
-	err = subSvc.UpdateResult(ctx, sub3.ID, user2.ID, true, submission.Accepted, map[string]any{})
-	require.NoError(t, err)
+	markSubmissionStatus(t, database, sub3.ID, submission.Accepted)
 
 	// Verify Standings for ended contest:
 	// - user1 should STILL only have 1 solved problem (problem A from during contest) and 60 penalty (no points for problem B)

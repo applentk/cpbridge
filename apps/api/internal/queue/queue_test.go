@@ -22,6 +22,7 @@ func TestNewPollVerdictTask(t *testing.T) {
 	assert.Equal(t, "2000/A", p.ExternalSubmissionID)
 	assert.Equal(t, "CODEFORCES", p.Platform)
 	assert.Equal(t, "prb_456", p.ProblemID)
+	assert.Empty(t, p.RequestID)
 }
 
 func TestCustomRetryDelay(t *testing.T) {
@@ -30,6 +31,14 @@ func TestCustomRetryDelay(t *testing.T) {
 	assert.Equal(t, 3*time.Second, queue.CustomRetryDelay(1, nil, task))
 	assert.Equal(t, 3*time.Second, queue.CustomRetryDelay(4, nil, task))
 	assert.Equal(t, 4*time.Second, queue.CustomRetryDelay(5, nil, task))
-	assert.Equal(t, 4*time.Second, queue.CustomRetryDelay(14, nil, task))
-	assert.Equal(t, 6*time.Second, queue.CustomRetryDelay(15, nil, task))
+	assert.Equal(t, 4*time.Second, queue.CustomRetryDelay(19, nil, task))
+	assert.Equal(t, 5*time.Second, queue.CustomRetryDelay(20, nil, task))
+}
+
+func TestNewPollVerdictTaskAfterCarriesRequestIDAndDelay(t *testing.T) {
+	task, err := queue.NewPollVerdictTaskAfter("sub_1", "1/A", "CODEFORCES", "prb_1", "poll_1", 7*time.Second)
+	assert.NoError(t, err)
+	var p queue.PollVerdictPayload
+	assert.NoError(t, json.Unmarshal(task.Payload(), &p))
+	assert.Equal(t, "poll_1", p.RequestID)
 }

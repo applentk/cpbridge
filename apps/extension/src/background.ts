@@ -7,17 +7,15 @@ import type {
   ExtensionSubmissionCreatedResponse,
   ExtensionSubmissionFailedResponse,
   ExtensionSubmitRequest,
-  ExtensionStatusPollResponse,
   LanguageId
 } from '@cpbridge/contracts';
 import {
   checkCodeforcesSession,
   detectManualCodeforcesSubmission,
   parseCodeforcesExternalId,
-  snapshotCodeforcesSubmissionIds,
-  pollCodeforcesStatus
+  snapshotCodeforcesSubmissionIds
 } from './platforms/codeforces.js';
-import { checkAtCoderSession, submitAtCoder, pollAtCoderStatus } from './platforms/atcoder.js';
+import { checkAtCoderSession, submitAtCoder } from './platforms/atcoder.js';
 import { activateTab } from './tab-utils.js';
 
 const DISPATCH_STORAGE_PREFIX = 'cpbridge_dispatch:';
@@ -563,32 +561,6 @@ async function handleMessage(message: ExtensionMessage, sourceTabId?: number): P
       submissionId: message.submissionId,
       acknowledged
     };
-  }
-
-  if (message.type === 'POLL_STATUS') {
-    let resultStatus = 'JUDGING';
-    try {
-      if (message.platform === 'CODEFORCES') {
-        const problemRef = parseCodeforcesExternalId(message.problem.externalId);
-        if (!problemRef) throw new Error('Invalid Codeforces externalId');
-        const res = await pollCodeforcesStatus(problemRef.contestId, message.externalSubmissionId);
-        resultStatus = res.status;
-      } else if (message.platform === 'ATCODER') {
-        const parts = message.problem.externalId.split('/');
-        const contestId = parts[0] || '';
-        const res = await pollAtCoderStatus(contestId, message.externalSubmissionId);
-        resultStatus = res.status;
-      }
-    } catch (err) {
-      console.error('Error polling status in extension:', err);
-    }
-
-    const pollResp: ExtensionStatusPollResponse = {
-      type: 'POLL_STATUS_RESULT',
-      externalSubmissionId: message.externalSubmissionId,
-      status: resultStatus as ExtensionStatusPollResponse['status']
-    };
-    return pollResp;
   }
 
   return { error: 'Unknown message type' };

@@ -6,7 +6,7 @@
   import { page } from '$app/stores';
   import { api } from '$lib/api/client';
   import { auth } from '$lib/stores/auth';
-  import { isExtensionVersionCompatible, pingExtension, submitViaExtension, completeManualSubmission, pollStatusViaExtension, recoverPendingSubmissions, acknowledgeRecoveredSubmission } from '$lib/extension/bridge';
+  import { isExtensionVersionCompatible, pingExtension, submitViaExtension, completeManualSubmission, recoverPendingSubmissions, acknowledgeRecoveredSubmission } from '$lib/extension/bridge';
   import { reconcileExtensionSubmissions } from '$lib/extension/reconcile';
   import { renderMathInHtml } from '$lib/utils/math';
   import {
@@ -488,7 +488,7 @@
   function startSubmissionPolling(submissionId: string) {
     stopSubmissionPolling();
     let attempts = 0;
-    const maxAttempts = 60; // poll up to ~2.5 minutes
+    const maxAttempts = 360; // keep the UI aligned with the backend's 15-minute judging timeout
 
     pollInterval = setInterval(async () => {
       attempts++;
@@ -506,7 +506,7 @@
       }
 
       try {
-        // 1. Sync via Backend Platform Adapter
+        // /sync only nudges the backend queue and returns the current DB row.
         const updated = await api.post<Submission>(`/submissions/${submissionId}/sync`);
         if (updated) {
           const idx = recentSubmissions.findIndex((s) => s.id === submissionId);
@@ -532,36 +532,6 @@
           return;
         }
 
-        // 2. Also check via Chrome Extension Bridge if available
-        if (problem && updated && updated.externalSubmissionId && !updated.externalSubmissionId.startsWith('cf_') && !updated.externalSubmissionId.startsWith('ac_')) {
-          try {
-            const extRes = await pollStatusViaExtension(
-              problem.platform,
-              updated.externalSubmissionId,
-              problem.externalId,
-              problem.url
-            );
-            if (extRes && extRes.status && extRes.status !== 'JUDGING' && extRes.status !== 'PENDING' && extRes.status !== 'DISPATCHING') {
-              const synced = await api.post<Submission>(`/submissions/${submissionId}/sync`);
-              if (synced) {
-                activeSubmission = synced;
-                submitStatus = `Verdict: ${synced.status}`;
-                stopSubmissionPolling();
-                const currentProblemId = problem?.id;
-                if (synced.status === 'ACCEPTED' && currentProblemId) {
-                  contestSolvedProblemIds = new Set([...contestSolvedProblemIds, currentProblemId]);
-                  contestWrongProblemIds = new Set([...contestWrongProblemIds].filter((id) => id !== currentProblemId));
-                } else if (synced.status === 'WRONG_ANSWER' && currentProblemId && !contestSolvedProblemIds.has(currentProblemId)) {
-                  contestWrongProblemIds = new Set([...contestWrongProblemIds, currentProblemId]);
-                }
-                if (problem) {
-                  await loadSubmissions(problem.id, contestId);
-                }
-                return;
-              }
-            }
-          } catch {}
-        }
       } catch (err) {
         console.error('Polling error:', err);
       }

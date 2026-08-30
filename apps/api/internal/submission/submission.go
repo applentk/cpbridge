@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"maps"
 	"math"
 	"net/http"
 	"net/url"
@@ -59,6 +58,60 @@ const (
 	CompileError Status = "COMPILE_ERROR"
 	Failed       Status = "FAILED"
 )
+
+const judgingTimeout = 15 * time.Minute
+
+type VerificationErrorKind string
+
+const (
+	VerificationRetryable  VerificationErrorKind = "retryable"
+	VerificationDefinitive VerificationErrorKind = "definitive"
+)
+
+// VerificationError preserves whether an external response is incomplete or
+// proves that the dispatched submission is not the one being observed.
+type VerificationError struct {
+	Kind VerificationErrorKind
+	Err  error
+}
+
+func (e *VerificationError) Error() string {
+	if e == nil || e.Err == nil {
+		return "external submission could not be verified"
+	}
+	return e.Err.Error()
+}
+
+func (e *VerificationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func retryableVerificationError(message string) error {
+	return &VerificationError{Kind: VerificationRetryable, Err: errors.New(message)}
+}
+
+func definitiveVerificationError(message string) error {
+	return &VerificationError{Kind: VerificationDefinitive, Err: errors.New(message)}
+}
+
+// ParseStatus validates a normalized platform status before it can cross the
+// persistence boundary. Platform adapters must return one of these values.
+func ParseStatus(raw string) (Status, error) {
+	status := Status(strings.TrimSpace(raw))
+	switch status {
+	case Pending, Dispatching, Judging, Accepted, WrongAnswer, TimeLimit, MemoryLimit, RuntimeError, CompileError, Failed:
+		return status, nil
+	default:
+		return "", fmt.Errorf("unsupported submission status %q", raw)
+	}
+}
+
+func isTerminalStatus(status Status) bool {
+	return status != Pending && status != Dispatching && status != Judging
+}
 
 func isPenaltyStatus(status Status) bool {
 	switch status {
@@ -171,6 +224,7 @@ type Service struct {
 	probSvc      *problem.Service
 	platRegistry *platform.Registry
 	asynqClient  *asynq.Client
+	pollEnqueue  func(context.Context, *asynq.Task) error
 	timeClock    func() time.Time
 }
 
@@ -194,6 +248,11 @@ func (s *Service) SetPlatformRegistry(reg *platform.Registry) {
 
 func (s *Service) SetAsynqClient(client *asynq.Client) {
 	s.asynqClient = client
+	s.pollEnqueue = nil
+}
+
+func (s *Service) SetPollEnqueuer(enqueue func(context.Context, *asynq.Task) error) {
+	s.pollEnqueue = enqueue
 }
 
 func canonicalExternalID(value string) string {
@@ -252,25 +311,34 @@ func normalizeSourceCode(source string) string {
 
 func validateExternalSubmissionMetadata(sub *Submission, externalID string, statusObj *platform.SubmissionStatus, _ time.Time) error {
 	if sub == nil || statusObj == nil {
-		return errors.New("external submission could not be verified")
+		return retryableVerificationError("external submission metadata is temporarily unavailable")
 	}
 	if statusObj.ExternalSubmissionID != "" && canonicalExternalID(statusObj.ExternalSubmissionID) != canonicalExternalID(externalID) {
-		return errors.New("external submission ID could not be verified")
+		return definitiveVerificationError("external submission ID could not be verified")
+	}
+	if strings.TrimSpace(statusObj.ProblemExternalID) == "" {
+		return retryableVerificationError("external submission problem metadata is not available yet")
 	}
 	if canonicalExternalID(statusObj.ProblemExternalID) != canonicalExternalID(sub.ProblemExternalID) {
-		return errors.New("external submission targets a different problem")
+		return definitiveVerificationError("external submission targets a different problem")
+	}
+	if strings.TrimSpace(statusObj.Language) == "" {
+		return retryableVerificationError("external submission language metadata is not available yet")
 	}
 	if !platformLanguageMatches(sub.Platform, sub.Language, statusObj.Language) {
-		return errors.New("external submission uses a different language")
+		return definitiveVerificationError("external submission uses a different language")
 	}
-	if statusObj.SubmittedAt == nil || statusObj.SubmittedAt.Before(sub.SubmittedAt.Add(-externalDispatchWindow)) || statusObj.SubmittedAt.After(sub.SubmittedAt.Add(externalDispatchWindow)) {
-		return errors.New("external submission timestamp is outside the dispatch window")
+	if statusObj.SubmittedAt == nil {
+		return retryableVerificationError("external submission timestamp is not available yet")
+	}
+	if statusObj.SubmittedAt.Before(sub.SubmittedAt.Add(-externalDispatchWindow)) || statusObj.SubmittedAt.After(sub.SubmittedAt.Add(externalDispatchWindow)) {
+		return definitiveVerificationError("external submission timestamp is outside the dispatch window")
 	}
 	if strings.TrimSpace(statusObj.PlatformUsername) == "" {
-		return errors.New("external submission platform identity is missing")
+		return retryableVerificationError("external submission platform identity is not available yet")
 	}
 	if !strings.Contains(sub.SourceCode, dispatchProofPrefix) {
-		return errors.New("external submission source could not be verified")
+		return definitiveVerificationError("external submission source could not be verified")
 	}
 	if strings.TrimSpace(statusObj.SourceCode) == "" {
 		// Codeforces' public API does not expose source code, and its submission
@@ -281,10 +349,10 @@ func validateExternalSubmissionMetadata(sub *Submission, externalID string, stat
 		if sub.Platform == platform.Codeforces {
 			return nil
 		}
-		return errors.New("external submission source could not be verified")
+		return retryableVerificationError("external submission source is not available yet")
 	}
 	if normalizeSourceCode(statusObj.SourceCode) != normalizeSourceCode(sub.SourceCode) {
-		return errors.New("external submission source could not be verified")
+		return definitiveVerificationError("external submission source could not be verified")
 	}
 	return nil
 }
@@ -301,7 +369,7 @@ func validateExternalSubmissionContestWindow(sub *Submission, externalSubmittedA
 		return nil
 	}
 	if externalSubmittedAt.Before(startAt) || !externalSubmittedAt.Before(endAt) {
-		return errors.New("external submission timestamp is outside the contest window")
+		return definitiveVerificationError("external submission timestamp is outside the contest window")
 	}
 	return nil
 }
@@ -333,7 +401,7 @@ func (s *Service) verifyExternalSubmission(ctx context.Context, sub *Submission,
 	if sub.ContestID != nil && strings.TrimSpace(*sub.ContestID) != "" {
 		startAt, endAt, err := s.getContestWindow(ctx, *sub.ContestID)
 		if err != nil {
-			return err
+			return &VerificationError{Kind: VerificationRetryable, Err: err}
 		}
 		if err := validateExternalSubmissionContestWindow(sub, *statusObj.SubmittedAt, startAt, endAt); err != nil {
 			return err
@@ -356,7 +424,7 @@ func (s *Service) verifyExternalSubmission(ctx context.Context, sub *Submission,
 			ON CONFLICT (user_id, platform) DO NOTHING
 		`, sub.UserID, sub.Platform, statusObj.PlatformUsername, now)
 		if err != nil {
-			return fmt.Errorf("failed to link verified platform identity: %w", err)
+			return &VerificationError{Kind: VerificationRetryable, Err: fmt.Errorf("failed to link verified platform identity: %w", err)}
 		}
 		err = s.db.QueryRowContext(ctx, `
 			SELECT external_username, connection_status
@@ -365,21 +433,10 @@ func (s *Service) verifyExternalSubmission(ctx context.Context, sub *Submission,
 		`, sub.UserID, sub.Platform).Scan(&expectedUsername, &connectionStatus)
 	}
 	if err != nil {
-		return fmt.Errorf("failed to verify platform identity: %w", err)
+		return &VerificationError{Kind: VerificationRetryable, Err: fmt.Errorf("failed to verify platform identity: %w", err)}
 	}
 	if !strings.EqualFold(strings.TrimSpace(expectedUsername), strings.TrimSpace(statusObj.PlatformUsername)) {
-		// A source proof is verified before this point, so a changed browser
-		// session can safely relink the user to the account that actually made
-		// this submission. The username is never taken from the request body.
-		_, err = s.db.ExecContext(ctx, `
-			UPDATE integrations
-			SET external_username = $1, connection_status = 'CONNECTED', updated_at = $2
-			WHERE user_id = $3 AND platform = $4
-		`, statusObj.PlatformUsername, now, sub.UserID, sub.Platform)
-		if err != nil {
-			return fmt.Errorf("failed to relink verified platform identity: %w", err)
-		}
-		return nil
+		return definitiveVerificationError("external submission platform identity does not match the connected account")
 	}
 	if connectionStatus != "CONNECTED" {
 		_, err = s.db.ExecContext(ctx, `
@@ -388,7 +445,7 @@ func (s *Service) verifyExternalSubmission(ctx context.Context, sub *Submission,
 			WHERE user_id = $2 AND platform = $3
 		`, now, sub.UserID, sub.Platform)
 		if err != nil {
-			return fmt.Errorf("failed to reconnect verified platform identity: %w", err)
+			return &VerificationError{Kind: VerificationRetryable, Err: fmt.Errorf("failed to reconnect verified platform identity: %w", err)}
 		}
 	}
 	return nil
@@ -508,128 +565,69 @@ func (s *Service) Create(ctx context.Context, userID string, isAdmin bool, probl
 	return sub, nil
 }
 
-func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submission, error) {
-	if sub == nil {
-		return sub, nil
+func newPollRequestID() (string, error) {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("failed to create poll request ID: %w", err)
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// requestPoll atomically reserves one queue request for a submission. The
+// lease suppresses repeated /sync calls while allowing a later request to
+// recover a task that was lost before it started. Worker-scheduled polls use
+// force=true because they replace the completed poll's lease.
+func (s *Service) requestPoll(ctx context.Context, submissionID string, force bool, delay time.Duration) error {
+	if s.asynqClient == nil && s.pollEnqueue == nil {
+		return nil
 	}
 
-	now := s.timeClock()
-
-	// 1. If submission has a mock external ID (from legacy bugs), mark as FAILED immediately
-	if sub.ExternalSubmissionID != nil && (strings.HasPrefix(*sub.ExternalSubmissionID, "cf_") || strings.HasPrefix(*sub.ExternalSubmissionID, "ac_")) {
-		metadata := sub.Metadata
-		if metadata == nil {
-			metadata = make(map[string]any)
-		}
-		metadata["error"] = "Submission was not created on the external platform (invalid mock ID)"
-		metaJSON, _ := json.Marshal(metadata)
-		_, updateErr := s.db.ExecContext(ctx, `
-			UPDATE submissions
-			SET status = $1, judged_at = $2, metadata = $3
-			WHERE id = $4
-		`, Failed, now, metaJSON, sub.ID)
-		if updateErr == nil {
-			sub.Status = Failed
-			sub.JudgedAt = &now
-			sub.Metadata = metadata
-		}
-		return sub, nil
-	}
-
-	// 2. If the browser bridge has not confirmed the handoff yet, keep the
-	// submission recoverable. The extension persists its result and the web
-	// client can safely retry the handoff by submission ID; turning this into a
-	// terminal failure would make a successful external submission look lost.
-	if (sub.Status == Pending || sub.Status == Dispatching) && (sub.ExternalSubmissionID == nil || *sub.ExternalSubmissionID == "") {
-		if now.Sub(sub.SubmittedAt) > 2*time.Minute {
-			metadata := sub.Metadata
-			if metadata == nil {
-				metadata = make(map[string]any)
-			}
-			metadata["dispatchRetryable"] = true
-			metadata["dispatchMessage"] = "Dispatch confirmation is delayed; retrying the browser handoff is safe"
-			metaJSON, _ := json.Marshal(metadata)
-			_, updateErr := s.db.ExecContext(ctx, `
-				UPDATE submissions
-				SET metadata = $1
-				WHERE id = $2
-			`, metaJSON, sub.ID)
-			if updateErr == nil {
-				sub.Metadata = metadata
-			}
-		}
-		return sub, nil
-	}
-
-	if sub.ExternalSubmissionID == nil || *sub.ExternalSubmissionID == "" || s.platRegistry == nil {
-		return sub, nil
-	}
-
-	adapter, err := s.platRegistry.Get(sub.Platform)
+	requestID, err := newPollRequestID()
 	if err != nil {
-		return sub, nil
+		return err
 	}
 
-	prob, err := s.probSvc.GetByID(ctx, sub.ProblemID)
-	extSubID := *sub.ExternalSubmissionID
-	if err == nil && prob != nil && !strings.Contains(extSubID, "/") {
-		extSubID = externalSubmissionRef(prob.ExternalID, extSubID)
+	condition := fmt.Sprintf("(poll_requested_at IS NULL OR poll_requested_at < NOW() - INTERVAL '%d seconds')", int(queue.PollRequestLease/time.Second))
+	if force {
+		condition = "TRUE"
+	}
+	var externalID, platformName, problemID string
+	err = s.db.QueryRowContext(ctx, fmt.Sprintf(`
+		UPDATE submissions
+		SET poll_request_id = $1, poll_requested_at = NOW()
+		WHERE id = $2
+		  AND status IN ('PENDING', 'DISPATCHING', 'JUDGING')
+		  AND external_submission_id IS NOT NULL
+		  AND %s
+		RETURNING external_submission_id, platform, problem_id
+	`, condition), requestID, submissionID).Scan(&externalID, &platformName, &problemID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to reserve submission poll: %w", err)
 	}
 
-	statusObj, err := adapter.GetSubmission(ctx, extSubID)
-	if err != nil || statusObj == nil {
-		return sub, nil
+	task, err := queue.NewPollVerdictTaskAfter(submissionID, externalID, platformName, problemID, requestID, delay)
+	if err == nil {
+		if s.pollEnqueue != nil {
+			err = s.pollEnqueue(ctx, task)
+		} else {
+			_, err = s.asynqClient.EnqueueContext(ctx, task)
+		}
 	}
-
-	if statusObj.Status != "JUDGING" && statusObj.Status != "PENDING" && statusObj.Status != "" {
-		newStatus := Status(statusObj.Status)
-		metadata := sub.Metadata
-		if metadata == nil {
-			metadata = make(map[string]any)
-		}
-		if statusObj.ExecutionTimeMs != nil {
-			metadata["executionTimeMs"] = *statusObj.ExecutionTimeMs
-		}
-		if statusObj.MemoryBytes != nil {
-			metadata["memoryBytes"] = *statusObj.MemoryBytes
-		}
-		if statusObj.FailedTestcase != nil {
-			metadata["failedTestcase"] = *statusObj.FailedTestcase
-		}
-		maps.Copy(metadata, statusObj.RawPayload)
-
-		metaJSON, _ := json.Marshal(metadata)
-		_, updateErr := s.db.ExecContext(ctx, `
+	if err != nil {
+		_, clearErr := s.db.ExecContext(ctx, `
 			UPDATE submissions
-			SET status = $1, judged_at = $2, metadata = $3
-			WHERE id = $4
-		`, newStatus, now, metaJSON, sub.ID)
-		if updateErr == nil {
-			sub.Status = newStatus
-			sub.JudgedAt = &now
-			sub.Metadata = metadata
+			SET poll_request_id = NULL, poll_requested_at = NULL
+			WHERE id = $1 AND poll_request_id = $2
+		`, submissionID, requestID)
+		if clearErr != nil {
+			log.Printf("[Queue:Error] Failed to release poll request %s for submission %s: %v", requestID, submissionID, clearErr)
 		}
-	} else if (sub.Status == Judging || statusObj.Status == "JUDGING") && now.Sub(sub.SubmittedAt) > 15*time.Minute {
-		// Stale judging submission timeout (>15 min)
-		metadata := sub.Metadata
-		if metadata == nil {
-			metadata = make(map[string]any)
-		}
-		metadata["error"] = "Judging timed out on external platform"
-		metaJSON, _ := json.Marshal(metadata)
-		_, updateErr := s.db.ExecContext(ctx, `
-			UPDATE submissions
-			SET status = $1, judged_at = $2, metadata = $3
-			WHERE id = $4
-		`, Failed, now, metaJSON, sub.ID)
-		if updateErr == nil {
-			sub.Status = Failed
-			sub.JudgedAt = &now
-			sub.Metadata = metadata
-		}
+		return fmt.Errorf("failed to enqueue submission poll: %w", err)
 	}
-
-	return sub, nil
+	return nil
 }
 
 func (s *Service) SyncStatus(ctx context.Context, id, requestingUserID string, isAdmin bool) (*Submission, error) {
@@ -662,11 +660,10 @@ func (s *Service) SyncStatus(ctx context.Context, id, requestingUserID string, i
 
 	_ = json.Unmarshal(metaJSON, &sub.Metadata)
 
-	if sub.Status == Judging || sub.Status == Pending || sub.Status == Dispatching {
-		if synced, syncErr := s.syncStatusDirect(ctx, &sub); syncErr == nil && synced != nil {
-			sub = *synced
-		} else if syncErr != nil {
-			return nil, syncErr
+	if (sub.Status == Pending || sub.Status == Dispatching || sub.Status == Judging) && sub.ExternalSubmissionID != nil && strings.TrimSpace(*sub.ExternalSubmissionID) != "" {
+		// Sync is an explicit queue nudge, not a synchronous platform read.
+		if err := s.requestPoll(ctx, sub.ID, false, 0); err != nil {
+			return nil, err
 		}
 	}
 
@@ -703,12 +700,6 @@ func (s *Service) GetByID(ctx context.Context, id, requestingUserID string, isAd
 	}
 
 	_ = json.Unmarshal(metaJSON, &sub.Metadata)
-
-	if sub.Status == Judging || sub.Status == Pending || sub.Status == Dispatching {
-		if synced, err := s.syncStatusDirect(ctx, &sub); err == nil && synced != nil {
-			sub = *synced
-		}
-	}
 
 	attachAdminSourceURL(&sub, isAdmin)
 	return &sub, nil
@@ -794,11 +785,6 @@ func (s *Service) list(ctx context.Context, userID, contestID, problemID string,
 	}
 
 	for i := range subs {
-		if subs[i].Status == Judging || subs[i].Status == Pending || subs[i].Status == Dispatching {
-			if synced, err := s.syncStatusDirect(ctx, &subs[i]); err == nil && synced != nil {
-				subs[i] = *synced
-			}
-		}
 		attachAdminSourceURL(&subs[i], isAdmin)
 	}
 
@@ -818,62 +804,34 @@ func (s *Service) UpdateDispatched(ctx context.Context, id, userID string, isAdm
 		return errors.New("unauthorized to update submission")
 	}
 
-	if strings.HasPrefix(externalSubmissionID, "cf_") || strings.HasPrefix(externalSubmissionID, "ac_") {
+	externalSubmissionID = strings.TrimSpace(externalSubmissionID)
+	if externalSubmissionID == "" || strings.HasPrefix(externalSubmissionID, "cf_") || strings.HasPrefix(externalSubmissionID, "ac_") {
 		return errors.New("invalid external submission ID")
 	}
-	if s.platRegistry == nil {
-		return errors.New("platform verification is unavailable")
+	storedExternalID := externalSubmissionID
+	if !strings.Contains(storedExternalID, "/") && strings.Contains(sub.ProblemExternalID, "/") {
+		storedExternalID = externalSubmissionRef(sub.ProblemExternalID, storedExternalID)
 	}
-	adapter, err := s.platRegistry.Get(sub.Platform)
-	if err != nil {
-		return err
-	}
-	lookupID := externalSubmissionID
-	if !strings.Contains(lookupID, "/") && strings.Contains(sub.ProblemExternalID, "/") {
-		lookupID = externalSubmissionRef(sub.ProblemExternalID, lookupID)
-	}
-	verified, err := adapter.GetSubmission(ctx, lookupID)
-	var verificationErr error
-	for attempt := 0; attempt < 4; attempt++ {
-		if err == nil {
-			verificationErr = s.verifyExternalSubmission(ctx, sub, lookupID, verified, s.timeClock())
-			if verificationErr == nil {
-				break
-			}
-		} else {
-			verificationErr = fmt.Errorf("failed to verify external submission: %w", err)
+	if sub.ExternalSubmissionID != nil && strings.TrimSpace(*sub.ExternalSubmissionID) != "" {
+		if canonicalExternalID(*sub.ExternalSubmissionID) != canonicalExternalID(storedExternalID) {
+			return errors.New("a different external submission ID is already attached")
 		}
-		if attempt < 3 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(750 * time.Millisecond):
-			}
-			verified, err = adapter.GetSubmission(ctx, lookupID)
+		if isTerminalStatus(sub.Status) {
+			return nil
 		}
+		// Recovery is idempotent: the same handoff can request a fresh queue
+		// lease after an enqueue failure without changing the attached ID.
+		return s.requestPoll(ctx, sub.ID, true, 0)
 	}
-	if verificationErr != nil {
-		return verificationErr
-	}
-	storedExternalID := strings.TrimSpace(verified.ExternalSubmissionID)
-	if storedExternalID == "" {
-		storedExternalID = lookupID
-	}
-
-	newStatus := Judging
-	var judgedAt *time.Time
-	if verified.Status != "JUDGING" && verified.Status != "PENDING" && verified.Status != "" {
-		terminalStatus := Status(verified.Status)
-		newStatus = terminalStatus
-		now := s.timeClock()
-		judgedAt = &now
-	}
-	query := `
+	result, err := s.db.ExecContext(ctx, `
 		UPDATE submissions
-		SET status = $1, external_submission_id = $2, external_submitted_at = $3, judged_at = $4
-		WHERE id = $5 AND status IN ($6, $7)
-	`
-	result, err := s.db.ExecContext(ctx, query, newStatus, storedExternalID, verified.SubmittedAt, judgedAt, id, Pending, Dispatching)
+		SET status = $1, external_submission_id = $2, judged_at = NULL,
+		    poll_started_at = COALESCE(poll_started_at, NOW()),
+		    poll_request_id = NULL, poll_requested_at = NULL
+		WHERE id = $3
+		  AND status IN ($4, $5)
+		  AND (external_submission_id IS NULL OR external_submission_id = $2)
+	`, Judging, storedExternalID, id, Pending, Dispatching)
 	if err != nil {
 		return err
 	}
@@ -882,25 +840,39 @@ func (s *Service) UpdateDispatched(ctx context.Context, id, userID string, isAdm
 		return err
 	}
 	if rowsAffected == 0 {
-		// A recovery retry can arrive after the worker has already finalized the
-		// submission. Keep the terminal verdict and avoid enqueueing a duplicate.
+		// Re-read after the compare-and-set. Another handoff may have won the
+		// race while this request still had a nil external ID in its snapshot.
+		var currentExternalID sql.NullString
+		var currentStatus Status
+		err = s.db.QueryRowContext(ctx, `
+			SELECT external_submission_id, status
+			FROM submissions
+			WHERE id = $1
+		`, id).Scan(&currentExternalID, &currentStatus)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if currentExternalID.Valid && strings.TrimSpace(currentExternalID.String) != "" {
+			if canonicalExternalID(currentExternalID.String) != canonicalExternalID(storedExternalID) {
+				return errors.New("a different external submission ID is already attached")
+			}
+			if !isTerminalStatus(currentStatus) {
+				return s.requestPoll(ctx, id, true, 0)
+			}
+		}
+		// The row became terminal (or is a client-failure record without an
+		// external ID). Keep that result unchanged.
 		return nil
 	}
 
-	log.Printf("[Submission:Dispatched] %s linked with external ID %s (status: %s)", sub.ID, storedExternalID, newStatus)
-
-	// Enqueue Asynq worker task for asynchronous status polling
-	if newStatus == Judging && s.asynqClient != nil {
-		task, taskErr := queue.NewPollVerdictTask(sub.ID, storedExternalID, string(sub.Platform), sub.ProblemID)
-		if taskErr == nil {
-			info, enqErr := s.asynqClient.EnqueueContext(ctx, task)
-			if enqErr == nil && info != nil {
-				log.Printf("[Queue:Enqueue] Successfully queued poll task (TaskID: %s, Queue: %s) for submission %s",
-					info.ID, info.Queue, sub.ID)
-			} else if enqErr != nil {
-				log.Printf("[Queue:Error] Failed to enqueue task for submission %s: %v", sub.ID, enqErr)
-			}
-		}
+	log.Printf("[Submission:Dispatched] %s linked with external ID %s (status: %s)", sub.ID, storedExternalID, Judging)
+	if err := s.requestPoll(ctx, sub.ID, true, 3*time.Second); err != nil {
+		// The row remains JUDGING with its verified external ID, so the client
+		// can safely retain its recovery record and retry this handoff.
+		return err
 	}
 
 	return nil
@@ -915,9 +887,14 @@ func (s *Service) UpdateResult(ctx context.Context, id, userID string, isAdmin b
 		return errors.New("unauthorized to update submission")
 	}
 
-	// Regular users are only allowed to mark client-dispatch failures (FAILED)
-	if !isAdmin && status != Failed {
-		return errors.New("only admins or platform workers can finalize verdicts")
+	parsedStatus, err := ParseStatus(string(status))
+	if err != nil {
+		return err
+	}
+	// This endpoint is exclusively for a client-side handoff failure. External
+	// verdicts are written by the asynchronous worker after platform polling.
+	if parsedStatus != Failed {
+		return errors.New("only client-dispatch failures may be reported here")
 	}
 	if status == Failed {
 		if metadata == nil {
@@ -934,12 +911,13 @@ func (s *Service) UpdateResult(ctx context.Context, id, userID string, isAdmin b
 	}
 
 	now := s.timeClock()
-	query := `
+	_, err = s.db.ExecContext(ctx, `
 		UPDATE submissions
 		SET status = $1, judged_at = $2, metadata = $3
 		WHERE id = $4
-	`
-	_, err = s.db.ExecContext(ctx, query, status, now, metaJSON, id)
+		  AND status IN ($5, $6)
+		  AND external_submission_id IS NULL
+	`, Failed, now, metaJSON, id, Pending, Dispatching)
 	if err == nil {
 		log.Printf("[Submission:ResultUpdated] %s updated to status %s by user %s (isAdmin: %v)", id, status, userID, isAdmin)
 	}

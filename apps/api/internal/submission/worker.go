@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"maps"
@@ -20,6 +21,7 @@ type Worker struct {
 	db           *sql.DB
 	probSvc      *problem.Service
 	platRegistry *platform.Registry
+	asynqClient  *asynq.Client
 	timeClock    func() time.Time
 }
 
@@ -40,51 +42,57 @@ func (w *Worker) SetClock(clock func() time.Time) {
 	w.timeClock = clock
 }
 
-// ProcessPollVerdict handles the asynq task submission:poll_verdict.
+func (w *Worker) SetAsynqClient(client *asynq.Client) {
+	w.asynqClient = client
+}
+
+// ProcessPollVerdict handles one asynchronous poll. JUDGING/PENDING are
+// expected responses: the task explicitly schedules the next poll and exits
+// successfully. Asynq retries are reserved for actual failures.
 func (w *Worker) ProcessPollVerdict(ctx context.Context, t *asynq.Task) error {
 	var p queue.PollVerdictPayload
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
-		log.Printf("[Worker:Error] Failed to unmarshal payload: %v", err)
 		return fmt.Errorf("failed to unmarshal poll verdict payload: %w", err)
 	}
 
-	retried, _ := asynq.GetRetryCount(ctx)
-	maxRetry, _ := asynq.GetMaxRetry(ctx)
-
-	log.Printf("[Worker:Poll] Checking submission %s on %s (extID: %s, attempt %d/%d)",
-		p.SubmissionID, p.Platform, p.ExternalSubmissionID, retried+1, maxRetry)
-
 	now := w.timeClock()
-
-	// 1. Fetch current submission from DB
-	query := `
-		SELECT id, user_id, problem_id, platform, language, status, external_submission_id, contest_id, external_submitted_at, submitted_at, metadata
-		FROM submissions
-		WHERE id = $1
-	`
-	var subID, userID, problemID, platStr, language, statusStr string
-	var extSubID sql.NullString
-	var contestID sql.NullString
-	var externalSubmittedAt sql.NullTime
+	var subID, userID, problemID, platStr, language, statusStr, sourceCode string
+	var extSubID, requestID, contestID sql.NullString
+	var externalSubmittedAt, pollStartedAt sql.NullTime
 	var submittedAt time.Time
 	var metaBytes []byte
-
-	err := w.db.QueryRowContext(ctx, query, p.SubmissionID).Scan(
-		&subID, &userID, &problemID, &platStr, &language, &statusStr, &extSubID, &contestID, &externalSubmittedAt, &submittedAt, &metaBytes,
+	err := w.db.QueryRowContext(ctx, `
+		SELECT id, user_id, problem_id, platform, language, source_code, status,
+		       external_submission_id, contest_id, external_submitted_at,
+		       poll_started_at, submitted_at, metadata, poll_request_id
+		FROM submissions WHERE id = $1
+	`, p.SubmissionID).Scan(
+		&subID, &userID, &problemID, &platStr, &language, &sourceCode, &statusStr,
+		&extSubID, &contestID, &externalSubmittedAt, &pollStartedAt, &submittedAt, &metaBytes, &requestID,
 	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
 	if err != nil {
-		if err == sql.ErrNoRows {
-			log.Printf("[Worker:Notice] Submission %s not found in DB, skipping task", p.SubmissionID)
-			return nil // submission deleted or not found
-		}
 		return fmt.Errorf("database query error: %w", err)
 	}
 
-	curStatus := Status(statusStr)
-	// If already resolved to a terminal verdict, we are done
-	if curStatus != Pending && curStatus != Dispatching && curStatus != Judging {
-		log.Printf("[Worker:Done] Submission %s is already finalized with status %s", p.SubmissionID, curStatus)
+	curStatus, err := ParseStatus(statusStr)
+	if err != nil {
+		return fmt.Errorf("submission %s has invalid database status: %w", p.SubmissionID, err)
+	}
+	if isTerminalStatus(curStatus) {
 		return nil
+	}
+	if p.RequestID != "" && requestID.Valid && requestID.String != p.RequestID {
+		// A newer explicit sync or worker-scheduled poll superseded this task.
+		return nil
+	}
+	if p.RequestID != "" {
+		_, _ = w.db.ExecContext(ctx, `
+			UPDATE submissions SET poll_requested_at = NOW()
+			WHERE id = $1 AND poll_request_id = $2
+		`, p.SubmissionID, p.RequestID)
 	}
 
 	var metadata map[string]any
@@ -97,49 +105,46 @@ func (w *Worker) ProcessPollVerdict(ctx context.Context, t *asynq.Task) error {
 	if extSubID.Valid && extSubID.String != "" {
 		externalID = extSubID.String
 	}
-
-	// 2. Reject mock IDs immediately
 	if externalID == "" || strings.HasPrefix(externalID, "cf_") || strings.HasPrefix(externalID, "ac_") {
-		log.Printf("[Worker:Fail] Submission %s has invalid/mock external ID %q", p.SubmissionID, externalID)
-		metadata["error"] = "Submission was not created on the external platform (invalid mock ID)"
-		metaJSON, _ := json.Marshal(metadata)
-		_, _ = w.db.ExecContext(ctx, `
-			UPDATE submissions
-			SET status = $1, judged_at = $2, metadata = $3
-			WHERE id = $4
-		`, Failed, now, metaJSON, p.SubmissionID)
-		return nil
+		return w.failOrRetry(ctx, p, judgingDeadlineStart(externalSubmittedAt, pollStartedAt, submittedAt), metadata, "Submission was not created on the external platform (invalid mock ID)", nil)
 	}
-
-	// 3. Obtain platform adapter
-	platType := platform.Type(platStr)
-	adapter, err := w.platRegistry.Get(platType)
+	deadlineStart := judgingDeadlineStart(externalSubmittedAt, pollStartedAt, submittedAt)
+	if w.platRegistry == nil {
+		return w.failOrRetry(ctx, p, deadlineStart, metadata, "platform polling is unavailable", fmt.Errorf("platform registry is unavailable"))
+	}
+	adapter, err := w.platRegistry.Get(platform.Type(platStr))
 	if err != nil {
-		log.Printf("[Worker:Error] Platform adapter not found for %s", platStr)
-		return fmt.Errorf("unsupported platform %s: %w", platStr, err)
+		return w.failOrRetry(ctx, p, deadlineStart, metadata, err.Error(), err)
 	}
 
-	// Format external submission ID if needed
 	prob, _ := w.probSvc.GetByID(ctx, problemID)
 	formattedExtID := externalID
 	if prob != nil && !strings.Contains(formattedExtID, "/") {
 		formattedExtID = externalSubmissionRef(prob.ExternalID, formattedExtID)
 	}
-
-	// 4. Poll external platform
+	pollRequestedAt := time.Now().UTC()
+	log.Printf("[Worker:Poll] Submission %s request started at %s (platform=%s externalID=%s)",
+		p.SubmissionID, pollRequestedAt.Format(time.RFC3339Nano), platStr, formattedExtID)
 	statusObj, err := adapter.GetSubmission(ctx, formattedExtID)
+	pollRespondedAt := time.Now().UTC()
+	pollDuration := pollRespondedAt.Sub(pollRequestedAt)
 	if err != nil {
-		log.Printf("[Worker:Retry] Network/platform error polling %s (extID: %s): %v", p.Platform, formattedExtID, err)
-		return fmt.Errorf("failed to fetch submission status from platform: %w", err)
+		log.Printf("[Worker:Poll] Submission %s response at %s after %s (platform=%s error=%v)",
+			p.SubmissionID, pollRespondedAt.Format(time.RFC3339Nano), pollDuration, platStr, err)
+		return w.failOrRetry(ctx, p, deadlineStart, metadata, "", fmt.Errorf("failed to fetch submission status from platform: %w", err))
 	}
-
 	if statusObj == nil {
-		return fmt.Errorf("empty status response from platform")
+		log.Printf("[Worker:Poll] Submission %s response at %s after %s (platform=%s empty response)",
+			p.SubmissionID, pollRespondedAt.Format(time.RFC3339Nano), pollDuration, platStr)
+		return w.failOrRetry(ctx, p, deadlineStart, metadata, "", errors.New("empty status response from platform"))
+	}
+	log.Printf("[Worker:Poll] Submission %s response at %s after %s (platform=%s status=%s)",
+		p.SubmissionID, pollRespondedAt.Format(time.RFC3339Nano), pollDuration, platStr, statusObj.Status)
+	newStatus, err := ParseStatus(statusObj.Status)
+	if err != nil {
+		return w.failOrRetry(ctx, p, deadlineStart, metadata, "", err)
 	}
 
-	// UpdateDispatched performs the one-time verification before enqueueing this
-	// task. Once its timestamp is stored, later polls must tolerate status-only
-	// adapter fallbacks instead of re-running metadata verification.
 	if needsExternalSubmissionVerification(externalSubmittedAt) {
 		problemExternalID := ""
 		if prob != nil {
@@ -150,38 +155,29 @@ func (w *Worker) ProcessPollVerdict(ctx context.Context, t *asynq.Task) error {
 			contestIDPtr = &contestID.String
 		}
 		verifiedSub := &Submission{
-			ID:                subID,
-			UserID:            userID,
-			ProblemID:         problemID,
-			ProblemExternalID: problemExternalID,
-			Platform:          platform.Type(platStr),
-			Language:          language,
-			ContestID:         contestIDPtr,
-			SubmittedAt:       submittedAt,
+			ID: subID, UserID: userID, ProblemID: problemID, ProblemExternalID: problemExternalID,
+			Platform: platform.Type(platStr), Language: language, SourceCode: sourceCode,
+			ContestID: contestIDPtr, SubmittedAt: submittedAt,
 		}
 		service := &Service{db: w.db}
 		if err := service.verifyExternalSubmission(ctx, verifiedSub, formattedExtID, statusObj, now); err != nil {
-			metadata["error"] = err.Error()
-			metaJSON, _ := json.Marshal(metadata)
-			_, _ = w.db.ExecContext(ctx, `
-				UPDATE submissions
-				SET status = $1, judged_at = $2, metadata = $3
-				WHERE id = $4 AND status IN ('PENDING', 'DISPATCHING', 'JUDGING')
-			`, Failed, now, metaJSON, p.SubmissionID)
-			return nil
+			var verificationErr *VerificationError
+			if errors.As(err, &verificationErr) && verificationErr.Kind == VerificationDefinitive {
+				return w.failOrRetry(ctx, p, deadlineStart, metadata, err.Error(), nil)
+			}
+			return w.failOrRetry(ctx, p, deadlineStart, metadata, "external submission metadata is incomplete or temporarily unavailable", err)
 		}
 		if _, err := w.db.ExecContext(ctx, `
-			UPDATE submissions
-			SET external_submitted_at = $1
-			WHERE id = $2 AND external_submitted_at IS NULL
+			UPDATE submissions SET external_submitted_at = $1
+			WHERE id = $2 AND status IN ('PENDING', 'DISPATCHING', 'JUDGING')
+			  AND external_submitted_at IS NULL
 		`, statusObj.SubmittedAt, p.SubmissionID); err != nil {
 			return fmt.Errorf("failed to store verified external submission timestamp: %w", err)
 		}
+		deadlineStart = statusObj.SubmittedAt.UTC()
 	}
 
-	// 5. Handle terminal statuses
-	if statusObj.Status != "JUDGING" && statusObj.Status != "PENDING" && statusObj.Status != "" {
-		newStatus := Status(statusObj.Status)
+	if isTerminalStatus(newStatus) {
 		if statusObj.ExecutionTimeMs != nil {
 			metadata["executionTimeMs"] = *statusObj.ExecutionTimeMs
 		}
@@ -192,36 +188,71 @@ func (w *Worker) ProcessPollVerdict(ctx context.Context, t *asynq.Task) error {
 			metadata["failedTestcase"] = *statusObj.FailedTestcase
 		}
 		maps.Copy(metadata, statusObj.RawPayload)
-
 		metaJSON, _ := json.Marshal(metadata)
-		_, updateErr := w.db.ExecContext(ctx, `
+		_, err = w.db.ExecContext(ctx, `
 			UPDATE submissions
-			SET status = $1, judged_at = $2, metadata = $3
-			WHERE id = $4
+			SET status = $1, judged_at = $2, metadata = $3,
+			    poll_request_id = NULL, poll_requested_at = NULL
+			WHERE id = $4 AND status IN ('PENDING', 'DISPATCHING', 'JUDGING')
 		`, newStatus, now, metaJSON, p.SubmissionID)
-		if updateErr != nil {
-			return fmt.Errorf("failed to update submission in database: %w", updateErr)
+		if err != nil {
+			return fmt.Errorf("failed to update submission in database: %w", err)
 		}
 		log.Printf("[Worker:Success] Submission %s finalized: Verdict=%s", p.SubmissionID, newStatus)
-		return nil // Finished successfully
-	}
-
-	// 6. Still judging - check timeout
-	if now.Sub(submittedAt) > 15*time.Minute {
-		log.Printf("[Worker:Timeout] Submission %s timed out (>15m in judging), marking as FAILED", p.SubmissionID)
-		metadata["error"] = "Judging timed out on external platform (>15m)"
-		metaJSON, _ := json.Marshal(metadata)
-		_, _ = w.db.ExecContext(ctx, `
-			UPDATE submissions
-			SET status = $1, judged_at = $2, metadata = $3
-			WHERE id = $4
-		`, Failed, now, metaJSON, p.SubmissionID)
 		return nil
 	}
 
-	// Return error to trigger Asynq retry
-	log.Printf("[Worker:Judging] Submission %s is still %s on %s, scheduling retry...", p.SubmissionID, statusObj.Status, p.Platform)
-	return fmt.Errorf("submission %s is still %s (retry scheduled)", p.SubmissionID, statusObj.Status)
+	if !now.Before(deadlineStart.Add(judgingTimeout)) {
+		return w.failOrRetry(ctx, p, deadlineStart, metadata, "Judging timed out on external platform (>15m)", nil)
+	}
+	service := &Service{db: w.db, asynqClient: w.asynqClient}
+	if err := service.requestPoll(ctx, p.SubmissionID, true, queue.PollInterval); err != nil {
+		return err
+	}
+	log.Printf("[Worker:Judging] Submission %s is still %s; next poll scheduled", p.SubmissionID, newStatus)
+	return nil
+}
+
+func judgingDeadlineStart(externalSubmittedAt, pollStartedAt sql.NullTime, submittedAt time.Time) time.Time {
+	if externalSubmittedAt.Valid {
+		return externalSubmittedAt.Time.UTC()
+	}
+	if pollStartedAt.Valid {
+		return pollStartedAt.Time.UTC()
+	}
+	return submittedAt.UTC()
+}
+
+func (w *Worker) failOrRetry(ctx context.Context, p queue.PollVerdictPayload, deadlineStart time.Time, metadata map[string]any, terminalMessage string, retryErr error) error {
+	now := w.timeClock()
+	if !now.Before(deadlineStart.Add(judgingTimeout)) || retryErr == nil {
+		message := terminalMessage
+		if message == "" && retryErr != nil {
+			message = fmt.Sprintf("Judging polling timed out after repeated platform errors: %v", retryErr)
+		}
+		if message == "" {
+			message = "Judging polling failed without a platform verdict"
+		}
+		metadata["error"] = message
+		metaJSON, _ := json.Marshal(metadata)
+		_, err := w.db.ExecContext(ctx, `
+			UPDATE submissions
+			SET status = $1, judged_at = $2, metadata = $3,
+			    poll_request_id = NULL, poll_requested_at = NULL
+			WHERE id = $4 AND status IN ('PENDING', 'DISPATCHING', 'JUDGING')
+		`, Failed, now, metaJSON, p.SubmissionID)
+		if err != nil {
+			return fmt.Errorf("failed to mark submission failed: %w", err)
+		}
+		return nil
+	}
+	if p.RequestID != "" {
+		_, _ = w.db.ExecContext(ctx, `
+			UPDATE submissions SET poll_requested_at = NOW()
+			WHERE id = $1 AND poll_request_id = $2
+		`, p.SubmissionID, p.RequestID)
+	}
+	return retryErr
 }
 
 func externalSubmissionRef(problemExternalID, submissionID string) string {

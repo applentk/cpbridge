@@ -5,7 +5,6 @@ import type {
   ExtensionSubmissionActionRequiredResponse,
   ExtensionSubmissionCreatedResponse,
   ExtensionSubmissionFailedResponse,
-  ExtensionStatusPollResponse,
   LanguageId,
   PlatformType,
 } from '@cpbridge/contracts';
@@ -128,31 +127,6 @@ export function completeManualSubmission(
     type: 'COMPLETE_MANUAL_SUBMISSION',
     submissionId
   }, 15000);
-}
-
-export async function pollStatusViaExtension(
-  platform: PlatformType,
-  externalSubmissionId: string,
-  externalId: string,
-  url: string
-): Promise<{ status: string } | null> {
-  try {
-    const extension = await pingExtension();
-    if (!extension || !isExtensionVersionCompatible(extension.version)) return null;
-
-    const res = await sendToExtension<ExtensionStatusPollResponse>({
-      type: 'POLL_STATUS',
-      platform,
-      externalSubmissionId,
-      problem: { externalId, url }
-    });
-    if (res && res.type === 'POLL_STATUS_RESULT') {
-      return { status: res.status };
-    }
-    return null;
-  } catch {
-    return null;
-  }
 }
 
 export async function recoverPendingSubmissions(): Promise<ExtensionRecoverSubmissionsResponse['submissions']> {

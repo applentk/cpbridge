@@ -177,6 +177,12 @@ func EnsureSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_submissions_status ON submissions(status);
 	ALTER TABLE submissions ADD COLUMN IF NOT EXISTS source_hash VARCHAR(64);
 	ALTER TABLE submissions ADD COLUMN IF NOT EXISTS external_submitted_at TIMESTAMPTZ;
+	ALTER TABLE submissions ADD COLUMN IF NOT EXISTS poll_started_at TIMESTAMPTZ;
+	ALTER TABLE submissions ADD COLUMN IF NOT EXISTS poll_request_id VARCHAR(64);
+	ALTER TABLE submissions ADD COLUMN IF NOT EXISTS poll_requested_at TIMESTAMPTZ;
+	CREATE INDEX IF NOT EXISTS idx_submissions_poll_requests
+		ON submissions(poll_requested_at)
+		WHERE poll_request_id IS NOT NULL;
 	-- Failed dispatch records are retryable and must not reserve a source digest.
 	DROP INDEX IF EXISTS idx_submissions_unique_source;
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_submissions_unique_source
