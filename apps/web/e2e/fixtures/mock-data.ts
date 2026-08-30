@@ -253,20 +253,20 @@ export const mockContests: Contest[] = [
 
 export const mockStandings: Standings = {
   contestId: 'con_active_icpc',
-  contestName: 'Weekly Practice Contest #42',
   scoringType: 'ICPC',
+  generatedAt: '2026-01-01T00:00:00Z',
   problems: [
     {
       problemId: 'prb_cf_1000A',
       label: 'A',
       title: 'Codehorses T-shirts',
-      position: 1,
+      platform: 'CODEFORCES',
     },
     {
       problemId: 'prb_ac_abc300_a',
       label: 'B',
       title: 'A - N-choice question',
-      position: 2,
+      platform: 'ATCODER',
     },
   ],
   standings: [
@@ -278,16 +278,20 @@ export const mockStandings: Standings = {
       totalPenalty: 45,
       problemScores: {
         prb_cf_1000A: {
+          problemId: 'prb_cf_1000A',
+          label: 'A',
           solved: true,
           attempts: 1,
           firstSolvedAtMinutes: 15,
-          penalty: 15,
+          penaltyMinutes: 15,
         },
         prb_ac_abc300_a: {
+          problemId: 'prb_ac_abc300_a',
+          label: 'B',
           solved: true,
           attempts: 2,
           firstSolvedAtMinutes: 30,
-          penalty: 50,
+          penaltyMinutes: 50,
         },
       },
     },
@@ -299,14 +303,19 @@ export const mockStandings: Standings = {
       totalPenalty: 22,
       problemScores: {
         prb_cf_1000A: {
+          problemId: 'prb_cf_1000A',
+          label: 'A',
           solved: true,
           attempts: 1,
           firstSolvedAtMinutes: 22,
-          penalty: 22,
+          penaltyMinutes: 22,
         },
         prb_ac_abc300_a: {
+          problemId: 'prb_ac_abc300_a',
+          label: 'B',
           solved: false,
           attempts: 3,
+          penaltyMinutes: 0,
         },
       },
     },

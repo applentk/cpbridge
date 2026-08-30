@@ -3,7 +3,7 @@ import { setupApiMocks, loginAs } from './fixtures/api-mock';
 import { mockRegularUser, mockAdminUser, mockContests, mockStandings } from './fixtures/mock-data';
 
 test.describe('Contests & ICPC Scoreboard', () => {
-  test('contests list page displays contests and filters by state', async ({ page }) => {
+  test('contests list page groups events by state in order', async ({ page }) => {
     await setupApiMocks(page);
 
     await page.goto('/contests');
@@ -14,20 +14,15 @@ test.describe('Contests & ICPC Scoreboard', () => {
     await expect(page.locator('text=Grand Prix of Tokyo')).toBeVisible();
     await expect(page.locator('text=Winter Warmup 2026')).toBeVisible();
 
-    // Filter by ACTIVE
-    await page.click('button:has-text("ACTIVE")');
-    await expect(page.locator('text=Weekly Practice Contest #42')).toBeVisible();
-    await expect(page.locator('text=Grand Prix of Tokyo')).not.toBeVisible();
+    await expect(page.locator('section h2')).toHaveText([
+      'Active Contests',
+      'Upcoming Contests',
+      'All Events'
+    ]);
 
-    // Filter by UPCOMING
-    await page.click('button:has-text("UPCOMING")');
-    await expect(page.locator('text=Grand Prix of Tokyo')).toBeVisible();
-    await expect(page.locator('text=Weekly Practice Contest #42')).not.toBeVisible();
-
-    // Filter by FINISHED
-    await page.click('button:has-text("FINISHED")');
-    await expect(page.locator('text=Winter Warmup 2026')).toBeVisible();
-    await expect(page.locator('text=Weekly Practice Contest #42')).not.toBeVisible();
+    await expect(page.locator('section').nth(0).locator('a')).toHaveClass(/bg-emerald-500\/10/);
+    await expect(page.locator('section').nth(1).locator('a')).toHaveClass(/bg-amber-500\/10/);
+    await expect(page.locator('section').nth(2).locator('a')).toHaveClass(/bg-zinc-800\/45/);
   });
 
   test('active contest lobby displays timer, problem snapshot, and scoreboard link', async ({ page }) => {
@@ -373,8 +368,9 @@ test.describe('Contests & ICPC Scoreboard', () => {
       standings: {
         contestId: 'con_active_icpc',
         scoringType: 'ICPC',
+        generatedAt: '2026-01-01T00:00:00Z',
         problems: [
-          { contestId: 'con_active_icpc', problemId: 'prb_cf_1000A', label: 'A', position: 1, points: 100 },
+          { problemId: 'prb_cf_1000A', label: 'A', title: 'Codehorses T-shirts', platform: 'CODEFORCES' },
         ],
         standings: [],
       },
