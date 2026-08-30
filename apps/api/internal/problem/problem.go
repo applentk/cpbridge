@@ -81,11 +81,47 @@ func (s *Service) ImportByUrl(ctx context.Context, rawURL string) (*Problem, err
 		return nil, fmt.Errorf("failed to fetch problem from %s: %w", pType, err)
 	}
 
+	statement, err := adapter.GetStatement(ctx, extID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch problem statement from %s: %w", pType, err)
+	}
+	if err := SnapshotStatement(norm, statement); err != nil {
+		return nil, fmt.Errorf("failed to snapshot problem statement: %w", err)
+	}
+
 	p, err := UpsertNormalized(ctx, s.db, norm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save problem: %w", err)
 	}
 	return p, nil
+}
+
+// SnapshotStatement stores the complete fetched statement alongside the
+// normalized problem metadata. Imported problems must remain readable even if
+// the external platform is unavailable or the source changes later.
+func SnapshotStatement(norm *platform.NormalizedProblem, statement *platform.ProblemStatement) error {
+	if norm == nil {
+		return errors.New("normalized problem is required")
+	}
+	if statement == nil {
+		return errors.New("problem statement is required")
+	}
+	if norm.Metadata == nil {
+		norm.Metadata = make(map[string]any)
+	}
+
+	sampleCases := statement.SampleCases
+	if sampleCases == nil {
+		sampleCases = []platform.SampleCase{}
+	}
+
+	norm.Metadata["statement"] = CleanBoilerplate(statement.HTML)
+	norm.Metadata["timeLimit"] = statement.TimeLimit
+	norm.Metadata["memoryLimit"] = statement.MemoryLimit
+	norm.Metadata["sampleCases"] = sampleCases
+	norm.Metadata["note"] = statement.Note
+	norm.Metadata["statementSnapshot"] = true
+	return nil
 }
 
 // UpsertNormalized persists already-fetched platform metadata. Accepting either
@@ -299,75 +335,53 @@ func (s *Service) GetStatement(ctx context.Context, id, contestID, requestingUse
 		}
 	}
 
-	// If problem has pre-stored statement in metadata, return it directly!
-	if stmtVal, ok := prob.Metadata["statement"].(string); ok && strings.TrimSpace(stmtVal) != "" {
-		var timeLimit, memoryLimit string
-		if tl, ok := prob.Metadata["timeLimit"].(string); ok {
-			timeLimit = tl
-		}
-		if ml, ok := prob.Metadata["memoryLimit"].(string); ok {
-			memoryLimit = ml
-		}
-
-		var sampleCases []platform.SampleCase
-		if scList, ok := prob.Metadata["sampleCases"].([]any); ok {
-			for _, item := range scList {
-				if scMap, ok := item.(map[string]any); ok {
-					in, _ := scMap["input"].(string)
-					out, _ := scMap["output"].(string)
-					exp, _ := scMap["explanation"].(string)
-					sampleCases = append(sampleCases, platform.SampleCase{
-						Input:       in,
-						Output:      out,
-						Explanation: exp,
-					})
-				}
-			}
-		}
-
-		if sampleCases == nil {
-			sampleCases = []platform.SampleCase{}
-		}
-
-		return &platform.ProblemStatement{
-			HTML:        CleanBoilerplate(stmtVal),
-			TimeLimit:   timeLimit,
-			MemoryLimit: memoryLimit,
-			SampleCases: sampleCases,
-		}, nil
-	}
-
-	// Live fetch via platform adapter
-	adapter, err := s.registry.Get(prob.Platform)
+	statement, err := problemStatementFromMetadata(prob.Metadata)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("stored problem statement snapshot is invalid: %w", err)
+	}
+	if statement == nil {
+		return nil, errors.New("problem statement snapshot unavailable; re-import the problem")
+	}
+	return statement, nil
+}
+
+func problemStatementFromMetadata(metadata map[string]any) (*platform.ProblemStatement, error) {
+	statementValue, exists := metadata["statement"]
+	if !exists {
+		return nil, nil
+	}
+	statement, ok := statementValue.(string)
+	if !ok {
+		return nil, errors.New("statement is not text")
 	}
 
-	stmt, err := adapter.GetStatement(ctx, prob.ExternalID)
-	if err != nil {
-		return nil, err
+	result := &platform.ProblemStatement{
+		HTML:        CleanBoilerplate(statement),
+		SampleCases: []platform.SampleCase{},
 	}
-
-	// Persist extracted timeLimit & memoryLimit to problem metadata in DB if missing
-	needUpdate := false
-	if prob.Metadata == nil {
-		prob.Metadata = make(map[string]any)
+	if timeLimit, ok := metadata["timeLimit"].(string); ok {
+		result.TimeLimit = timeLimit
 	}
-	if stmt.TimeLimit != "" && prob.Metadata["timeLimit"] != stmt.TimeLimit {
-		prob.Metadata["timeLimit"] = stmt.TimeLimit
-		needUpdate = true
+	if memoryLimit, ok := metadata["memoryLimit"].(string); ok {
+		result.MemoryLimit = memoryLimit
 	}
-	if stmt.MemoryLimit != "" && prob.Metadata["memoryLimit"] != stmt.MemoryLimit {
-		prob.Metadata["memoryLimit"] = stmt.MemoryLimit
-		needUpdate = true
+	if note, ok := metadata["note"].(string); ok {
+		result.Note = CleanBoilerplate(note)
 	}
-	if needUpdate {
-		if metaBytes, err := json.Marshal(prob.Metadata); err == nil {
-			_, _ = s.db.ExecContext(ctx, `UPDATE problems SET metadata = $1, updated_at = $2 WHERE id = $3`, metaBytes, time.Now().UTC(), prob.ID)
+	if sampleCasesValue, exists := metadata["sampleCases"]; exists {
+		sampleCasesJSON, err := json.Marshal(sampleCasesValue)
+		if err != nil {
+			return nil, fmt.Errorf("sample cases cannot be encoded: %w", err)
+		}
+		if err := json.Unmarshal(sampleCasesJSON, &result.SampleCases); err != nil {
+			return nil, fmt.Errorf("sample cases cannot be decoded: %w", err)
+		}
+		if result.SampleCases == nil {
+			result.SampleCases = []platform.SampleCase{}
 		}
 	}
 
-	return stmt, nil
+	return result, nil
 }
 
 func (s *Service) List(ctx context.Context, f Filter) ([]Problem, int, error) {

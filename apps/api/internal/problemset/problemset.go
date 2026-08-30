@@ -94,6 +94,10 @@ func (s *Service) ImportContest(ctx context.Context, ownerID string, req ImportC
 	if snapshot == nil || len(snapshot.Problems) == 0 {
 		return nil, fmt.Errorf("%s contest contains no importable problems", pType)
 	}
+	adapter, err := s.registry.Get(pType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure %s problem snapshots: %w", pType, err)
+	}
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -139,6 +143,13 @@ func (s *Service) ImportContest(ctx context.Context, ownerID string, req ImportC
 	result := &ImportContestResult{ProblemCount: len(snapshot.Problems)}
 	for position := range snapshot.Problems {
 		normalized := &snapshot.Problems[position]
+		statement, err := adapter.GetStatement(ctx, normalized.ExternalID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch problem statement %s: %w", normalized.ExternalID, err)
+		}
+		if err := problem.SnapshotStatement(normalized, statement); err != nil {
+			return nil, fmt.Errorf("failed to snapshot problem %s: %w", normalized.ExternalID, err)
+		}
 		var existed bool
 		if err := tx.QueryRowContext(ctx, `
 			SELECT EXISTS(SELECT 1 FROM problems WHERE platform = $1 AND external_id = $2)
