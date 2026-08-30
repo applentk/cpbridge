@@ -68,3 +68,17 @@ with required reviewers and add these environment secrets:
 After CI passes, run the Deploy workflow and select which provider(s) to trigger.
 The provider hooks perform the actual builds and deployments; secrets stay in
 GitHub and are never committed to the repository.
+
+### Problem snapshot rollout
+
+The Render API build creates both `cpbridge-api` and the idempotent
+`cpbridge-backfill` binary. The service start command runs the backfill before
+starting the HTTP server. It fetches and stores statements for existing problem
+rows that do not have a snapshot, then exits successfully once all rows are
+complete. If any source cannot be fetched, the start command fails and Render
+keeps the last successful deployment serving traffic.
+
+This is required because the Free compute plan does not support one-off jobs.
+After the first successful deploy, the backfill is a fast no-op on restarts, and
+problem reads remain local-only. New problem and contest imports snapshot their
+statements during import.
