@@ -201,6 +201,9 @@ func canonicalExternalID(value string) string {
 	if len(parts) < 2 {
 		return strings.TrimSpace(value)
 	}
+	if len(parts) >= 3 && strings.EqualFold(strings.TrimSpace(parts[0]), "gym") {
+		return "gym/" + strings.TrimSpace(parts[1]) + "/" + strings.ToUpper(strings.TrimSpace(parts[2]))
+	}
 	return strings.TrimSpace(parts[0]) + "/" + strings.ToUpper(strings.TrimSpace(parts[1]))
 }
 
@@ -570,10 +573,7 @@ func (s *Service) syncStatusDirect(ctx context.Context, sub *Submission) (*Submi
 	prob, err := s.probSvc.GetByID(ctx, sub.ProblemID)
 	extSubID := *sub.ExternalSubmissionID
 	if err == nil && prob != nil && !strings.Contains(extSubID, "/") {
-		parts := strings.Split(prob.ExternalID, "/")
-		if len(parts) >= 1 {
-			extSubID = fmt.Sprintf("%s/%s", parts[0], extSubID)
-		}
+		extSubID = externalSubmissionRef(prob.ExternalID, extSubID)
 	}
 
 	statusObj, err := adapter.GetSubmission(ctx, extSubID)
@@ -830,7 +830,7 @@ func (s *Service) UpdateDispatched(ctx context.Context, id, userID string, isAdm
 	}
 	lookupID := externalSubmissionID
 	if !strings.Contains(lookupID, "/") && strings.Contains(sub.ProblemExternalID, "/") {
-		lookupID = strings.Split(sub.ProblemExternalID, "/")[0] + "/" + lookupID
+		lookupID = externalSubmissionRef(sub.ProblemExternalID, lookupID)
 	}
 	verified, err := adapter.GetSubmission(ctx, lookupID)
 	var verificationErr error

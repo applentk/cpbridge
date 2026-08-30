@@ -654,33 +654,43 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 
 	contestID, subID, isGym := parseSubmissionRef(externalSubmissionID)
 
-	// 1. Try Codeforces Public REST API (contest.status)
-	if contestID != "" {
+	// 1. Try the Codeforces Public REST API. contest.status rejects Gym IDs,
+	// while problemset.recentStatus includes both regular and Gym submissions.
+	// Gym submissions are checked immediately after dispatch, so the latest 1000
+	// global submissions provide a cookie-free verification and verdict source.
+	if contestID != "" || isGym {
+		apiMethod := "contest.status"
 		apiURL := fmt.Sprintf("https://codeforces.com/api/contest.status?contestId=%s&from=1&count=100", contestID)
+		apiBodyLimit := int64(1024 * 500)
+		if isGym {
+			apiMethod = "problemset.recentStatus"
+			apiURL = "https://codeforces.com/api/problemset.recentStatus?count=1000"
+			apiBodyLimit = 4 << 20
+		}
 		req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if err != nil {
-			log.Printf("[Platform:Codeforces:Error] Failed to create contest.status request for contest %s: %v", contestID, err)
+			log.Printf("[Platform:Codeforces:Error] Failed to create %s request for contest %s: %v", apiMethod, contestID, err)
 		} else {
 			req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 			resp, err := a.client.Do(req)
 			if err != nil {
-				log.Printf("[Platform:Codeforces:Error] HTTP request failed for contest.status (%s): %v", apiURL, err)
+				log.Printf("[Platform:Codeforces:Error] HTTP request failed for %s (%s): %v", apiMethod, apiURL, err)
 			} else {
 				defer resp.Body.Close()
-				apiBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024*500))
+				apiBody, readErr := io.ReadAll(io.LimitReader(resp.Body, apiBodyLimit))
 				if resp.StatusCode != http.StatusOK {
-					log.Printf("[Platform:Codeforces:Error] contest.status API returned status %d %s | Body: %s", resp.StatusCode, resp.Status, previewBody(apiBody, 1000))
+					log.Printf("[Platform:Codeforces:Error] %s API returned status %d %s | Body: %s", apiMethod, resp.StatusCode, resp.Status, previewBody(apiBody, 1000))
 				} else if readErr != nil {
-					log.Printf("[Platform:Codeforces:Error] Failed to read contest.status API response: %v", readErr)
+					log.Printf("[Platform:Codeforces:Error] Failed to read %s API response: %v", apiMethod, readErr)
 				} else {
 					var statusResp cfStatusApiResponse
 					if err := json.Unmarshal(apiBody, &statusResp); err != nil {
-						log.Printf("[Platform:Codeforces:Error] Failed to decode contest.status response: %v | Body: %s", err, previewBody(apiBody, 1000))
+						log.Printf("[Platform:Codeforces:Error] Failed to decode %s response: %v | Body: %s", apiMethod, err, previewBody(apiBody, 1000))
 					} else if statusResp.Status != "OK" {
-						log.Printf("[Platform:Codeforces:Error] contest.status API returned non-OK status: %s (comment: %s) | Body: %s", statusResp.Status, statusResp.Comment, previewBody(apiBody, 1000))
+						log.Printf("[Platform:Codeforces:Error] %s API returned non-OK status: %s (comment: %s) | Body: %s", apiMethod, statusResp.Status, statusResp.Comment, previewBody(apiBody, 1000))
 					} else {
 						for _, sub := range statusResp.Result {
-							if strconv.FormatInt(sub.ID, 10) == subID {
+							if strconv.FormatInt(sub.ID, 10) == subID && (!isGym || contestID == "" || strconv.Itoa(sub.ContestID) == contestID) {
 								status := mapCFVerdict(sub.Verdict)
 								timeMs := sub.TimeConsumedMillis
 								memBytes := sub.MemoryConsumedBytes
@@ -692,8 +702,12 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 								if isGym {
 									problemExternalID = "gym/" + problemExternalID
 								}
+								canonicalSubmissionID := externalSubmissionID
+								if isGym {
+									canonicalSubmissionID = fmt.Sprintf("gym/%d/%s", sub.ContestID, subID)
+								}
 								statusObj := &platform.SubmissionStatus{
-									ExternalSubmissionID: externalSubmissionID,
+									ExternalSubmissionID: canonicalSubmissionID,
 									Status:               status,
 									ProblemExternalID:    problemExternalID,
 									Language:             sub.ProgrammingLanguage,
@@ -708,7 +722,7 @@ func (a *Adapter) GetSubmission(ctx context.Context, externalSubmissionID string
 										"passedTestCount": sub.PassedTestCount,
 									},
 								}
-								if source, ok := a.fetchSubmissionSource(ctx, contestID, subID, isGym); ok {
+								if source, ok := a.fetchSubmissionSource(ctx, strconv.Itoa(sub.ContestID), subID, isGym); ok {
 									statusObj.SourceCode = source
 								}
 								return statusObj, nil
@@ -823,6 +837,12 @@ func parseSubmissionRef(externalSubmissionID string) (contestID, submissionID st
 	parts := strings.Split(strings.TrimSpace(externalSubmissionID), "/")
 	if len(parts) == 3 && strings.EqualFold(parts[0], "gym") {
 		return parts[1], parts[2], true
+	}
+	// v1.0.15 briefly stored Gym dispatches as gym/<submission-id>.
+	// Retain enough scope to recover those pending records through the public
+	// recent-status feed, which supplies the missing contest ID.
+	if len(parts) == 2 && strings.EqualFold(parts[0], "gym") {
+		return "", parts[1], true
 	}
 	if len(parts) == 2 {
 		return parts[0], parts[1], false

@@ -58,6 +58,34 @@ func TestValidateExternalSubmissionMetadata(t *testing.T) {
 	}
 }
 
+func TestValidateExternalSubmissionMetadataKeepsGymProblemAndSubmissionScope(t *testing.T) {
+	now := time.Date(2026, 8, 30, 7, 20, 0, 0, time.UTC)
+	sub := &Submission{
+		ProblemExternalID: "gym/106068/A",
+		Platform:          platform.Codeforces,
+		Language:          "java21",
+		SourceCode:        "class Main {}\n// cpbridge-dispatch-proof:test",
+		SubmittedAt:       now,
+	}
+	status := &platform.SubmissionStatus{
+		ExternalSubmissionID: "gym/106068/388880843",
+		ProblemExternalID:    "gym/106068/A",
+		Language:             "Java 21",
+		PlatformUsername:     "contestant",
+		SubmittedAt:          timePtr(now.Add(5 * time.Second)),
+	}
+
+	require.NoError(t, validateExternalSubmissionMetadata(sub, "gym/106068/388880843", status, now))
+
+	wrongProblem := *status
+	wrongProblem.ProblemExternalID = "gym/106068/B"
+	require.Error(t, validateExternalSubmissionMetadata(sub, "gym/106068/388880843", &wrongProblem, now))
+
+	wrongSubmission := *status
+	wrongSubmission.ExternalSubmissionID = "gym/106068/388880844"
+	require.Error(t, validateExternalSubmissionMetadata(sub, "gym/106068/388880843", &wrongSubmission, now))
+}
+
 func TestWithDispatchProofAddsLanguageSafeUniqueMarker(t *testing.T) {
 	cppSource, err := withDispatchProof("int main() {}", "cpp23")
 	require.NoError(t, err)

@@ -2,11 +2,18 @@ package codeforces
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
 
 func TestMatchContestURL(t *testing.T) {
 	adapter := New()
@@ -42,6 +49,58 @@ func TestParseGymSubmissionRef(t *testing.T) {
 	urls := codeforcesSubmissionURLs(contestID, submissionID, isGym)
 	if len(urls) != 1 || urls[0] != "https://codeforces.com/gym/105053/submission/987654321" {
 		t.Fatalf("codeforcesSubmissionURLs(gym) = %v", urls)
+	}
+
+	contestID, submissionID, isGym = parseSubmissionRef("gym/987654321")
+	if contestID != "" || submissionID != "987654321" || !isGym {
+		t.Fatalf("parseSubmissionRef(legacy gym) = %q, %q, %v", contestID, submissionID, isGym)
+	}
+}
+
+func TestGetGymSubmissionUsesRecentStatusAPI(t *testing.T) {
+	const responseBody = `{"status":"OK","result":[{"id":388880843,"contestId":106068,"creationTimeSeconds":1788074369,"problem":{"contestId":106068,"index":"A"},"author":{"members":[{"handle":"applentk"}]},"programmingLanguage":"Java 21","verdict":"OK","passedTestCount":11,"timeConsumedMillis":218,"memoryConsumedBytes":409600}]}`
+	var requestedAPIPath string
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if strings.HasPrefix(req.URL.Path, "/api/") {
+			requestedAPIPath = req.URL.Path
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(responseBody)),
+				Request:    req,
+			}, nil
+		}
+		return &http.Response{
+			StatusCode: http.StatusForbidden,
+			Status:     "403 Forbidden",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("challenge")),
+			Request:    req,
+		}, nil
+	})}
+	adapter := &Adapter{client: client, baseURL: "https://codeforces.com"}
+
+	status, err := adapter.GetSubmission(context.Background(), "gym/106068/388880843")
+	if err != nil {
+		t.Fatalf("GetSubmission(gym) error = %v", err)
+	}
+	if requestedAPIPath != "/api/problemset.recentStatus" {
+		t.Fatalf("Gym lookup API path = %q", requestedAPIPath)
+	}
+	if status.Status != "ACCEPTED" || status.ExternalSubmissionID != "gym/106068/388880843" || status.ProblemExternalID != "gym/106068/A" {
+		t.Fatalf("unexpected Gym submission status: %+v", status)
+	}
+	if status.PlatformUsername != "applentk" || status.Language != "Java 21" || status.SubmittedAt == nil {
+		t.Fatalf("incomplete Gym verification metadata: %+v", status)
+	}
+
+	recovered, err := adapter.GetSubmission(context.Background(), "gym/388880843")
+	if err != nil {
+		t.Fatalf("GetSubmission(legacy gym) error = %v", err)
+	}
+	if recovered.ExternalSubmissionID != "gym/106068/388880843" || recovered.Status != "ACCEPTED" {
+		t.Fatalf("legacy Gym lookup was not recovered: %+v", recovered)
 	}
 }
 
