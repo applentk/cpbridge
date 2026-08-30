@@ -3,10 +3,9 @@ import { afterEach, describe, test } from 'node:test';
 
 import {
   checkCodeforcesSession,
-  CodeforcesUserActionRequired,
   parseCodeforcesExternalId,
   pollCodeforcesStatus,
-  submitCodeforces
+  snapshotCodeforcesSubmissionIds
 } from '../dist/test/codeforces.js';
 import {
   checkAtCoderSession,
@@ -76,155 +75,18 @@ describe('Codeforces adapter', () => {
     });
   });
 
-  test('selects a Java compiler without matching JavaScript', async () => {
-    let myPageReads = 0;
-    let submittedForm;
+  test('snapshots only matching submissions before the interactive handoff', async () => {
+    let request;
     globalThis.fetch = async (input, init = {}) => {
-      const url = String(input);
-      if (url.endsWith('/contest/123/submit') && init.method === 'GET') {
-        return htmlResponse(`
-          <input name="_tta" value="1234">
-          <script>var csrf_token = "csrf-codeforces";</script>
-          <select>
-            <option value="55">JavaScript V8</option>
-            <option value="87">Java 17</option>
-          </select>
-        `);
-      }
-      if (url.includes('/contest/123/my?cpbridge_ts=')) {
-        myPageReads += 1;
-        return htmlResponse(codeforcesSubmissionRow(myPageReads === 1 ? '100' : '101'));
-      }
-      if (url.includes('/contest/123/submit?') && init.method === 'POST') {
-        submittedForm = new URLSearchParams(String(init.body));
-        return htmlResponse('<div class="success">has been submitted</div>');
-      }
-      throw new Error(`Unexpected request: ${init.method || 'GET'} ${url}`);
+      request = { url: String(input), init };
+      return htmlResponse(codeforcesSubmissionRow('100', 'A') + codeforcesSubmissionRow('101', 'B'));
     };
 
-    const result = await submitCodeforces('123', 'A', 'java21', 'class Main {}');
-
-    assert.deepEqual(result, { externalSubmissionId: '101' });
-    assert.equal(submittedForm?.get('programTypeId'), '87');
-    assert.equal(submittedForm?.get('source'), 'class Main {}');
-  });
-
-  test('uses the current C++ fallback ID when the form has no matching option', async () => {
-    let myPageReads = 0;
-    let submittedForm;
-    globalThis.fetch = async (input, init = {}) => {
-      const url = String(input);
-      if (url.endsWith('/contest/123/submit') && init.method === 'GET') {
-        return htmlResponse('<input name="_tta" value="1234"><script>var csrf_token = "csrf";</script>');
-      }
-      if (url.includes('/contest/123/my?cpbridge_ts=')) {
-        myPageReads += 1;
-        return htmlResponse(codeforcesSubmissionRow(myPageReads === 1 ? '200' : '201'));
-      }
-      if (url.includes('/contest/123/submit?') && init.method === 'POST') {
-        submittedForm = new URLSearchParams(String(init.body));
-        return htmlResponse('submitted');
-      }
-      throw new Error(`Unexpected request: ${init.method || 'GET'} ${url}`);
-    };
-
-    await submitCodeforces('123', 'A', 'cpp23', '#include <iostream>');
-
-    assert.equal(submittedForm?.get('programTypeId'), '91');
-  });
-
-  test('submits Gym problems through the Gym contest endpoint', async () => {
-    let myPageReads = 0;
-    let submittedForm;
-    const myPageRequests = [];
-    globalThis.fetch = async (input, init = {}) => {
-      const url = String(input);
-      if (url.endsWith('/gym/105053/submit') && init.method === 'GET') {
-        return htmlResponse('<input name="_tta" value="1234"><script>var csrf_token = "csrf";</script>');
-      }
-      if (url.includes('/gym/105053/my?cpbridge_ts=')) {
-        myPageRequests.push({ url, cache: init.cache });
-        myPageReads += 1;
-        return htmlResponse(codeforcesSubmissionRow(myPageReads === 1 ? '300' : '301'));
-      }
-      if (url.includes('/gym/105053/submit?') && init.method === 'POST') {
-        submittedForm = new URLSearchParams(String(init.body));
-        return htmlResponse('<div class="success">has been submitted</div>');
-      }
-      throw new Error(`Unexpected request: ${init.method || 'GET'} ${url}`);
-    };
-
-    const result = await submitCodeforces('gym/105053', 'A', 'cpp23', '#include <iostream>');
-
-    assert.deepEqual(result, { externalSubmissionId: '301' });
-    assert.equal(submittedForm?.get('submittedProblemCode'), '105053A');
-    assert.equal(myPageRequests.length, 2);
-    assert.equal(myPageRequests.every((request) => request.cache === 'no-store'), true);
-  });
-
-  test('requires an interactive handoff when Codeforces returns an anti-bot challenge', async () => {
-    let myPageReads = 0;
-    const postUrls = [];
-    globalThis.fetch = async (input, init = {}) => {
-      const url = String(input);
-      if (url.endsWith('/contest/123/submit') && init.method === 'GET') {
-        return htmlResponse('<input name="_tta" value="1234"><script>var csrf_token = "contest-csrf";</script>');
-      }
-      if (url.includes('/contest/123/my?cpbridge_ts=')) {
-        myPageReads += 1;
-        return htmlResponse(codeforcesSubmissionRow('500'));
-      }
-      if (url.includes('/contest/123/submit?') && init.method === 'POST') {
-        postUrls.push(url);
-        return htmlResponse('<span class="error">Please complete anti-bot verification to submit a solution</span>');
-      }
-      throw new Error(`Unexpected request: ${init.method || 'GET'} ${url}`);
-    };
-
-    await assert.rejects(
-      submitCodeforces('123', 'A', 'cpp23', '#include <iostream>'),
-      (error) => error instanceof CodeforcesUserActionRequired
-        && error.knownSubmissionIds.length === 1
-        && error.knownSubmissionIds[0] === '500'
-    );
-
-    assert.equal(myPageReads, 1);
-    assert.equal(postUrls.length, 1);
-    assert.match(postUrls[0], /\/contest\/123\/submit\?/);
-  });
-
-  test('falls back to problemset submission when the account is not registered for the contest', async () => {
-    let myPageReads = 0;
-    const postUrls = [];
-    globalThis.fetch = async (input, init = {}) => {
-      const url = String(input);
-      if (url.endsWith('/contest/123/submit') && init.method === 'GET') {
-        return htmlResponse('<input name="_tta" value="1234"><script>var csrf_token = "contest-csrf";</script>');
-      }
-      if (url.endsWith('/problemset/submit') && init.method === 'GET') {
-        return htmlResponse('<input name="_tta" value="1234"><script>var csrf_token = "problemset-csrf";</script>');
-      }
-      if (url.includes('/contest/123/my?cpbridge_ts=')) {
-        myPageReads += 1;
-        return htmlResponse(codeforcesSubmissionRow(myPageReads <= 2 ? '600' : '601'));
-      }
-      if (url.includes('/contest/123/submit?') && init.method === 'POST') {
-        postUrls.push(url);
-        return htmlResponse('<span class="error">You are not registered for the contest</span>');
-      }
-      if (url.includes('/problemset/submit?') && init.method === 'POST') {
-        postUrls.push(url);
-        return htmlResponse('<div class="success">has been submitted</div>');
-      }
-      throw new Error(`Unexpected request: ${init.method || 'GET'} ${url}`);
-    };
-
-    const result = await submitCodeforces('123', 'A', 'cpp23', '#include <iostream>');
-
-    assert.deepEqual(result, { externalSubmissionId: '601' });
-    assert.equal(postUrls.length, 2);
-    assert.match(postUrls[0], /\/contest\/123\/submit\?/);
-    assert.match(postUrls[1], /\/problemset\/submit\?/);
+    assert.deepEqual(await snapshotCodeforcesSubmissionIds('123', 'A'), ['100']);
+    assert.match(request.url, /\/contest\/123\/my\?cpbridge_ts=/);
+    assert.equal(request.init.method, 'GET');
+    assert.equal(request.init.credentials, 'include');
+    assert.equal(request.init.cache, 'no-store');
   });
 
   test('normalizes API verdicts', async () => {

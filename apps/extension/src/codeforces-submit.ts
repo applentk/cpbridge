@@ -83,7 +83,7 @@ function fillSubmissionForm(pending: PrefillPayload, source: string | undefined)
     setFormValue(sourceArea, source);
     const codeMirror = document.querySelector<CodeMirrorElement>('.CodeMirror');
     codeMirror?.CodeMirror?.setValue(source);
-    showBanner('cpbridge pre-filled this solution. Complete Codeforces verification, review the form, and click Submit.', true);
+    showBanner('cpbridge pre-filled this solution. Review the form, complete verification if prompted, and click Submit.', true);
   } else {
     showBanner('cpbridge restored this handoff, but the browser session no longer has the source. Copy it from cpbridge, paste it here, complete verification, and click Submit.', false);
   }

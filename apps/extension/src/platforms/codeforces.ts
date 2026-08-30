@@ -1,10 +1,3 @@
-import type { LanguageId } from '@cpbridge/contracts';
-
-// Fallbacks only: Codeforces changes compiler IDs periodically. The submit form
-// is the source of truth whenever it is available.
-const CF_LANGUAGE_MAP: Record<LanguageId, string> = {
-  cpp23: '91', python3: '70', java21: '87'
-};
 const CODEFORCES_SUBMISSION_DETECTION_ATTEMPTS = 12;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -31,50 +24,6 @@ function codeforcesContestPath(contestId: string): string {
 
 function codeforcesNumericContestId(contestId: string): string {
   return contestId.startsWith('gym/') ? contestId.slice('gym/'.length) : contestId;
-}
-
-function cleanOptionText(value: string): string {
-  return htmlText(value).toLowerCase();
-}
-
-function htmlText(value: string): string {
-  return value
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/(?:&nbsp;?|&#160;?|&#x0*a0;?)(?=\s|$|<)/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#(?:39|x0*27);/gi, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function getOptionValue(html: string, language: LanguageId): string | undefined {
-  const wanted: Record<LanguageId, RegExp[]> = {
-    cpp23: [/c\+\+\s*23/, /gnu c\+\+\s*23/, /c\+\+\s*20/],
-    python3: [/python.*3/, /pypy.*3/],
-    // Some contests expose only an older Java runtime. Prefer Java 21, then
-    // fall back to another real Java compiler without matching JavaScript.
-    java21: [/^java\s*21\b/, /^java\s*17\b/, /^java(?:\s*\d+|\s*\()/]
-  };
-  const options = [...html.matchAll(/<option\b[^>]*value=["']([^"']+)["'][^>]*>([\s\S]*?)<\/option>/gi)];
-  for (const pattern of wanted[language]) {
-    const option = options.find((match) => pattern.test(cleanOptionText(match[2])));
-    if (option) return option[1];
-  }
-  return undefined;
-}
-
-function getInputValue(html: string, name: string): string | undefined {
-  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return html.match(new RegExp(`<input\\b[^>]*name=["']${escapedName}["'][^>]*value=["']([^"']*)["']`, 'i'))?.[1];
-}
-
-function getCsrfToken(html: string): string | undefined {
-  return html.match(/csrf_token\s*=\s*["']([^"']+)["']/i)?.[1]
-    || html.match(/name=["']csrf_token["'][^>]*value=["']([^"']+)["']/i)?.[1]
-    || html.match(/data-csrf=["']([^"']+)["']/i)?.[1];
 }
 
 function extractSubmissionIds(html: string, problemIndex?: string): string[] {
@@ -128,41 +77,6 @@ async function waitForCodeforcesSubmission(contestId: string, problemIndex: stri
   return undefined;
 }
 
-function platformError(html: string): string | undefined {
-  const match = html.match(/<(?:span|div|p)[^>]*class=["'][^"']*(?:error|alert-danger)[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|div|p)>/i);
-  const message = match?.[1] ? htmlText(match[1]) : '';
-  return message || undefined;
-}
-
-class RetryableEndpointRejection extends Error {}
-
-export class CodeforcesUserActionRequired extends Error {
-  readonly knownSubmissionIds?: string[];
-
-  constructor(message: string, knownSubmissionIds?: Iterable<string>) {
-    super(message);
-    this.name = 'CodeforcesUserActionRequired';
-    this.knownSubmissionIds = knownSubmissionIds ? [...knownSubmissionIds] : undefined;
-  }
-}
-
-function endpointRejection(html: string, error?: string): { kind: 'ANTIBOT' | 'NOT_REGISTERED'; message: string } | undefined {
-  const text = error || htmlText(html);
-  if (/anti[- ]?bot|complete (?:the )?verification|verify (?:that )?you are (?:a )?human|confirm (?:that )?you are not a robot|captcha|cf-turnstile|challenge-platform|just a moment/i.test(text)) {
-    return {
-      kind: 'ANTIBOT',
-      message: 'Codeforces requires an interactive anti-bot check. Complete the verification and submit in the Codeforces tab that cpbridge opened.'
-    };
-  }
-  if (/not registered (?:for|in) (?:the )?contest/i.test(text)) {
-    return {
-      kind: 'NOT_REGISTERED',
-      message: 'This Codeforces account is not registered for the original contest.'
-    };
-  }
-  return undefined;
-}
-
 function extractCodeforcesUsername(html: string): string | undefined {
   const patterns = [
     /href=["']\/profile\/([^"'/?#]+)["']/i,
@@ -194,91 +108,6 @@ export async function checkCodeforcesSession(): Promise<{ loggedIn: boolean; use
   } catch {
     return { loggedIn: false };
   }
-}
-
-async function getCodeforcesTTA(): Promise<string> {
-  try {
-    const cookie = await chrome.cookies.get({ url: 'https://codeforces.com', name: '39c3' });
-    if (cookie?.value) {
-      let result = 0;
-      for (let i = 0; i < cookie.value.length; i++) result = (result * 31 + cookie.value.charCodeAt(i)) % 10007;
-      return String(result);
-    }
-  } catch {}
-  return '176';
-}
-
-export async function submitCodeforces(contestId: string, index: string, language: LanguageId, sourceCode: string): Promise<{ externalSubmissionId: string }> {
-  const isGym = contestId.startsWith('gym/');
-  const submitUrls = isGym
-    ? [`https://codeforces.com/${codeforcesContestPath(contestId)}/submit`]
-    : [`https://codeforces.com/${codeforcesContestPath(contestId)}/submit`, `https://codeforces.com/problemset/submit`];
-  let lastError = '';
-
-  for (const submitUrl of submitUrls) {
-    let postSent = false;
-    try {
-      const pageRes = await fetch(submitUrl, { method: 'GET', credentials: 'include' });
-      const html = await pageRes.text();
-      const csrfToken = getCsrfToken(html);
-      if (!csrfToken) {
-        if (html.includes('Enter Codeforces') || html.includes('handleOrEmail')) throw new Error('NOT_LOGGED_IN');
-        const rejection = endpointRejection(html);
-        if (rejection?.kind === 'ANTIBOT') {
-          const knownIds = await snapshotMyCodeforcesSubmissionIds(contestId, index);
-          throw new CodeforcesUserActionRequired(rejection.message, knownIds);
-        }
-        lastError = `Could not find the Codeforces CSRF token at ${submitUrl}`;
-        continue;
-      }
-
-      const knownIds = await snapshotMyCodeforcesSubmissionIds(contestId, index);
-      if (!knownIds) {
-        throw new Error('Could not read your Codeforces submissions before submitting; refusing to match a verdict unsafely.');
-      }
-      const formData = new URLSearchParams({
-        csrf_token: csrfToken, action: 'submitSolutionFormSubmitted', submittedProblemIndex: index,
-        submittedProblemCode: `${codeforcesNumericContestId(contestId)}${index}`, programTypeId: getOptionValue(html, language) || CF_LANGUAGE_MAP[language] || '89',
-        source: sourceCode, tabSize: '4', _tta: getInputValue(html, '_tta') || await getCodeforcesTTA()
-      });
-      const submitRes = await fetch(`${submitUrl}?csrf_token=${encodeURIComponent(csrfToken)}`, {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formData.toString()
-      });
-      postSent = true;
-      const responseHtml = await submitRes.text();
-      if (!submitRes.ok) throw new Error(`Codeforces returned HTTP ${submitRes.status}`);
-      const error = platformError(responseHtml);
-      if (error && !/has been submitted|success/i.test(error)) {
-        const rejection = endpointRejection(responseHtml, error);
-        if (rejection?.kind === 'ANTIBOT') throw new CodeforcesUserActionRequired(rejection.message, knownIds);
-        if (rejection?.kind === 'NOT_REGISTERED') throw new RetryableEndpointRejection(rejection.message);
-        throw new Error(error);
-      }
-      const rejection = endpointRejection(responseHtml);
-      if (rejection?.kind === 'ANTIBOT') throw new CodeforcesUserActionRequired(rejection.message, knownIds);
-      if (rejection?.kind === 'NOT_REGISTERED') throw new RetryableEndpointRejection(rejection.message);
-
-      const id = await waitForCodeforcesSubmission(contestId, index, knownIds);
-      if (id) return { externalSubmissionId: id };
-      throw new Error('Codeforces accepted the request, but it could not uniquely identify your new submission. Check the Codeforces submissions page.');
-    } catch (err: unknown) {
-      const errObj = err instanceof Error ? err : undefined;
-      if (errObj?.message === 'NOT_LOGGED_IN') throw err;
-      if (err instanceof CodeforcesUserActionRequired) throw err;
-      // Some browser/network exceptions have an empty `message` (or are
-      // thrown as strings). Never surface a blank "Codeforces: " error.
-      const errorText = typeof err === 'string' ? err.trim() : String(errObj?.message || '').trim();
-      lastError = errorText || `Request failed while ${postSent ? 'sending the submission to' : 'opening'} Codeforces`;
-      // Codeforces may reject newer/unregistered accounts at the contest
-      // endpoint before creating a submission. Only those explicit rejections
-      // are safe to retry through the problemset endpoint without risking a
-      // duplicate solution.
-      if (postSent && !(err instanceof RetryableEndpointRejection)) {
-        throw new Error(`Codeforces: ${lastError}`, { cause: err });
-      }
-    }
-  }
-  throw new Error(`Codeforces: ${lastError || 'Failed to open the submission form.'}`);
 }
 
 export async function detectManualCodeforcesSubmission(

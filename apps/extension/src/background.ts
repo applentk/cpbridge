@@ -12,11 +12,9 @@ import type {
 } from '@cpbridge/contracts';
 import {
   checkCodeforcesSession,
-  CodeforcesUserActionRequired,
   detectManualCodeforcesSubmission,
   parseCodeforcesExternalId,
   snapshotCodeforcesSubmissionIds,
-  submitCodeforces,
   pollCodeforcesStatus
 } from './platforms/codeforces.js';
 import { checkAtCoderSession, submitAtCoder, pollAtCoderStatus } from './platforms/atcoder.js';
@@ -204,7 +202,7 @@ function actionRequiredResponse(pending: ManualCodeforcesSubmission): ExtensionS
     type: 'SUBMISSION_ACTION_REQUIRED',
     submissionId: pending.submissionId,
     platform: 'CODEFORCES',
-    action: 'COMPLETE_ANTIBOT',
+    action: 'CONFIRM_SUBMISSION',
     submitUrl: pending.submitUrl,
     message: pending.message
   };
@@ -214,19 +212,20 @@ async function beginInteractiveCodeforcesSubmission(
   message: ExtensionSubmitRequest,
   contestId: string,
   problemIndex: string,
-  actionError: CodeforcesUserActionRequired,
+  knownSubmissionIds: string[] | undefined,
   sourceTabId?: number
 ): Promise<ExtensionSubmissionActionRequiredResponse> {
   const submitPath = contestId.startsWith('gym/') ? `${contestId}/submit` : 'problemset/submit';
   const submitUrl = `https://codeforces.com/${submitPath}#cpbridge=${encodeURIComponent(message.submissionId)}`;
+  const actionMessage = 'Review the prefilled Codeforces form, complete verification if prompted, and click Submit. cpbridge will close the tab after it detects your submission.';
   const pending: ManualCodeforcesSubmission = {
     submissionId: message.submissionId,
     contestId,
     problemIndex,
     language: message.language,
-    knownSubmissionIds: actionError.knownSubmissionIds,
+    knownSubmissionIds,
     submitUrl,
-    message: actionError.message,
+    message: actionMessage,
     createdAt: Date.now(),
     sourceTabId
   };
@@ -235,7 +234,7 @@ async function beginInteractiveCodeforcesSubmission(
     submissionId: message.submissionId,
     state: 'AWAITING_USER_ACTION',
     actionUrl: submitUrl,
-    actionMessage: actionError.message
+    actionMessage
   });
   try {
     const tab = await chrome.tabs.create({ url: submitUrl, active: true });
@@ -346,15 +345,21 @@ async function dispatchSubmission(message: ExtensionSubmitRequest, sourceTabId?:
     if (message.platform === 'CODEFORCES') {
       const problemRef = parseCodeforcesExternalId(message.problem.externalId);
       if (!problemRef) throw new Error('Invalid Codeforces externalId');
-      try {
-        const res = await submitCodeforces(problemRef.contestId, problemRef.problemIndex, message.language, message.source);
-        externalSubmissionId = res.externalSubmissionId;
-      } catch (err) {
-        if (err instanceof CodeforcesUserActionRequired) {
-          return beginInteractiveCodeforcesSubmission(message, problemRef.contestId, problemRef.problemIndex, err, sourceTabId);
-        }
-        throw err;
-      }
+      // Always hand Codeforces submissions to the visible official form. A
+      // background POST can create the submission before an anti-bot response
+      // is rendered, which makes cpbridge report JUDGING before the user has
+      // reviewed or submitted the form.
+      const knownSubmissionIds = await snapshotCodeforcesSubmissionIds(
+        problemRef.contestId,
+        problemRef.problemIndex
+      );
+      return beginInteractiveCodeforcesSubmission(
+        message,
+        problemRef.contestId,
+        problemRef.problemIndex,
+        knownSubmissionIds,
+        sourceTabId
+      );
     } else if (message.platform === 'ATCODER') {
       const parts = message.problem.externalId.split('/');
       if (parts.length !== 2) throw new Error('Invalid AtCoder externalId');

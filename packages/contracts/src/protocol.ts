@@ -58,7 +58,7 @@ export interface ExtensionSubmissionActionRequiredResponse {
   type: 'SUBMISSION_ACTION_REQUIRED';
   submissionId: string;
   platform: 'CODEFORCES';
-  action: 'COMPLETE_ANTIBOT';
+  action: 'CONFIRM_SUBMISSION';
   submitUrl: string;
   message: string;
 }

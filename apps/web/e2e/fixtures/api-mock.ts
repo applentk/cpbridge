@@ -83,9 +83,9 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
                   type: 'SUBMISSION_ACTION_REQUIRED',
                   submissionId: payload.submissionId,
                   platform: 'CODEFORCES',
-                  action: 'COMPLETE_ANTIBOT',
+                  action: 'CONFIRM_SUBMISSION',
                   submitUrl: `https://codeforces.com/problemset/submit#cpbridge=${payload.submissionId}`,
-                  message: 'Complete the Codeforces verification and submit the prefilled solution.',
+                  message: 'Review the prefilled Codeforces form, complete verification if prompted, and click Submit.',
                 },
               }, '*');
             } else if (opts.submissionError) {
@@ -133,7 +133,7 @@ export async function setupApiMocks(page: Page, options: SetupApiMocksOptions = 
                   type: 'SUBMISSION_ACTION_REQUIRED',
                   submissionId: payload.submissionId,
                   platform: 'CODEFORCES',
-                  action: 'COMPLETE_ANTIBOT',
+                  action: 'CONFIRM_SUBMISSION',
                   submitUrl: `https://codeforces.com/problemset/submit#cpbridge=${payload.submissionId}`,
                   message: 'No new Codeforces submission was found yet.',
                 },

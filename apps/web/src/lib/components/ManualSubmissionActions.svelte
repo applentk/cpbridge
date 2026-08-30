@@ -14,7 +14,7 @@
   <div class="space-y-1">
     <p class="text-sm font-semibold text-amber-200">Finish this submission on Codeforces</p>
     <p class="text-xs leading-relaxed text-amber-100/75">
-      {action.message} cpbridge does not read or solve Codeforces verification challenges.
+      {action.message} If Codeforces shows a verification challenge, complete it yourself.
     </p>
   </div>
 

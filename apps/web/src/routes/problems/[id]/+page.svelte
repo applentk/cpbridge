@@ -412,9 +412,9 @@
               type: 'SUBMISSION_ACTION_REQUIRED',
               submissionId: awaiting.submissionId,
               platform: 'CODEFORCES',
-              action: 'COMPLETE_ANTIBOT',
+              action: 'CONFIRM_SUBMISSION',
               submitUrl: awaiting.actionUrl,
-              message: awaiting.actionMessage || 'Complete the Codeforces verification and submit the prefilled solution.'
+              message: awaiting.actionMessage || 'Review the prefilled Codeforces form, complete verification if prompted, and click Submit.'
             };
             submitStatus = manualSubmissionAction.message;
             startManualSubmissionPolling();

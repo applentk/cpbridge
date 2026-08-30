@@ -73,16 +73,16 @@ On success, the extension returns the external judge submission ID:
 }
 ```
 
-When Codeforces requires interactive anti-bot verification, the extension opens the official submit page, prefills the problem, compiler, and source, and returns:
+For every Codeforces submission, the extension opens the official submit page, prefills the problem, compiler, and source, and returns:
 
 ```json
 {
   "type": "SUBMISSION_ACTION_REQUIRED",
   "submissionId": "sub_018f9...",
   "platform": "CODEFORCES",
-  "action": "COMPLETE_ANTIBOT",
+  "action": "CONFIRM_SUBMISSION",
   "submitUrl": "https://codeforces.com/problemset/submit#cpbridge=sub_018f9...",
-  "message": "Complete the Codeforces verification and submit the prefilled solution."
+  "message": "Review the prefilled Codeforces form, complete verification if prompted, and click Submit."
 }
 ```
 
@@ -164,7 +164,7 @@ After the extension returns an external ID, the web app calls `/api/submissions/
 
 On page startup and before submission-history loads, the web app runs the recovery handshake. A recovered `CREATED` result completes the `/dispatched` call; a recovered `FAILED` result updates `/result`; acknowledgement happens only after the API call succeeds.
 
-Codeforces normally submits directly from the service worker and identifies the new ID from the signed-in user's `/my` page. An explicit “not registered” rejection is safely retried through the problemset endpoint. An anti-bot response instead switches to the visible, user-completed handoff described above. AtCoder normally submits directly too, but browser verification can require an inactive same-origin submit tab. That tab may briefly appear and is always closed after the attempt.
+Codeforces always uses the visible, user-completed handoff described above. Before enabling the prefilled form, the extension snapshots the signed-in user's `/my` page. After the user clicks Submit, it identifies the one new matching row, attaches that external submission ID, and closes the official tab. This prevents a background request from creating a submission before the user confirms the form. AtCoder normally submits directly, but browser verification can require an inactive same-origin submit tab. That tab may briefly appear and is always closed after the attempt.
 
 ## Required Chrome permissions
 
