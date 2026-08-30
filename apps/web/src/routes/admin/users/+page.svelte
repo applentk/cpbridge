@@ -2,13 +2,15 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import type { User, UserRole } from '@cpbridge/contracts';
-  import { Search, Check, ArrowRight } from 'lucide-svelte';
+  import { Search, Check, ArrowRight, Trash2 } from 'lucide-svelte';
 
   let users: User[] = [];
   let loading = true;
   let error = '';
   let successMsg = '';
   let searchQuery = '';
+  let selectedIds: string[] = [];
+  let deleting = false;
 
   async function loadUsers() {
     loading = true;
@@ -17,6 +19,7 @@
       let url = '/admin/users';
       if (searchQuery.trim()) url += `?search=${encodeURIComponent(searchQuery.trim())}`;
       users = await api.get<User[]>(url);
+      selectedIds = [];
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to load users';
     } finally {
@@ -61,6 +64,61 @@
     }
   }
 
+  async function handleDelete(user: User) {
+    if (!confirm(`Are you sure you want to delete account "${user.username}"? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/admin/users/${user.id}`);
+      successMsg = `Account "${user.username}" deleted successfully!`;
+      setTimeout(() => (successMsg = ''), 4000);
+      await loadUsers();
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '';
+      if (errMsg === 'LAST_ADMIN') {
+        alert('Action rejected: You cannot delete the last active administrator.');
+      } else if (errMsg === 'CANNOT_DELETE_SELF') {
+        alert('You cannot delete your own administrator account.');
+      } else {
+        alert(errMsg || 'Failed to delete user');
+      }
+    }
+  }
+
+  function toggleSelection(id: string) {
+    selectedIds = selectedIds.includes(id)
+      ? selectedIds.filter((selectedId) => selectedId !== id)
+      : [...selectedIds, id];
+  }
+
+  function toggleAll() {
+    selectedIds = selectedIds.length === users.length ? [] : users.map((u) => u.id);
+  }
+
+  async function handleBulkDelete() {
+    const count = selectedIds.length;
+    if (count === 0) return;
+    if (!confirm(`Are you sure you want to delete ${count} selected account${count === 1 ? '' : 's'}? This cannot be undone.`)) return;
+
+    deleting = true;
+    try {
+      await api.delete('/admin/users/bulk', { ids: selectedIds });
+      selectedIds = [];
+      successMsg = `${count} account${count === 1 ? '' : 's'} deleted successfully!`;
+      setTimeout(() => (successMsg = ''), 4000);
+      await loadUsers();
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : '';
+      if (errMsg === 'LAST_ADMIN') {
+        alert('Action rejected: the selected accounts include the last active administrator.');
+      } else if (errMsg === 'CANNOT_DELETE_SELF') {
+        alert('You cannot delete your own administrator account.');
+      } else {
+        alert(errMsg || 'Failed to delete users');
+      }
+    } finally {
+      deleting = false;
+    }
+  }
+
   onMount(() => {
     loadUsers();
   });
@@ -82,13 +140,25 @@
     </div>
   {/if}
 
+  {#if selectedIds.length > 0}
+    <div class="flex items-center justify-between gap-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30">
+      <span class="text-sm text-rose-200">{selectedIds.length} account{selectedIds.length === 1 ? '' : 's'} selected</span>
+      <div class="flex items-center gap-2">
+        <button on:click={() => (selectedIds = [])} class="px-3 py-1.5 rounded-lg text-xs font-semibold text-zinc-300 hover:bg-zinc-800 transition">Clear</button>
+        <button on:click={handleBulkDelete} disabled={deleting} class="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-500 text-white hover:bg-rose-400 disabled:opacity-50 transition">
+          {deleting ? 'Deleting...' : 'Delete selected'}
+        </button>
+      </div>
+    </div>
+  {/if}
+
   <!-- Search Filter -->
   <div class="relative">
     <Search class="w-4 h-4 absolute left-3.5 top-3 text-zinc-500" />
     <input
       type="text"
       bind:value={searchQuery}
-      on:input={loadUsers}
+      on:input={() => { selectedIds = []; loadUsers(); }}
       placeholder="Search users by username or email..."
       class="w-full pl-10 pr-4 py-2 rounded-xl bg-zinc-900/60 border border-zinc-800 focus:border-zinc-500 focus:outline-none text-zinc-100 text-sm placeholder-zinc-500"
     />
@@ -110,6 +180,15 @@
       <table class="w-full text-left text-sm text-zinc-300">
         <thead class="bg-zinc-900/80 border-b border-zinc-800 text-xs text-zinc-400 uppercase font-semibold">
           <tr>
+            <th class="px-5 py-3.5">
+              <input
+                type="checkbox"
+                aria-label="Select all users"
+                checked={users.length > 0 && selectedIds.length === users.length}
+                on:change={toggleAll}
+                class="h-4 w-4 accent-rose-500"
+              />
+            </th>
             <th class="px-5 py-3.5">User</th>
             <th class="px-5 py-3.5">Email</th>
             <th class="px-5 py-3.5">Role</th>
@@ -121,6 +200,15 @@
         <tbody class="divide-y divide-zinc-800/60 font-medium">
           {#each users as u}
             <tr class="hover:bg-zinc-800/30 transition {u.isActive ? '' : 'opacity-60 bg-zinc-950/40'}">
+              <td class="px-5 py-3.5">
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${u.username}`}
+                  checked={selectedIds.includes(u.id)}
+                  on:change={() => toggleSelection(u.id)}
+                  class="h-4 w-4 accent-rose-500"
+                />
+              </td>
               <!-- Username -->
               <td class="px-5 py-3.5">
                 <div class="flex items-center space-x-2.5">
@@ -190,6 +278,14 @@
                   >
                     <ArrowRight class="w-4 h-4" />
                   </a>
+
+                  <button
+                    on:click={() => handleDelete(u)}
+                    class="p-1.5 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                    title="Delete user"
+                  >
+                    <Trash2 class="w-4 h-4" />
+                  </button>
                 </div>
               </td>
             </tr>

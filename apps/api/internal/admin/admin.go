@@ -51,6 +51,7 @@ func (h *Handler) Routes() chi.Router {
 		pr.Get("/", h.ListProblems)
 		pr.Post("/", h.CreateProblem)
 		pr.Post("/import", h.ImportProblem)
+		pr.Delete("/bulk", h.DeleteProblems)
 		pr.Patch("/{id}", h.UpdateProblem)
 		pr.Delete("/{id}", h.DeleteProblem)
 	})
@@ -60,6 +61,7 @@ func (h *Handler) Routes() chi.Router {
 		psr.Get("/", h.ListProblemSets)
 		psr.Post("/", h.CreateProblemSet)
 		psr.Post("/import", h.ImportContest)
+		psr.Delete("/bulk", h.DeleteProblemSets)
 		psr.Get("/{id}", h.GetProblemSet)
 		psr.Patch("/{id}", h.UpdateProblemSet)
 		psr.Delete("/{id}", h.DeleteProblemSet)
@@ -72,6 +74,7 @@ func (h *Handler) Routes() chi.Router {
 	r.Route("/contests", func(cr chi.Router) {
 		cr.Get("/", h.ListContests)
 		cr.Post("/", h.CreateContest)
+		cr.Delete("/bulk", h.DeleteContests)
 		cr.Get("/{id}", h.GetContest)
 		cr.Patch("/{id}", h.UpdateContest)
 		cr.Delete("/{id}", h.DeleteContest)
@@ -83,9 +86,11 @@ func (h *Handler) Routes() chi.Router {
 	// Users
 	r.Route("/users", func(ur chi.Router) {
 		ur.Get("/", h.ListUsers)
+		ur.Delete("/bulk", h.DeleteUsers)
 		ur.Get("/{id}", h.GetUser)
 		ur.Patch("/{id}/role", h.UpdateUserRole)
 		ur.Patch("/{id}/status", h.UpdateUserStatus)
+		ur.Delete("/{id}", h.DeleteUser)
 	})
 
 	return r
@@ -276,6 +281,67 @@ func (h *Handler) DeleteProblem(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type bulkDeleteReq struct {
+	IDs []string `json:"ids"`
+}
+
+func decodeBulkDeleteIDs(w http.ResponseWriter, r *http.Request) ([]string, bool) {
+	var req bulkDeleteReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return nil, false
+	}
+
+	ids := make([]string, 0, len(req.IDs))
+	seen := make(map[string]struct{}, len(req.IDs))
+	for _, id := range req.IDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "at least one id is required"})
+		return nil, false
+	}
+
+	return ids, true
+}
+
+func writeBulkDeleteError(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	status := http.StatusBadRequest
+	switch err.Error() {
+	case "PROBLEM_IN_USE", "LAST_ADMIN", "CANNOT_DELETE_SELF":
+		status = http.StatusConflict
+	case "problem not found", "contest not found", "problem set not found", "user not found":
+		status = http.StatusNotFound
+	}
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+}
+
+func (h *Handler) DeleteProblems(w http.ResponseWriter, r *http.Request) {
+	ids, ok := decodeBulkDeleteIDs(w, r)
+	if !ok {
+		return
+	}
+	if err := h.probSvc.DeleteMany(r.Context(), ids); err != nil {
+		writeBulkDeleteError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // Problem Sets
 func (h *Handler) ListProblemSets(w http.ResponseWriter, r *http.Request) {
 	claims := auth.GetUserFromContext(r.Context())
@@ -394,6 +460,18 @@ func (h *Handler) DeleteProblemSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) DeleteProblemSets(w http.ResponseWriter, r *http.Request) {
+	ids, ok := decodeBulkDeleteIDs(w, r)
+	if !ok {
+		return
+	}
+	if err := h.setSvc.DeleteMany(r.Context(), ids); err != nil {
+		writeBulkDeleteError(w, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -673,6 +751,18 @@ func (h *Handler) DeleteContest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) DeleteContests(w http.ResponseWriter, r *http.Request) {
+	ids, ok := decodeBulkDeleteIDs(w, r)
+	if !ok {
+		return
+	}
+	if err := h.contestSvc.DeleteMany(r.Context(), ids); err != nil {
+		writeBulkDeleteError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type addContestProblemReq struct {
 	ProblemID string  `json:"problemId"`
 	Position  *int    `json:"position"`
@@ -788,6 +878,28 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(user)
+}
+
+func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetUserFromContext(r.Context())
+	if err := h.authSvc.DeleteUser(r.Context(), chi.URLParam(r, "id"), claims.UserID); err != nil {
+		writeBulkDeleteError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) DeleteUsers(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetUserFromContext(r.Context())
+	ids, ok := decodeBulkDeleteIDs(w, r)
+	if !ok {
+		return
+	}
+	if err := h.authSvc.DeleteUsers(r.Context(), ids, claims.UserID); err != nil {
+		writeBulkDeleteError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type updateRoleReq struct {

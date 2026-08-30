@@ -18,6 +18,7 @@ import (
 	"github.com/cpbridge/api/internal/ratelimit"
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -302,6 +303,70 @@ func (s *Service) UpdateUserStatus(ctx context.Context, targetUserID string, isA
 	}
 
 	return s.GetUserByID(ctx, targetUserID)
+}
+
+func (s *Service) DeleteUser(ctx context.Context, targetUserID, requestingUserID string) error {
+	return s.DeleteUsers(ctx, []string{targetUserID}, requestingUserID)
+}
+
+// DeleteUsers removes selected accounts atomically. Administrators cannot
+// delete themselves or remove the last active administrator.
+func (s *Service) DeleteUsers(ctx context.Context, targetUserIDs []string, requestingUserID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, role, is_active
+		FROM users
+		WHERE id = ANY($1)
+		FOR UPDATE
+	`, pq.Array(targetUserIDs))
+	if err != nil {
+		return err
+	}
+
+	found := 0
+	activeAdminsToDelete := 0
+	for rows.Next() {
+		var id, role string
+		var isActive bool
+		if err := rows.Scan(&id, &role, &isActive); err != nil {
+			rows.Close()
+			return err
+		}
+		found++
+		if id == requestingUserID {
+			rows.Close()
+			return errors.New("CANNOT_DELETE_SELF")
+		}
+		if role == RoleAdmin && isActive {
+			activeAdminsToDelete++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if found != len(targetUserIDs) {
+		return errors.New("user not found")
+	}
+
+	var activeAdminCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role = $1 AND is_active = true`, RoleAdmin).Scan(&activeAdminCount); err != nil {
+		return err
+	}
+	if activeAdminCount-activeAdminsToDelete <= 0 {
+		return errors.New("LAST_ADMIN")
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = ANY($1)`, pq.Array(targetUserIDs)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Service) generateToken(user *User, sessionID string) (string, error) {

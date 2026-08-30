@@ -13,8 +13,10 @@
   // Filter
   let query = '';
   let selectedPlatform = '';
-  let limit = 50;
-  let offset = 0;
+	let limit = 50;
+	let offset = 0;
+	let selectedIds: string[] = [];
+	let deleting = false;
 
   // Modals
   let showImportModal = false;
@@ -59,6 +61,7 @@
       const res = await api.get<{ problems: Problem[]; total: number }>(url);
       problems = res.problems;
       _total = res.total;
+      selectedIds = [];
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to load problems';
     } finally {
@@ -211,7 +214,7 @@
     }
   }
 
-  async function handleDelete(p: Problem) {
+	async function handleDelete(p: Problem) {
     if (!confirm(`Are you sure you want to delete problem "${p.title}"?`)) return;
     try {
       await api.delete(`/admin/problems/${p.id}`);
@@ -222,13 +225,46 @@
       const errMsg = err instanceof Error ? err.message : '';
       if (errMsg === 'PROBLEM_IN_USE') {
         alert('Cannot delete this problem because it is currently used in an active or scheduled contest.');
-      } else {
-        alert(errMsg || 'Failed to delete problem');
-      }
-    }
-  }
+	      } else {
+	        alert(errMsg || 'Failed to delete problem');
+	      }
+	    }
+	  }
 
-  onMount(() => {
+	function toggleSelection(id: string) {
+		selectedIds = selectedIds.includes(id)
+			? selectedIds.filter((selectedId) => selectedId !== id)
+			: [...selectedIds, id];
+	}
+
+	function toggleAll() {
+		selectedIds = selectedIds.length === problems.length ? [] : problems.map((p) => p.id);
+	}
+
+	async function handleBulkDelete() {
+		if (selectedIds.length === 0) return;
+		if (!confirm(`Are you sure you want to delete ${selectedIds.length} selected problem${selectedIds.length === 1 ? '' : 's'}?`)) return;
+
+		deleting = true;
+		try {
+			await api.delete('/admin/problems/bulk', { ids: selectedIds });
+			const count = selectedIds.length;
+			selectedIds = [];
+			successMsg = `${count} problem${count === 1 ? '' : 's'} deleted successfully!`;
+			setTimeout(() => (successMsg = ''), 4000);
+			await loadProblems();
+		} catch (err) {
+			const errMsg = err instanceof Error ? err.message : '';
+			if (errMsg === 'PROBLEM_IN_USE') {
+				alert('Cannot delete the selected problems because at least one is used in a contest.');
+			} else {
+				alert(errMsg || 'Failed to delete problems');
+			}
+		} finally {
+			deleting = false;
+		}
+	}
+	  onMount(() => {
     loadProblems();
   });
 </script>
@@ -283,7 +319,7 @@
       />
     </div>
 
-    <select
+  <select
       bind:value={selectedPlatform}
       on:change={() => { offset = 0; loadProblems(); }}
       class="px-4 py-2 rounded-xl bg-zinc-900/60 border border-zinc-800 focus:border-zinc-500 focus:outline-none text-zinc-200 text-sm w-full sm:w-auto"
@@ -293,6 +329,20 @@
       <option value="ATCODER">AtCoder</option>
     </select>
   </div>
+
+	{#if selectedIds.length > 0}
+		<div class="flex items-center justify-between gap-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30">
+			<span class="text-sm text-rose-200">{selectedIds.length} problem{selectedIds.length === 1 ? '' : 's'} selected</span>
+			<div class="flex items-center gap-2">
+				<button on:click={() => (selectedIds = [])} class="px-3 py-1.5 rounded-lg text-xs font-semibold text-zinc-300 hover:bg-zinc-800 transition">
+					Clear
+				</button>
+				<button on:click={handleBulkDelete} disabled={deleting} class="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-500 text-white hover:bg-rose-400 disabled:opacity-50 transition">
+					{deleting ? 'Deleting...' : 'Delete selected'}
+				</button>
+			</div>
+		</div>
+	{/if}
 
   <!-- Problems Table -->
   {#if loading}
@@ -320,6 +370,15 @@
       <table class="w-full text-left text-sm text-zinc-300">
         <thead class="bg-zinc-900/80 border-b border-zinc-800 text-xs text-zinc-400 uppercase font-semibold">
           <tr>
+				<th class="px-5 py-3.5">
+					<input
+						type="checkbox"
+						aria-label="Select all problems"
+						checked={problems.length > 0 && selectedIds.length === problems.length}
+						on:change={toggleAll}
+						class="h-4 w-4 accent-rose-500"
+					/>
+				</th>
             <th class="px-5 py-3.5">Platform</th>
             <th class="px-5 py-3.5">Problem</th>
             <th class="px-5 py-3.5">Difficulty</th>
@@ -330,6 +389,15 @@
         <tbody class="divide-y divide-zinc-800/60 font-medium">
           {#each problems as p}
             <tr class="hover:bg-zinc-800/30 transition">
+				<td class="px-5 py-3.5">
+					<input
+						type="checkbox"
+						aria-label={`Select ${p.title}`}
+						checked={selectedIds.includes(p.id)}
+						on:change={() => toggleSelection(p.id)}
+						class="h-4 w-4 accent-rose-500"
+					/>
+				</td>
               <td class="px-5 py-3.5 whitespace-nowrap">
                 <span class="text-xs px-2.5 py-0.5 rounded font-mono font-bold {
                   p.platform === 'CODEFORCES' ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30' : 'bg-red-500/15 text-red-300 border border-red-500/30'

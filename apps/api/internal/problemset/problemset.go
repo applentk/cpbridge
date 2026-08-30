@@ -12,6 +12,7 @@ import (
 	"github.com/cpbridge/api/internal/idgen"
 	"github.com/cpbridge/api/internal/platform"
 	"github.com/cpbridge/api/internal/problem"
+	"github.com/lib/pq"
 )
 
 type Visibility string
@@ -381,6 +382,27 @@ func (s *Service) Delete(ctx context.Context, id, ownerID string) error {
 
 	_, err = s.db.ExecContext(ctx, `DELETE FROM problem_sets WHERE id = $1`, id)
 	return err
+}
+
+// DeleteMany is used by the admin bulk action and deletes all selected sets
+// atomically. Ownership is intentionally not checked because the admin route
+// already authorizes the operation for every set.
+func (s *Service) DeleteMany(ctx context.Context, ids []string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `DELETE FROM problem_sets WHERE id = ANY($1)`, pq.Array(ids))
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows != int64(len(ids)) {
+		return errors.New("problem set not found")
+	}
+
+	return tx.Commit()
 }
 
 func (s *Service) AddProblem(ctx context.Context, setID, ownerID, problemID string, position *int) error {

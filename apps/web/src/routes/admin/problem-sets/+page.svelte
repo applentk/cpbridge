@@ -6,9 +6,11 @@
   import { Plus, Trash2, ArrowRight, X, Check, Download } from 'lucide-svelte';
 
   let problemSets: ProblemSet[] = [];
-  let loading = true;
-  let error = '';
-  let successMsg = '';
+	let loading = true;
+	let error = '';
+	let successMsg = '';
+	let selectedIds: string[] = [];
+	let deleting = false;
 
   // Create Modal
   let showCreateModal = false;
@@ -32,6 +34,7 @@
     error = '';
     try {
       problemSets = await api.get<ProblemSet[]>('/admin/problem-sets');
+      selectedIds = [];
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to load problem sets';
     } finally {
@@ -65,17 +68,46 @@
     }
   }
 
-  async function handleDelete(ps: ProblemSet) {
+	async function handleDelete(ps: ProblemSet) {
     if (!confirm(`Are you sure you want to delete Problem Set "${ps.name}"?`)) return;
     try {
       await api.delete(`/admin/problem-sets/${ps.id}`);
       successMsg = 'Problem Set deleted!';
       setTimeout(() => (successMsg = ''), 4000);
       await loadProblemSets();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete problem set');
-    }
-  }
+	    } catch (err) {
+	      alert(err instanceof Error ? err.message : 'Failed to delete problem set');
+	    }
+	  }
+
+	function toggleSelection(id: string) {
+		selectedIds = selectedIds.includes(id)
+			? selectedIds.filter((selectedId) => selectedId !== id)
+			: [...selectedIds, id];
+	}
+
+	function toggleAll() {
+		selectedIds = selectedIds.length === problemSets.length ? [] : problemSets.map((ps) => ps.id);
+	}
+
+	async function handleBulkDelete() {
+		const count = selectedIds.length;
+		if (count === 0) return;
+		if (!confirm(`Are you sure you want to delete ${count} selected problem set${count === 1 ? '' : 's'}?`)) return;
+
+		deleting = true;
+		try {
+			await api.delete('/admin/problem-sets/bulk', { ids: selectedIds });
+			selectedIds = [];
+			successMsg = `${count} problem set${count === 1 ? '' : 's'} deleted successfully!`;
+			setTimeout(() => (successMsg = ''), 4000);
+			await loadProblemSets();
+		} catch (err) {
+			alert(err instanceof Error ? err.message : 'Failed to delete problem sets');
+		} finally {
+			deleting = false;
+		}
+	}
 
   async function handleContestImport() {
     if (!contestUrl.trim()) {
@@ -138,6 +170,26 @@
     </div>
   {/if}
 
+  {#if problemSets.length > 0}
+    <div class="flex items-center justify-between gap-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30">
+      <span class="text-sm text-rose-200">
+        {selectedIds.length > 0
+          ? `${selectedIds.length} problem set${selectedIds.length === 1 ? '' : 's'} selected`
+          : 'Select problem sets for bulk actions'}
+      </span>
+      <div class="flex items-center gap-2">
+        <button on:click={toggleAll} class="px-3 py-1.5 rounded-lg text-xs font-semibold text-zinc-300 hover:bg-zinc-800 transition">
+          {selectedIds.length === problemSets.length ? 'Clear all' : 'Select all'}
+        </button>
+        {#if selectedIds.length > 0}
+          <button on:click={handleBulkDelete} disabled={deleting} class="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-500 text-white hover:bg-rose-400 disabled:opacity-50 transition">
+            {deleting ? 'Deleting...' : 'Delete selected'}
+          </button>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
   {#if loading}
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       {#each Array(6) as _}
@@ -161,12 +213,22 @@
   {:else}
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       {#each problemSets as ps}
-        <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/40 hover:border-zinc-700 transition flex flex-col justify-between space-y-4">
+        <div class="p-5 rounded-2xl border {selectedIds.includes(ps.id) ? 'border-rose-500/50 bg-rose-500/5' : 'border-zinc-800 bg-zinc-900/40'} hover:border-zinc-700 transition flex flex-col justify-between space-y-4">
           <div class="space-y-2">
             <div class="flex items-center justify-between">
-              <span class="text-xs px-2 py-0.5 rounded-md font-mono bg-zinc-800 text-zinc-300 border border-zinc-700">
-                {ps.visibility}
-              </span>
+					<label class="flex items-center gap-2 text-xs text-zinc-400">
+						<input
+							type="checkbox"
+							aria-label={`Select ${ps.name}`}
+							checked={selectedIds.includes(ps.id)}
+							on:change={() => toggleSelection(ps.id)}
+							class="h-4 w-4 accent-rose-500"
+						/>
+						Select
+					</label>
+					<span class="text-xs px-2 py-0.5 rounded-md font-mono bg-zinc-800 text-zinc-300 border border-zinc-700">
+						{ps.visibility}
+					</span>
               <span class="text-xs text-zinc-400">{ps.problemCount} problem{ps.problemCount === 1 ? '' : 's'}</span>
             </div>
 

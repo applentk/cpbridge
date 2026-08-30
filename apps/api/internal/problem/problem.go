@@ -15,6 +15,7 @@ import (
 	"github.com/cpbridge/api/internal/idgen"
 	"github.com/cpbridge/api/internal/platform"
 	"github.com/go-chi/chi/v5"
+	"github.com/lib/pq"
 )
 
 type Problem struct {
@@ -527,6 +528,41 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	}
 
 	return nil
+}
+
+// DeleteMany removes problems as one operation. A problem referenced by any
+// contest blocks the whole operation so an admin never gets a partial delete.
+func (s *Service) DeleteMany(ctx context.Context, ids []string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var inUse int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM contest_problems
+		WHERE problem_id = ANY($1)
+	`, pq.Array(ids)).Scan(&inUse); err != nil {
+		return err
+	}
+	if inUse > 0 {
+		return errors.New("PROBLEM_IN_USE")
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM problem_set_items WHERE problem_id = ANY($1)`, pq.Array(ids)); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM problems WHERE id = ANY($1)`, pq.Array(ids))
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows != int64(len(ids)) {
+		return errors.New("problem not found")
+	}
+
+	return tx.Commit()
 }
 
 // CleanBoilerplate removes redundant header metadata, footers, copyright, and server info from statement text/HTML

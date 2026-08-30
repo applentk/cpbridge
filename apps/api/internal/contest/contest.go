@@ -15,6 +15,7 @@ import (
 	"github.com/cpbridge/api/internal/problem"
 	"github.com/cpbridge/api/internal/problemset"
 	"github.com/go-chi/chi/v5"
+	"github.com/lib/pq"
 )
 
 type State string
@@ -489,6 +490,25 @@ func (s *Service) Delete(ctx context.Context, contestID string) error {
 		return errors.New("contest not found")
 	}
 	return nil
+}
+
+// DeleteMany removes all selected contests atomically.
+func (s *Service) DeleteMany(ctx context.Context, contestIDs []string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `DELETE FROM contests WHERE id = ANY($1)`, pq.Array(contestIDs))
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows != int64(len(contestIDs)) {
+		return errors.New("contest not found")
+	}
+
+	return tx.Commit()
 }
 
 func (s *Service) AddProblem(ctx context.Context, contestID, problemID string, position *int, label *string, points *int) error {
