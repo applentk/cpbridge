@@ -133,8 +133,7 @@ test.describe('Contests & ICPC Scoreboard', () => {
     await expect(scoreboardLink).toHaveClass(/bg-white/);
 
     // Problem title and label
-    await expect(page.locator('h1')).toContainText('Codehorses T-shirts');
-    await expect(page.locator('text=Problem A')).toBeVisible();
+    await expect(page.locator('h1')).toHaveText('A. Codehorses T-shirts');
 
     // Contest Problems sidebar exists with Problem B
     const probBLink = page.locator('aside a:has-text("B")');
@@ -185,8 +184,7 @@ test.describe('Contests & ICPC Scoreboard', () => {
     // Click problem letter column header A to navigate to contest problem workspace
     await page.getByRole('link', { name: 'A', exact: true }).click();
     await expect(page).toHaveURL(/\/problems\/prb_cf_1000A\?contestId=con_active_icpc/);
-    await expect(page.locator('h1')).toContainText('Codehorses T-shirts');
-    await expect(page.locator('text=Problem A')).toBeVisible();
+    await expect(page.locator('h1')).toHaveText('A. Codehorses T-shirts');
   });
 
   test('contest scoreboard keeps post-contest upsolve rows across pagination', async ({ page }) => {

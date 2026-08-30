@@ -6,3 +6,9 @@
     color: #f4f4f5;
   }
 }
+
+@layer utilities {
+  .font-code {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+}

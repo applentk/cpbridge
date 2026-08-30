@@ -35,7 +35,7 @@
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
         padding: { top: 12, bottom: 12 },
-        fontFamily: "'Fira Code', 'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace"
+        fontFamily: "'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace"
       });
       editorInstance = inst;
 

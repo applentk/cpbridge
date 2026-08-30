@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
+  import { fade } from 'svelte/transition';
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
@@ -42,7 +43,8 @@
     Layers,
     Lock,
     XCircle,
-    AlertTriangle
+    AlertTriangle,
+    ArrowUp
   } from 'lucide-svelte';
 
   let problemId: string = $page.params.id || '';
@@ -74,7 +76,7 @@
   let copiedCaseIndex: string | null = null;
 
   let language: LanguageId = 'cpp23';
-  let sourceCode = `#include <iostream>\nusing namespace std;\n\nint main() {\n    ios_base::sync_with_stdio(false);\n    cin.tie(NULL);\n    \n    // Solve problem\n    \n    return 0;\n}\n`;
+  let sourceCode = `#include <iostream>\nusing namespace std;\n\nint main() {\n    ios_base::sync_with_stdio(false);\n    cin.tie(NULL);\n    \n    return 0;\n}\n`;
 
   let submitting = false;
   let submitStatus = '';
@@ -93,14 +95,15 @@
   let pollInterval: ReturnType<typeof setInterval> | null = null;
   let manualSubmissionPollInterval: ReturnType<typeof setInterval> | null = null;
   let manualSubmissionCheckInFlight = false;
+  let showGoToTop = false;
 
   let uploadSuccessMessage = '';
   let fileInputElement: HTMLInputElement;
 
   const starterTemplates: Record<LanguageId, string> = {
-    cpp23: `#include <iostream>\nusing namespace std;\n\nint main() {\n    ios_base::sync_with_stdio(false);\n    cin.tie(NULL);\n    \n    // Solve problem\n    \n    return 0;\n}\n`,
-    python3: `import sys\n\ndef main():\n    input = sys.stdin.read\n    # Solve problem\n\nif __name__ == "__main__":\n    main()\n`,
-    java21: `import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        Scanner scanner = new Scanner(System.in);\n        // Solve problem\n    }\n}\n`
+    cpp23: `#include <iostream>\nusing namespace std;\n\nint main() {\n    ios_base::sync_with_stdio(false);\n    cin.tie(NULL);\n    \n    return 0;\n}\n`,
+    python3: ``,
+    java21: `import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        \n    }\n}\n`
   };
 
   const languageLabels: Record<LanguageId, string> = {
@@ -289,6 +292,24 @@
       loading = false;
     }
   }
+
+  function goToTop() {
+    if (!browser) return;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  onMount(() => {
+    const updateGoToTopVisibility = () => {
+      showGoToTop = window.scrollY > 400;
+    };
+
+    updateGoToTopVisibility();
+    window.addEventListener('scroll', updateGoToTopVisibility, { passive: true });
+
+    return () => {
+      window.removeEventListener('scroll', updateGoToTopVisibility);
+    };
+  });
 
   async function refreshExtensionGuard(pId: string) {
     const info = await pingExtension();
@@ -874,28 +895,40 @@
       {#if loading}
         <!-- Problem Section Skeleton -->
         <div class="space-y-4">
-          <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/70 space-y-4 shadow-xl animate-pulse">
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div class="space-y-2.5 flex-1">
-                <div class="flex items-center space-x-2">
-                  <div class="h-5 w-24 bg-zinc-800 rounded-full"></div>
-                  <div class="h-5 w-16 bg-zinc-800 rounded-full"></div>
-                </div>
-                <div class="h-7 w-3/4 max-w-md bg-zinc-800 rounded-lg"></div>
+          <div class="sticky top-16 z-20 pt-4 bg-zinc-950 -mt-4 rounded-lg">
+            <div class="p-3 rounded-2xl border border-zinc-800 bg-zinc-900/95 shadow-xl animate-pulse">
+              <div class="flex flex-wrap items-center gap-2">
+                <div class="h-9 w-36 bg-zinc-800 rounded-xl"></div>
+                <div class="h-9 w-44 bg-zinc-800 rounded-xl"></div>
+                <div class="h-9 w-32 bg-zinc-800 rounded-xl"></div>
               </div>
-              <div class="h-9 w-44 bg-zinc-800 rounded-xl"></div>
             </div>
           </div>
 
-          <div class="h-130 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 animate-pulse space-y-4">
-            <div class="h-6 w-1/4 bg-zinc-800 rounded-lg"></div>
-            <div class="space-y-2.5 pt-3">
-              <div class="h-4 w-full bg-zinc-800/60 rounded"></div>
-              <div class="h-4 w-11/12 bg-zinc-800/60 rounded"></div>
-              <div class="h-4 w-4/5 bg-zinc-800/60 rounded"></div>
-              <div class="h-4 w-2/3 bg-zinc-800/60 rounded"></div>
+          <div class="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 min-h-137.5 animate-pulse">
+            <div class="max-w-4xl mx-auto space-y-6">
+              <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 pb-6 border-b border-zinc-800">
+                <div class="space-y-2.5 flex-1">
+                  <div class="h-5 w-24 bg-zinc-800 rounded-full"></div>
+                  <div class="h-9 w-3/4 max-w-lg bg-zinc-800 rounded-lg"></div>
+                </div>
+                <div class="flex items-start gap-4 shrink-0">
+                  <div class="space-y-2">
+                    <div class="h-4 w-32 bg-zinc-800 rounded"></div>
+                    <div class="h-4 w-36 bg-zinc-800 rounded"></div>
+                  </div>
+                  <div class="h-9 w-20 bg-zinc-800 rounded-xl"></div>
+                </div>
+              </div>
+
+              <div class="space-y-2.5 pt-3">
+                <div class="h-4 w-full bg-zinc-800/60 rounded"></div>
+                <div class="h-4 w-11/12 bg-zinc-800/60 rounded"></div>
+                <div class="h-4 w-4/5 bg-zinc-800/60 rounded"></div>
+                <div class="h-4 w-2/3 bg-zinc-800/60 rounded"></div>
+              </div>
+              <div class="h-28 w-full bg-zinc-800/30 rounded-xl mt-6"></div>
             </div>
-            <div class="h-28 w-full bg-zinc-800/30 rounded-xl mt-6"></div>
           </div>
         </div>
       {:else if redirectingToContest}
@@ -924,77 +957,9 @@
       {:else}
         <!-- Header Navigation Card -->
         <div class="sticky top-16 z-20 pt-4 bg-zinc-950 -mt-4 rounded-lg">
-          <div class="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-md space-y-4 shadow-xl">
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div class="space-y-1.5">
-                <div class="flex items-center space-x-2.5">
-                  {#if currentContestProblem}
-                    <span class="text-xs px-2.5 py-0.5 rounded-full font-bold font-mono bg-zinc-800 text-zinc-200 border border-zinc-700 shadow-sm">
-                      Problem {currentContestProblem.label}
-                    </span>
-                  {/if}
-                  {#if !contest}
-                    <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold font-mono {
-                      problem.platform === 'CODEFORCES' ? 'bg-red-500/15 text-red-300 border border-red-500/30' :
-                      'bg-zinc-800 text-zinc-300 border border-zinc-700'
-                    }">
-                      {problem.platform}
-                    </span>
-                    <span class="text-xs font-mono text-zinc-400">{problem.externalId}</span>
-                    {#if problem.difficulty}
-                      <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-zinc-950 text-zinc-400 border border-zinc-800">
-                        ★ {problem.difficulty}
-                      </span>
-                    {/if}
-                  {/if}
-                  {#if currentContestProblem?.points}
-                    <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                      {currentContestProblem.points} pts
-                    </span>
-                  {/if}
-                </div>
-
-                <h1 class="text-2xl font-extrabold text-white leading-tight">
-                  {problem.title}
-                </h1>
-              </div>
-
-              <div class="flex items-center space-x-3 shrink-0">
-                <!-- Limits (Time Limit & Memory Limit text) -->
-                {#if statement?.timeLimit || statement?.memoryLimit}
-                  <div class="flex flex-col gap-1 text-xs font-mono text-zinc-400">
-                    {#if statement.timeLimit}
-                      <div class="flex items-center space-x-1.5">
-                        <Clock class="w-3.5 h-3.5 text-zinc-500" />
-                        <span>Time Limit: {statement.timeLimit}</span>
-                      </div>
-                    {/if}
-                    {#if statement.memoryLimit}
-                      <div class="flex items-center space-x-1.5">
-                        <Cpu class="w-3.5 h-3.5 text-zinc-500" />
-                        <span>Memory Limit: {statement.memoryLimit}</span>
-                      </div>
-                    {/if}
-                  </div>
-                {/if}
-
-                {#if !contest}
-                  <a
-                    href={problem.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-xs text-zinc-200 hover:text-white font-semibold transition flex items-center space-x-1.5"
-                    title="Open official statement on source website"
-                  >
-                    <span>Source</span>
-                    <ExternalLink class="w-3.5 h-3.5" />
-                  </a>
-                {/if}
-              </div>
-            </div>
-
+          <div class="p-3 rounded-2xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-md shadow-xl">
             <!-- Main Navigation Tabs -->
-            <div class="flex items-center space-x-2 pt-4 border-t border-zinc-800/80">
+            <div class="flex flex-wrap items-center gap-2">
               <button
                 on:click={() => setActiveTab('statement')}
                 class="px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 {
@@ -1042,6 +1007,69 @@
         {#if activeTab === 'statement'}
           <!-- 1. Full-Width Statement Tab -->
           <div class="max-w-4xl mx-auto space-y-6">
+            <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 pb-6 border-b border-zinc-800">
+              <div class="space-y-1.5">
+                <div class="flex flex-wrap items-center gap-2">
+                  {#if !contest}
+                    <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold font-mono {
+                      problem.platform === 'CODEFORCES' ? 'bg-red-500/15 text-red-300 border border-red-500/30' :
+                      'bg-zinc-800 text-zinc-300 border border-zinc-700'
+                    }">
+                      {problem.platform}
+                    </span>
+                    <span class="text-xs font-mono text-zinc-400">{problem.externalId}</span>
+                    {#if problem.difficulty}
+                      <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-zinc-950 text-zinc-400 border border-zinc-800">
+                        ★ {problem.difficulty}
+                      </span>
+                    {/if}
+                  {/if}
+                  {#if currentContestProblem?.points}
+                    <span class="text-xs px-2 py-0.5 rounded-full font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                      {currentContestProblem.points} pts
+                    </span>
+                  {/if}
+                </div>
+
+                <h1 class="text-3xl font-extrabold text-white leading-tight">
+                  {#if currentContestProblem}{currentContestProblem.label + ". "}{/if}{problem.title}
+                </h1>
+              </div>
+
+              <div class="flex items-start gap-4 shrink-0">
+                <!-- Limits (Time Limit & Memory Limit text) -->
+                {#if statement?.timeLimit || statement?.memoryLimit}
+                  <div class="flex flex-col gap-1 text-xs font-mono text-zinc-400">
+                    {#if statement.timeLimit}
+                      <div class="flex items-center space-x-1.5">
+                        <Clock class="w-3.5 h-3.5 text-zinc-500" />
+                        <span>Time Limit: {statement.timeLimit}</span>
+                      </div>
+                    {/if}
+                    {#if statement.memoryLimit}
+                      <div class="flex items-center space-x-1.5">
+                        <Cpu class="w-3.5 h-3.5 text-zinc-500" />
+                        <span>Memory Limit: {statement.memoryLimit}</span>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+
+                {#if !contest}
+                  <a
+                    href={problem.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-xs text-zinc-200 hover:text-white font-semibold transition flex items-center space-x-1.5"
+                    title="Open official statement on source website"
+                  >
+                    <span>Source</span>
+                    <ExternalLink class="w-3.5 h-3.5" />
+                  </a>
+                {/if}
+              </div>
+            </div>
+
             {#if statementLoading}
               <div class="space-y-3 py-6">
                 <div class="h-4 bg-zinc-800/60 rounded w-3/4 animate-pulse"></div>
@@ -1068,7 +1096,7 @@
 
                         <!-- Input -->
                         <div class="space-y-1.5">
-                          <div class="flex items-center justify-between text-sm font-mono text-zinc-300">
+                          <div class="flex items-center justify-between text-sm font-code text-zinc-300">
                             <span>Input:</span>
                             <button
                               on:click={() => copyToClipboard(sc.input, `in_tab_${idx}`)}
@@ -1083,13 +1111,13 @@
                               {/if}
                             </button>
                           </div>
-                          <pre class="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm md:text-base font-mono text-zinc-200 overflow-x-auto select-all leading-relaxed">{sc.input}</pre>
+                          <pre class="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm md:text-base font-code text-zinc-200 overflow-x-auto select-all leading-relaxed">{sc.input}</pre>
                         </div>
 
                         <!-- Output -->
                         {#if sc.output}
                           <div class="space-y-1.5">
-                            <div class="flex items-center justify-between text-sm font-mono text-zinc-300">
+                            <div class="flex items-center justify-between text-sm font-code text-zinc-300">
                               <span>Output:</span>
                               <button
                                 on:click={() => copyToClipboard(sc.output, `out_tab_${idx}`)}
@@ -1104,7 +1132,7 @@
                                 {/if}
                               </button>
                             </div>
-                            <pre class="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm md:text-base font-mono text-zinc-200 overflow-x-auto select-all leading-relaxed">{sc.output}</pre>
+                            <pre class="p-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-sm md:text-base font-code text-zinc-200 overflow-x-auto select-all leading-relaxed">{sc.output}</pre>
                           </div>
                         {/if}
                       </div>
@@ -1261,7 +1289,7 @@
                   {/if}
                 </div>
 
-                <p class="text-xs text-zinc-400 font-mono">{submitStatus}</p>
+                <p class="text-xs text-zinc-400 font-code">{submitStatus}</p>
                 {#if manualSubmissionAction}
                   <ManualSubmissionActions
                     action={manualSubmissionAction}
@@ -1441,6 +1469,20 @@
     </div>
   </div>
 
+  {#if showGoToTop}
+    <button
+      type="button"
+      on:click={goToTop}
+      transition:fade={{ duration: 180 }}
+      class="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900/95 px-4 py-3 text-xs font-semibold text-zinc-200 shadow-xl backdrop-blur-md transition hover:border-zinc-500 hover:bg-zinc-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/50"
+      aria-label="Go to top"
+      title="Go to top"
+    >
+      <ArrowUp class="h-4 w-4" />
+      <span>Go to top</span>
+    </button>
+  {/if}
+
 <SubmissionModal
   submission={viewingSubmission}
   open={!!viewingSubmission}
@@ -1478,7 +1520,7 @@
     color: #a5b4fc;
     padding: 0.2rem 0.45rem;
     border-radius: 0.35rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.95em;
   }
   :global(.statement-content pre) {
@@ -1490,6 +1532,7 @@
     margin-bottom: 1.25rem;
     font-size: 1rem;
     line-height: 1.65;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   }
   :global(.statement-content img) {
     display: block;
