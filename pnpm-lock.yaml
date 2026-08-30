@@ -94,6 +94,9 @@ importers:
       '@types/katex':
         specifier: ^0.16.8
         version: 0.16.8
+      '@types/node':
+        specifier: 26.2.0
+        version: 26.2.0
       svelte:
         specifier: ^5.20.2
         version: 5.56.10(@typescript-eslint/types@8.68.0)
